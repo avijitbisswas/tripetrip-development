@@ -1,180 +1,143 @@
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Search, MapPin, Calendar, Users, ArrowRight, ShieldCheck, Globe, Zap } from 'lucide-react';
+import EnhancedSearchBar from '@/src/components/marketplace/EnhancedSearchBar';
+import MarketplaceSection from '@/src/components/marketplace/MarketplaceSection';
+import { ActivityCard, DealCard, PackageCard, PropertyCard, TransportCard } from '@/src/components/marketplace/cards';
+import { ArrowRight, BadgeCheck, Handshake, ShieldCheck, Sparkles, Tags } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { cn } from '@/lib/utils';
+
+const heroImage = 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&q=85&w=2400';
+
+const packages = [
+  { image: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=900', destination: 'Goa Getaway', duration: '3D / 2N', rating: '4.6 (128)', provider: 'TripGo Holidays', originalPrice: 9999, directPrice: 7999, savings: 'Save ₹2,000' },
+  { image: 'https://images.unsplash.com/photo-1483728642387-6c3bdd6c93e5?auto=format&fit=crop&q=80&w=900', destination: 'Manali Escape', duration: '4D / 3N', rating: '4.7 (96)', provider: 'Himalaya Trips', originalPrice: 12999, directPrice: 9999, savings: 'Save ₹3,000' },
+  { image: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&q=80&w=900', destination: 'Bali Bliss', duration: '5D / 4N', rating: '4.8 (74)', provider: 'WonderWorld', originalPrice: 29999, directPrice: 24999, savings: 'Save ₹5,000' },
+  { image: 'https://images.unsplash.com/photo-1602216056096-3b40cc0c9944?auto=format&fit=crop&q=80&w=900', destination: 'Kerala Magic', duration: '4D / 3N', rating: '4.6 (88)', provider: 'Green Trails', originalPrice: 14499, directPrice: 12499, savings: 'Save ₹2,500' },
+  { image: 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?auto=format&fit=crop&q=80&w=900', destination: 'Andaman Blue', duration: '5D / 4N', rating: '4.9 (112)', provider: 'Island Direct', originalPrice: 32999, directPrice: 27999, savings: 'Save ₹5,000' },
+];
+
+const properties = [
+  { image: 'https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?auto=format&fit=crop&q=80&w=900', type: 'Villa', location: 'Luxury Beach Villa, Goa', amenities: ['Pool', 'WiFi', 'Breakfast'], rating: '4.7 (56)', originalPrice: 12000, directPrice: 8499, availability: 'Available Today' },
+  { image: 'https://images.unsplash.com/photo-1564501049412-61c2a3083791?auto=format&fit=crop&q=80&w=900', type: 'Resort', location: 'The Lake Resort, Nainital', amenities: ['Lake View', 'Spa', 'Parking'], rating: '4.6 (78)', originalPrice: 7600, directPrice: 5499, availability: '3 Rooms Left' },
+  { image: 'https://images.unsplash.com/photo-1544735716-392fe2489ffa?auto=format&fit=crop&q=80&w=900', type: 'Homestay', location: 'Mountain View Homestay, Manali', amenities: ['Host Meals', 'Bonfire'], rating: '4.8 (42)', originalPrice: 3000, directPrice: 2199, availability: 'Instant Book' },
+  { image: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&q=80&w=900', type: 'Hostel', location: 'Backpackers Hostel, Rishikesh', amenities: ['Dorms', 'Cafe', 'WiFi'], rating: '4.5 (63)', originalPrice: 800, directPrice: 499, availability: 'Pay at Property' },
+  { image: 'https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&q=80&w=900', type: 'Boutique Stay', location: 'Tea Estate Bungalow, Munnar', amenities: ['Garden', 'Tours'], rating: '4.9 (37)', originalPrice: 9200, directPrice: 6999, availability: 'Verified Host' },
+];
+
+const activities = [
+  { image: 'https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&q=80&w=900', name: 'River Rafting', location: 'Rishikesh, Uttarakhand', difficulty: 'Moderate', duration: '3 Hrs', safetyBadge: 'Safety Checked', directPrice: 799, rating: '4.7 (120)' },
+  { image: 'https://images.unsplash.com/photo-1505852679233-d9fd70aff56d?auto=format&fit=crop&q=80&w=900', name: 'Paragliding', location: 'Bir Billing, Himachal', difficulty: 'Easy', duration: '15 Min', safetyBadge: 'Certified Pilot', directPrice: 2499, rating: '4.8 (88)' },
+  { image: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&q=80&w=900', name: 'Scuba Diving', location: 'Andaman Islands', difficulty: 'Moderate', duration: '2 Hrs', safetyBadge: 'PADI Partner', directPrice: 3999, rating: '4.6 (66)' },
+  { image: 'https://images.unsplash.com/photo-1519904981063-b0cf448d479e?auto=format&fit=crop&q=80&w=900', name: 'Bungee Jumping', location: 'Rishikesh, Uttarakhand', difficulty: 'Extreme', duration: '1 Jump', safetyBadge: 'Harness Audit', directPrice: 3499, rating: '4.9 (151)' },
+  { image: 'https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&q=80&w=900', name: 'Guided Trek', location: 'Kasol, Himachal', difficulty: 'Hard', duration: '2 Days', safetyBadge: 'Local Guide', directPrice: 2999, rating: '4.8 (74)' },
+];
+
+const transports = [
+  { image: 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?auto=format&fit=crop&q=80&w=900', serviceType: 'Airport Transfer', pickup: 'Delhi Airport', rating: '4.6 (204)', capacity: '4 Seater', directPrice: 1199 },
+  { image: 'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=900', serviceType: 'Bike Rental', pickup: 'Manali', rating: '4.7 (186)', capacity: '2 Seater', directPrice: 999 },
+  { image: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&q=80&w=900', serviceType: 'Tempo Traveller', pickup: 'Shimla', rating: '4.6 (112)', capacity: '12 Seater', directPrice: 4999 },
+  { image: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=900', serviceType: 'Self Drive Car', pickup: 'Goa', rating: '4.5 (93)', capacity: '4 Seater', directPrice: 1499 },
+  { image: 'https://images.unsplash.com/photo-1511919884226-fd3cad34687c?auto=format&fit=crop&q=80&w=900', serviceType: 'Premium SUV', pickup: 'Jaipur', rating: '4.8 (64)', capacity: '6 Seater', directPrice: 3299 },
+];
+
+const deals = [
+  { image: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=900', title: 'Goa Special', discount: 'Up to 30% Off', category: 'On all beach stays', hours: '02 : 15 : 45' },
+  { image: 'https://images.unsplash.com/photo-1483728642387-6c3bdd6c93e5?auto=format&fit=crop&q=80&w=900', title: 'Manali Madness', discount: 'Flat 25% Off', category: 'On packages', hours: '01 : 15 : 45' },
+  { image: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&q=80&w=900', title: 'Andaman Escape', discount: 'Up to 20% Off', category: 'On activities', hours: '03 : 15 : 45' },
+  { image: 'https://images.unsplash.com/photo-1602216056096-3b40cc0c9944?auto=format&fit=crop&q=80&w=900', title: 'Kerala Retreat', discount: 'Flat 15% Off', category: 'On houseboats', hours: '02 : 15 : 45' },
+];
 
 export default function Home() {
-  const categories = [
-    { name: 'Stays', icon: '🏡', color: 'bg-orange-500' },
-    { name: 'Adventure', icon: '🧗', color: 'bg-green-500' },
-    { name: 'Transport', icon: '🚐', color: 'bg-blue-500' },
-    { name: 'Tours', icon: '🗺️', color: 'bg-purple-500' },
-    { name: 'Food', icon: '🍲', color: 'bg-yellow-500' },
-  ];
-
   return (
-    <div className="bg-slate-50 overflow-hidden">
-      {/* Hero Section */}
-      <section className="relative min-h-[85vh] md:h-[80vh] flex items-center justify-center pt-24 pb-12 md:pb-0 md:pt-16">
-        <div className="absolute inset-0 z-0">
-          <img 
-            src="https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&q=80&w=2021" 
-            alt="Hero"
-            className="w-full h-full object-cover opacity-80"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-indigo-900/40 mix-blend-multiply" />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-50 via-transparent to-transparent" />
-        </div>
+    <main className="bg-slate-50">
+      <section className="relative min-h-[640px] overflow-visible pb-24 pt-24 md:pb-28">
+        <img src={heroImage} alt="Paragliding over a mountain valley" className="absolute inset-0 h-full w-full object-cover" referrerPolicy="no-referrer" />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-900/45 to-slate-900/10" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-slate-50 to-transparent" />
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 w-full">
-          <div className="text-center mb-12">
-            <motion.h1 
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: 0.6 }}
-              className="text-4xl md:text-7xl font-bold tracking-tight text-white mb-6 drop-shadow-lg"
-            >
-              Book direct from locals. <br /> No middleman.
-            </motion.h1>
-            <motion.p
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.6 }}
-              className="text-white/90 text-lg md:text-xl font-medium mb-12 drop-shadow-md"
-            >
-              Eliminating commissions. Direct connections. Verified trust.
-            </motion.p>
-          </div>
-
-          <motion.div 
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.2, duration: 0.6 }}
-            className="max-w-4xl mx-auto bg-white rounded-2xl shadow-2xl p-2 flex flex-col md:flex-row items-center gap-2"
-          >
-            <div className="flex-1 w-full px-4 py-3 border-b md:border-b-0 md:border-r border-slate-100">
-              <p className="text-[10px] uppercase font-bold text-slate-400 mb-0.5 tracking-wider">Location</p>
-              <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-indigo-500" />
-                <input type="text" placeholder="Where to?" className="w-full text-slate-800 text-sm focus:outline-none bg-transparent placeholder:text-slate-300" />
-              </div>
-            </div>
-            <div className="flex-1 w-full px-4 py-3 border-b md:border-b-0 md:border-r border-slate-100">
-              <p className="text-[10px] uppercase font-bold text-slate-400 mb-0.5 tracking-wider">Dates</p>
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-indigo-500" />
-                <input type="text" placeholder="When?" className="w-full text-slate-800 text-sm focus:outline-none bg-transparent placeholder:text-slate-300" />
-              </div>
-            </div>
-            <div className="flex-1 w-full px-4 py-3">
-              <p className="text-[10px] uppercase font-bold text-slate-400 mb-0.5 tracking-wider">Guests</p>
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-indigo-500" />
-                <input type="text" placeholder="Add guests" className="w-full text-slate-800 text-sm focus:outline-none bg-transparent placeholder:text-slate-300" />
-              </div>
-            </div>
-            <Button size="lg" className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-8 h-14 font-bold shadow-lg shadow-indigo-200 transition-all">
-              Search
-            </Button>
+        <div className="relative mx-auto max-w-7xl px-4">
+          <motion.div initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }} className="max-w-2xl pb-10 pt-6 text-white md:pt-14">
+            <p className="mb-4 inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-widest backdrop-blur">Direct Travel Revolution</p>
+            <h1 className="text-5xl font-black leading-[0.98] tracking-tight md:text-7xl">
+              Travel Direct.
+              <span className="block text-emerald-300">Save More.</span>
+            </h1>
+            <p className="mt-6 max-w-lg text-lg font-bold leading-relaxed text-white/90">
+              No middleman. Best prices. Exclusive offers only on Tripetrip.
+            </p>
           </motion.div>
+          <EnhancedSearchBar />
         </div>
       </section>
 
-      {/* Stats Mini Bar */}
-      <section className="bg-white border-y border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+      <MarketplaceSection title="Curated Escapes" subtitle="Handpicked trips from trusted travel partners at exclusive direct-booking prices" icon="✨">
+        {packages.map((item) => <PackageCard key={item.destination} {...item} />)}
+      </MarketplaceSection>
+
+      <MarketplaceSection title="Stay Beyond Hotels" subtitle="Discover villas, resorts, homestays and hostels from verified hosts" icon="🛏️">
+        {properties.map((item) => <PropertyCard key={item.location} {...item} />)}
+      </MarketplaceSection>
+
+      <div className="mx-auto max-w-7xl px-4">
+        <div className="grid grid-cols-2 gap-3 rounded-3xl border border-emerald-100 bg-white/80 p-3 shadow-sm backdrop-blur md:grid-cols-5">
+          {['Free WiFi', 'Breakfast', 'Free Cancellation', 'Pay at Property', 'Verified Hosts'].map((pill) => (
+            <div key={pill} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-3 py-3 text-[11px] font-bold text-emerald-700">
+              <BadgeCheck className="h-4 w-4" />
+              {pill}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <MarketplaceSection title="Thrill Zone" subtitle="Adventure experiences from verified local operators" icon="♻️">
+        {activities.map((item) => <ActivityCard key={item.name} {...item} />)}
+      </MarketplaceSection>
+
+      <MarketplaceSection title="Ride & Roam" subtitle="Travel smarter with transport providers" icon="🚗">
+        {transports.map((item) => <TransportCard key={item.serviceType} {...item} />)}
+      </MarketplaceSection>
+
+      <MarketplaceSection title="Limited-Time Direct Deals" subtitle="Grab the best offers before they expire" icon="🔥">
+        {deals.map((item) => <DealCard key={item.title} {...item} />)}
+      </MarketplaceSection>
+
+      <section className="mx-auto max-w-7xl px-4 py-8">
+        <div className="grid gap-3 rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm md:grid-cols-4">
           {[
-            { label: 'Commission Saved', value: '₹4.2M+', color: 'text-emerald-600' },
-            { label: 'Verified Vendors', value: '1,402', color: 'text-indigo-600' },
-            { label: 'Travelers', value: '28k+', color: 'text-slate-900' },
-            { label: 'Direct Deals', value: '100%', color: 'text-indigo-600' },
-          ].map((stat, i) => (
-            <div key={i} className="py-8 px-6 text-center md:text-left">
-              <div className={cn("text-2xl font-bold tracking-tight mb-1", stat.color)}>{stat.value}</div>
-              <div className="text-[10px] uppercase tracking-widest font-bold text-slate-400">{stat.label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Categories */}
-      <section className="py-24 max-w-7xl mx-auto px-4">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-4">
-          <div>
-            <h2 className="text-3xl font-bold text-slate-900 tracking-tight mb-2">Explore Experiences</h2>
-            <p className="text-slate-500 font-medium">Handpicked local offerings with zero booking fees.</p>
-          </div>
-          <Button variant="outline" className="border-slate-200 text-slate-600 hover:text-indigo-600 rounded-lg font-bold text-xs uppercase tracking-widest">
-            Browse All Categories
-          </Button>
-        </div>
-        
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
-          {categories.map((cat) => (
-            <Link 
-              key={cat.name} 
-              to={`/search?category=${cat.name.toLowerCase()}`}
-              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all group"
-            >
-              <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-3xl mb-6 group-hover:scale-110 transition-transform">{cat.icon}</div>
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-slate-800">{cat.name}</span>
-                <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors" />
+            { icon: Tags, title: 'Lowest Prices', text: 'Best price guarantee' },
+            { icon: Handshake, title: 'No Middlemen', text: 'Book directly & save more' },
+            { icon: ShieldCheck, title: 'Verified Partners', text: 'Trusted & verified' },
+            { icon: Sparkles, title: 'Exclusive Offers', text: 'Only on Tripetrip' },
+          ].map((item) => (
+            <div key={item.title} className="flex items-center gap-4 rounded-2xl px-4 py-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                <item.icon className="h-5 w-5" />
               </div>
-            </Link>
+              <div>
+                <h3 className="text-sm font-black text-slate-950">{item.title}</h3>
+                <p className="text-xs font-medium text-slate-500">{item.text}</p>
+              </div>
+            </div>
           ))}
         </div>
       </section>
 
-      {/* Value Prop */}
-      <section className="py-24 bg-white border-y border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 grid md:grid-cols-3 gap-12">
-          <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100">
-            <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center mb-6 shadow-lg shadow-indigo-100">
-              <ShieldCheck className="text-white w-6 h-6" />
+      <section className="mx-auto max-w-7xl px-4 pb-16 pt-4">
+        <div className="overflow-hidden rounded-3xl border border-orange-100 bg-gradient-to-r from-orange-50 via-white to-emerald-50 p-8 shadow-sm md:p-10">
+          <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
+            <div>
+              <h2 className="text-2xl font-black tracking-tight text-slate-950">List Your Property or Service</h2>
+              <p className="mt-1 text-sm font-medium text-slate-500">Reach thousands of travellers directly with lower commission pressure.</p>
             </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-4">Escrow Protection</h3>
-            <p className="text-slate-600 text-sm leading-relaxed font-medium">Securely hold funds with Razorpay. Payments released only after verified service delivery.</p>
-          </div>
-          <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100">
-            <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center mb-6 shadow-lg shadow-indigo-100">
-              <Globe className="text-white w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-4">Direct Connections</h3>
-            <p className="text-slate-600 text-sm leading-relaxed font-medium">Bypass expensive OTA platforms. Chat and book directly with local hosts and guides.</p>
-          </div>
-          <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100">
-            <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center mb-6 shadow-lg shadow-indigo-100">
-              <Zap className="text-white w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-4">AI Travel Planner</h3>
-            <p className="text-slate-600 text-sm leading-relaxed font-medium">Local-first marketplace tools help you discover river-side cafes and off-beat treks others miss.</p>
-          </div>
-        </div>
-      </section>
-
-      {/* Vendor CTA */}
-      <section className="py-24 px-4">
-        <div className="max-w-7xl mx-auto rounded-3xl bg-indigo-900 p-8 md:p-16 relative overflow-hidden group shadow-2xl">
-          <div className="relative z-10 max-w-2xl">
-            <div className="inline-flex px-3 py-1 bg-indigo-500 rounded-full text-xs font-bold text-white uppercase tracking-wider mb-6">Vendor Opportunity</div>
-            <h2 className="text-3xl md:text-5xl font-bold text-white mb-6">Run your business direct.</h2>
-            <p className="text-indigo-100 text-lg mb-10 leading-relaxed font-medium">Keep 100% of your earnings. No listing fees, no commission. Just direct community-led travel.</p>
             <Link to="/register?role=vendor">
-              <Button size="lg" className="bg-white text-indigo-900 hover:bg-slate-50 rounded-xl px-10 h-14 font-bold shadow-xl transition-all">
-                Join the Network
-                <ArrowRight className="ml-3 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <Button className="rounded-2xl bg-emerald-600 px-7 font-bold text-white shadow-lg shadow-emerald-100 hover:bg-emerald-700">
+                Get Started
+                <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </Link>
           </div>
-          {/* Decorative Blooms */}
-          <div className="absolute -right-20 -top-20 w-96 h-96 bg-indigo-800 rounded-full opacity-50 blur-3xl" />
-          <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-indigo-700 rounded-full opacity-30 blur-3xl" />
         </div>
       </section>
-    </div>
+    </main>
   );
 }
