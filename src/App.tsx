@@ -25,6 +25,7 @@ const TravelerDashboard = lazy(() => import('@/src/pages/traveler/Dashboard'));
 const VendorDashboard = lazy(() => import('@/src/pages/vendor/Dashboard'));
 const ListingManager = lazy(() => import('@/src/pages/vendor/ListingManager'));
 const PublicVendorPage = lazy(() => import('@/src/pages/PublicVendorPage'));
+const VendorOSDashboard = lazy(() => import('@/src/features/vendor-os/pages/Dashboard'));
 
 const queryClient = new QueryClient();
 
@@ -107,6 +108,14 @@ export default function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/dashboard" element={session ? <TravelerDashboard /> : <Navigate to="/login" />} />
               <Route path="/vendor" element={session ? <VendorDashboard /> : <Navigate to="/login" />} />
+              <Route
+                path="/vendor/os"
+                element={session ? <VendorOSDashboard initialUserId={session.id} /> : <Navigate to="/login" />}
+              />
+              <Route
+                path="/vendor/os/:module"
+                element={session ? <VendorOSDashboard initialUserId={session.id} /> : <Navigate to="/login" />}
+              />
               <Route path="/vendor/listing/new" element={session ? <ListingManager /> : <Navigate to="/login" />} />
               <Route path="/vendor/listing/edit/:id" element={session ? <ListingManager /> : <Navigate to="/login" />} />
               <Route path="*" element={<Navigate to="/" />} />
