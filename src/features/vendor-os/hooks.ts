@@ -4,9 +4,12 @@ import {
   listVendorBranches,
   listVendorDocuments,
   listVendorNotifications,
+  listVendorOSRecords,
   listVendorOrganizations,
   listVendorTeamMembers,
+  type VendorOSRecordRow,
 } from './api';
+import { getVendorOSOperation } from './operations';
 import { canAccessVendorModule } from './permissions';
 import type {
   PermissionAction,
@@ -161,4 +164,38 @@ export function useVendorOSDocuments(organizationId?: string | null) {
   }, [organizationId]);
 
   return documents;
+}
+
+export function useVendorOSRecords(module: VendorOSModule, organizationId?: string | null) {
+  const [records, setRecords] = useState<VendorOSRecordRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const operation = getVendorOSOperation(module);
+
+    setLoading(true);
+    setError(null);
+    listVendorOSRecords(operation, organizationId || undefined)
+      .then((rows) => {
+        if (mounted) setRecords(rows);
+      })
+      .catch((err) => {
+        if (mounted) setError(err instanceof Error ? err.message : 'Unable to load module records');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [module, organizationId]);
+
+  return {
+    records,
+    loading,
+    error,
+  };
 }

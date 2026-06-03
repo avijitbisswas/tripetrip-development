@@ -7,16 +7,33 @@ import { DocumentVault } from '../components/DocumentVault';
 import { ModuleCard } from '../components/ModuleCard';
 import { VendorOSLayout } from '../components/VendorOSLayout';
 import { getVendorOSModuleByPath, vendorOSModules } from '../data';
-import { useVendorOSAuditLogs, useVendorOSDocuments, useVendorOSNotifications, useVendorOSTenant } from '../hooks';
+import {
+  useVendorOSAuditLogs,
+  useVendorOSDocuments,
+  useVendorOSNotifications,
+  useVendorOSRecords,
+  useVendorOSTenant,
+} from '../hooks';
 import { vendorOSWorkflows } from '../moduleWorkflows';
+import { getVendorOSOperation } from '../operations';
 import type { VendorOSModule } from '../types';
 
 interface VendorOSDashboardProps {
   initialUserId?: string;
 }
 
-function ModuleWorkspace({ module }: { module: VendorOSModule }) {
+function ModuleWorkspace({ module, organizationId }: { module: VendorOSModule; organizationId?: string }) {
   const workflow = vendorOSWorkflows[module];
+  const operation = getVendorOSOperation(module);
+  const moduleRecords = useVendorOSRecords(module, organizationId);
+  const displayedRecords = moduleRecords.records.length
+    ? moduleRecords.records.map((row) => ({
+        title: String(row[operation.titleField] || 'Untitled record'),
+        meta: operation.dateField ? String(row[operation.dateField] || 'No date') : operation.table,
+        value: operation.valueField ? String(row[operation.valueField] || '-') : operation.table,
+        status: String(row[operation.statusField] || 'active'),
+      }))
+    : workflow.records;
 
   return (
     <div className="space-y-6">
@@ -68,17 +85,40 @@ function ModuleWorkspace({ module }: { module: VendorOSModule }) {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Operational Records</h3>
-          <span className="text-xs font-bold text-slate-400">{workflow.records.length} tracked</span>
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Operational Records</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by `{operation.table}`</p>
+          </div>
+          <span className="text-xs font-bold text-slate-400">{displayedRecords.length} tracked</span>
         </div>
         <div className="space-y-3">
-          {workflow.records.map((record) => (
+          {displayedRecords.map((record) => (
             <div key={`${record.title}-${record.meta}`} className="grid gap-3 rounded-xl bg-slate-50 p-4 md:grid-cols-[1fr_1fr_auto_auto] md:items-center">
               <div className="text-sm font-black text-slate-950">{record.title}</div>
               <div className="text-sm text-slate-500">{record.meta}</div>
               <div className="text-sm font-bold text-slate-900">{record.value}</div>
               <div className="w-fit rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase text-emerald-700 ring-1 ring-emerald-100">
                 {record.status}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Create Fields</h3>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            API Ready
+          </span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {operation.createFields.map((field) => (
+            <div key={field.name} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+              <div className="text-sm font-black text-slate-950">{field.label}</div>
+              <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                {field.type}
+                {field.required ? ' / required' : ''}
               </div>
             </div>
           ))}
@@ -162,7 +202,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
             </section>
           </>
         ) : (
-          <ModuleWorkspace module={activeModule} />
+          <ModuleWorkspace module={activeModule} organizationId={tenant.selectedOrganization?.id} />
         )}
       </div>
     </VendorOSLayout>

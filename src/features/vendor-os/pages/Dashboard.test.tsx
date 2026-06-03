@@ -39,6 +39,11 @@ vi.mock('../hooks', () => ({
       created_at: '2026-06-03T00:00:00.000Z',
     },
   ],
+  useVendorOSRecords: () => ({
+    records: [],
+    loading: false,
+    error: null,
+  }),
 }));
 
 describe('Vendor OS dashboard', () => {
@@ -72,5 +77,7 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Front Desk')).toBeInTheDocument();
     expect(screen.getByText('Room 204')).toBeInTheDocument();
     expect(screen.getByText('Check in guest')).toBeInTheDocument();
+    expect(screen.getByText('Backed by `vendor_properties`')).toBeInTheDocument();
+    expect(screen.getByText('Property name')).toBeInTheDocument();
   });
 });

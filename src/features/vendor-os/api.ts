@@ -9,6 +9,7 @@ import type {
   VendorRolePermission,
   VendorTeamMember,
 } from './types';
+import type { VendorOSOperation } from './operations';
 
 type OrganizationInput = Pick<VendorOrganization, 'owner_user_id' | 'name' | 'slug'> &
   Partial<
@@ -210,5 +211,44 @@ export async function createVendorDocumentRecord(input: DocumentInput) {
   const { data, error } = await supabase.from('vendor_documents').insert(input).select().single<VendorDocument>();
 
   if (error) throw toServiceError(error, 'VENDOR_OS_DOCUMENT_WRITE_FAILED');
+  return data;
+}
+
+export type VendorOSRecordRow = Record<string, unknown> & {
+  id: string;
+  organization_id: string;
+  branch_id?: string | null;
+  created_at?: string;
+};
+
+export async function listVendorOSRecords(operation: VendorOSOperation, organizationId?: string) {
+  if (!organizationId) return [];
+
+  const { data, error } = await supabase
+    .from(operation.table)
+    .select('*')
+    .eq('organization_id', organizationId)
+    .order(operation.dateField || 'created_at', { ascending: false })
+    .limit(50);
+
+  if (error) throw toServiceError(error, 'VENDOR_OS_RECORDS_READ_FAILED');
+  return (data || []) as VendorOSRecordRow[];
+}
+
+export async function createVendorOSRecord(
+  operation: VendorOSOperation,
+  organizationId: string,
+  branchId: string | null,
+  input: Record<string, unknown>,
+) {
+  const payload = {
+    organization_id: organizationId,
+    branch_id: branchId,
+    ...input,
+  };
+
+  const { data, error } = await supabase.from(operation.table).insert(payload).select().single<VendorOSRecordRow>();
+
+  if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_WRITE_FAILED');
   return data;
 }
