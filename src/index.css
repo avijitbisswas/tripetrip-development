@@ -1,0 +1,74 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,300;0,700;1,300&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-background: #f8fafc; /* slate-50 */
+  --color-foreground: #020617; /* slate-950 */
+  --color-card: #ffffff;
+  --color-card-foreground: #020617;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #020617;
+  --color-primary: #4f46e5; /* indigo-600 */
+  --color-primary-foreground: #f8fafc;
+  --color-secondary: #f1f5f9; /* slate-100 */
+  --color-secondary-foreground: #0f172a;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b; /* slate-500 */
+  --color-accent: #f1f5f9;
+  --color-accent-foreground: #0f172a;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #f8fafc;
+  --color-border: #e2e8f0; /* slate-200 */
+  --color-input: #e2e8f0;
+  --color-ring: #4f46e5;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+  --radius-4xl: 2.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased selection:bg-indigo-100 selection:text-indigo-900;
+  }
+
+  /* Custom scrollbar for a sleek feel */
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-100;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
+  }
+}
+
+@keyframes loading {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
