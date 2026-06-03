@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import Dashboard from './Dashboard';
 
@@ -57,5 +57,20 @@ describe('Vendor OS dashboard', () => {
     expect(screen.queryByText('Accounting')).not.toBeInTheDocument();
     expect(screen.queryByText('Subscriptions')).not.toBeInTheDocument();
     expect(screen.getByText('Hotel Trade License')).toBeInTheDocument();
+  });
+
+  it('renders a developed module workspace from the route', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/pms']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Property Management System')).toBeInTheDocument();
+    expect(screen.getByText('Front Desk')).toBeInTheDocument();
+    expect(screen.getByText('Room 204')).toBeInTheDocument();
+    expect(screen.getByText('Check in guest')).toBeInTheDocument();
   });
 });

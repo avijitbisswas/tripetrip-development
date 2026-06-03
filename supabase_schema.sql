@@ -657,3 +657,474 @@ VALUES
   ('owner', 'documents', ARRAY['view','create','update','delete','approve','export','manage']::permission_action[]),
   ('owner', 'settings', ARRAY['view','create','update','delete','approve','export','manage']::permission_action[])
 ON CONFLICT (role, module) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS vendor_customers (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  full_name TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  source TEXT DEFAULT 'tripetrip',
+  preferences JSONB DEFAULT '{}'::jsonb NOT NULL,
+  tags TEXT[] DEFAULT '{}' NOT NULL,
+  last_contacted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS vendor_leads (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  customer_id UUID REFERENCES vendor_customers(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  stage TEXT DEFAULT 'new' NOT NULL,
+  source TEXT DEFAULT 'marketplace' NOT NULL,
+  estimated_value NUMERIC(12, 2) DEFAULT 0 CHECK (estimated_value >= 0),
+  travel_start DATE,
+  travel_end DATE,
+  assigned_to UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS vendor_tasks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  module vendor_os_module NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT DEFAULT 'open' NOT NULL,
+  priority audit_event_severity DEFAULT 'info' NOT NULL,
+  due_at TIMESTAMPTZ,
+  assigned_to UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  related_entity_type TEXT,
+  related_entity_id UUID,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS vendor_calendar_events (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  module vendor_os_module NOT NULL,
+  title TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  starts_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ,
+  capacity INTEGER CHECK (capacity IS NULL OR capacity >= 0),
+  booked_count INTEGER DEFAULT 0 NOT NULL CHECK (booked_count >= 0),
+  status TEXT DEFAULT 'scheduled' NOT NULL,
+  related_entity_type TEXT,
+  related_entity_id UUID,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS vendor_inventory_blocks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  module vendor_os_module NOT NULL,
+  inventory_type TEXT NOT NULL,
+  inventory_id UUID,
+  starts_on DATE NOT NULL,
+  ends_on DATE NOT NULL,
+  reason TEXT NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_conversations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  customer_id UUID REFERENCES vendor_customers(id) ON DELETE SET NULL,
+  booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
+  subject TEXT NOT NULL,
+  channel TEXT DEFAULT 'tripetrip' NOT NULL,
+  status TEXT DEFAULT 'open' NOT NULL,
+  assigned_to UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  last_message_at TIMESTAMPTZ,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_conversation_messages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  conversation_id UUID REFERENCES vendor_conversations(id) ON DELETE CASCADE NOT NULL,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  sender_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  sender_label TEXT,
+  body TEXT NOT NULL,
+  is_internal BOOLEAN DEFAULT FALSE NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_invoices (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  customer_id UUID REFERENCES vendor_customers(id) ON DELETE SET NULL,
+  invoice_number TEXT NOT NULL,
+  status TEXT DEFAULT 'draft' NOT NULL,
+  currency TEXT DEFAULT 'INR' NOT NULL,
+  total_amount NUMERIC(12, 2) NOT NULL CHECK (total_amount >= 0),
+  due_at TIMESTAMPTZ,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ,
+  UNIQUE(organization_id, invoice_number)
+);
+
+CREATE TABLE IF NOT EXISTS vendor_expenses (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  module vendor_os_module NOT NULL,
+  category TEXT NOT NULL,
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
+  currency TEXT DEFAULT 'INR' NOT NULL,
+  status TEXT DEFAULT 'submitted' NOT NULL,
+  spent_at DATE NOT NULL,
+  vendor_name TEXT,
+  document_id UUID REFERENCES vendor_documents(id) ON DELETE SET NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_ledger_entries (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  entry_type TEXT NOT NULL,
+  description TEXT NOT NULL,
+  debit NUMERIC(12, 2) DEFAULT 0 NOT NULL CHECK (debit >= 0),
+  credit NUMERIC(12, 2) DEFAULT 0 NOT NULL CHECK (credit >= 0),
+  currency TEXT DEFAULT 'INR' NOT NULL,
+  posted_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  related_entity_type TEXT,
+  related_entity_id UUID,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_properties (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  property_type TEXT NOT NULL,
+  address TEXT,
+  check_in_time TIME DEFAULT '14:00',
+  check_out_time TIME DEFAULT '11:00',
+  settings JSONB DEFAULT '{}'::jsonb NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS vendor_room_types (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  property_id UUID REFERENCES vendor_properties(id) ON DELETE CASCADE NOT NULL,
+  name TEXT NOT NULL,
+  occupancy INTEGER NOT NULL CHECK (occupancy > 0),
+  base_rate NUMERIC(12, 2) NOT NULL CHECK (base_rate >= 0),
+  amenities TEXT[] DEFAULT '{}' NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_rooms (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  property_id UUID REFERENCES vendor_properties(id) ON DELETE CASCADE NOT NULL,
+  room_type_id UUID REFERENCES vendor_room_types(id) ON DELETE SET NULL,
+  room_number TEXT NOT NULL,
+  floor TEXT,
+  status TEXT DEFAULT 'available' NOT NULL,
+  housekeeping_status TEXT DEFAULT 'clean' NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  UNIQUE(property_id, room_number)
+);
+
+CREATE TABLE IF NOT EXISTS vendor_housekeeping_tasks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  property_id UUID REFERENCES vendor_properties(id) ON DELETE CASCADE NOT NULL,
+  room_id UUID REFERENCES vendor_rooms(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  status TEXT DEFAULT 'open' NOT NULL,
+  assigned_to UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  due_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_tour_itineraries (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+  inclusions TEXT[] DEFAULT '{}' NOT NULL,
+  itinerary JSONB DEFAULT '[]'::jsonb NOT NULL,
+  base_price NUMERIC(12, 2) DEFAULT 0 CHECK (base_price >= 0),
+  is_active BOOLEAN DEFAULT TRUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_tour_departures (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  itinerary_id UUID REFERENCES vendor_tour_itineraries(id) ON DELETE CASCADE NOT NULL,
+  starts_on DATE NOT NULL,
+  ends_on DATE,
+  capacity INTEGER NOT NULL CHECK (capacity > 0),
+  booked_count INTEGER DEFAULT 0 NOT NULL CHECK (booked_count >= 0),
+  guide_user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  status TEXT DEFAULT 'scheduled' NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_activity_slots (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  listing_id UUID REFERENCES listings(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  starts_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ,
+  capacity INTEGER NOT NULL CHECK (capacity > 0),
+  booked_count INTEGER DEFAULT 0 NOT NULL CHECK (booked_count >= 0),
+  status TEXT DEFAULT 'open' NOT NULL,
+  safety_required BOOLEAN DEFAULT TRUE NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_equipment_items (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  quantity INTEGER DEFAULT 1 NOT NULL CHECK (quantity >= 0),
+  condition TEXT DEFAULT 'ready' NOT NULL,
+  last_checked_at TIMESTAMPTZ,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_safety_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  activity_slot_id UUID REFERENCES vendor_activity_slots(id) ON DELETE SET NULL,
+  checked_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  status TEXT DEFAULT 'pending' NOT NULL,
+  checklist JSONB DEFAULT '[]'::jsonb NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_vehicles (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  registration_number TEXT,
+  vehicle_type TEXT NOT NULL,
+  seats INTEGER CHECK (seats IS NULL OR seats > 0),
+  status TEXT DEFAULT 'available' NOT NULL,
+  odometer_km INTEGER DEFAULT 0 NOT NULL CHECK (odometer_km >= 0),
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_drivers (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  full_name TEXT NOT NULL,
+  phone TEXT,
+  license_number TEXT,
+  status TEXT DEFAULT 'available' NOT NULL,
+  document_id UUID REFERENCES vendor_documents(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_vehicle_assignments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  vehicle_id UUID REFERENCES vendor_vehicles(id) ON DELETE CASCADE NOT NULL,
+  driver_id UUID REFERENCES vendor_drivers(id) ON DELETE SET NULL,
+  booking_id UUID REFERENCES bookings(id) ON DELETE SET NULL,
+  starts_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ,
+  status TEXT DEFAULT 'assigned' NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_maintenance_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  vehicle_id UUID REFERENCES vendor_vehicles(id) ON DELETE CASCADE NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT DEFAULT 'scheduled' NOT NULL,
+  due_at TIMESTAMPTZ,
+  cost NUMERIC(12, 2) CHECK (cost IS NULL OR cost >= 0),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_marketplace_syncs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  listing_id UUID REFERENCES listings(id) ON DELETE CASCADE,
+  module vendor_os_module NOT NULL,
+  sync_status TEXT DEFAULT 'pending' NOT NULL,
+  last_synced_at TIMESTAMPTZ,
+  conversion_rate NUMERIC(6, 3) CHECK (conversion_rate IS NULL OR conversion_rate >= 0),
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_ai_insights (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  module vendor_os_module NOT NULL,
+  title TEXT NOT NULL,
+  recommendation TEXT NOT NULL,
+  confidence NUMERIC(5, 2) CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 100)),
+  status TEXT DEFAULT 'new' NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_subscription_accounts (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL UNIQUE,
+  plan_code TEXT DEFAULT 'starter' NOT NULL,
+  status TEXT DEFAULT 'active' NOT NULL,
+  billing_cycle TEXT DEFAULT 'monthly' NOT NULL,
+  current_period_end TIMESTAMPTZ,
+  usage JSONB DEFAULT '{}'::jsonb NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS vendor_analytics_snapshots (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  module vendor_os_module NOT NULL,
+  snapshot_date DATE NOT NULL,
+  metrics JSONB DEFAULT '{}'::jsonb NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  UNIQUE(organization_id, branch_id, module, snapshot_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vendor_customers_org ON vendor_customers(organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_leads_org_stage ON vendor_leads(organization_id, stage, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_tasks_org_module_status ON vendor_tasks(organization_id, module, status, due_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_calendar_events_org_starts ON vendor_calendar_events(organization_id, starts_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_inventory_blocks_org_dates ON vendor_inventory_blocks(organization_id, starts_on, ends_on);
+CREATE INDEX IF NOT EXISTS idx_vendor_conversations_org_status ON vendor_conversations(organization_id, status, last_message_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_conversation_messages_conversation ON vendor_conversation_messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_invoices_org_status ON vendor_invoices(organization_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_expenses_org_spent ON vendor_expenses(organization_id, spent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_ledger_entries_org_posted ON vendor_ledger_entries(organization_id, posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_properties_org ON vendor_properties(organization_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_vendor_rooms_property_status ON vendor_rooms(property_id, status, housekeeping_status);
+CREATE INDEX IF NOT EXISTS idx_vendor_housekeeping_tasks_property_status ON vendor_housekeeping_tasks(property_id, status, due_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_tour_departures_org_starts ON vendor_tour_departures(organization_id, starts_on);
+CREATE INDEX IF NOT EXISTS idx_vendor_activity_slots_org_starts ON vendor_activity_slots(organization_id, starts_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_equipment_items_org_condition ON vendor_equipment_items(organization_id, condition);
+CREATE INDEX IF NOT EXISTS idx_vendor_safety_logs_org_status ON vendor_safety_logs(organization_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_vehicles_org_status ON vendor_vehicles(organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_vendor_drivers_org_status ON vendor_drivers(organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_vendor_vehicle_assignments_org_starts ON vendor_vehicle_assignments(organization_id, starts_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_maintenance_logs_org_due ON vendor_maintenance_logs(organization_id, due_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_marketplace_syncs_org_status ON vendor_marketplace_syncs(organization_id, sync_status);
+CREATE INDEX IF NOT EXISTS idx_vendor_ai_insights_org_status ON vendor_ai_insights(organization_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_analytics_snapshots_org_date ON vendor_analytics_snapshots(organization_id, snapshot_date DESC);
+
+DO $$
+DECLARE
+  operational_table TEXT;
+  operational_tables TEXT[] := ARRAY[
+    'vendor_customers',
+    'vendor_leads',
+    'vendor_tasks',
+    'vendor_calendar_events',
+    'vendor_inventory_blocks',
+    'vendor_conversations',
+    'vendor_conversation_messages',
+    'vendor_invoices',
+    'vendor_expenses',
+    'vendor_ledger_entries',
+    'vendor_properties',
+    'vendor_room_types',
+    'vendor_rooms',
+    'vendor_housekeeping_tasks',
+    'vendor_tour_itineraries',
+    'vendor_tour_departures',
+    'vendor_activity_slots',
+    'vendor_equipment_items',
+    'vendor_safety_logs',
+    'vendor_vehicles',
+    'vendor_drivers',
+    'vendor_vehicle_assignments',
+    'vendor_maintenance_logs',
+    'vendor_marketplace_syncs',
+    'vendor_ai_insights',
+    'vendor_subscription_accounts',
+    'vendor_analytics_snapshots'
+  ];
+BEGIN
+  FOREACH operational_table IN ARRAY operational_tables LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', operational_table);
+    EXECUTE format('DROP POLICY IF EXISTS "Members read %s" ON %I', operational_table, operational_table);
+    EXECUTE format(
+      'CREATE POLICY "Members read %s" ON %I FOR SELECT TO authenticated USING (
+        organization_id IN (SELECT id FROM vendor_organizations WHERE owner_user_id = auth.uid())
+        OR organization_id IN (
+          SELECT organization_id FROM vendor_team_members WHERE user_id = auth.uid() AND is_active = true
+        )
+      )',
+      operational_table,
+      operational_table
+    );
+    EXECUTE format('DROP POLICY IF EXISTS "Managers write %s" ON %I', operational_table, operational_table);
+    EXECUTE format(
+      'CREATE POLICY "Managers write %s" ON %I FOR ALL TO authenticated USING (
+        organization_id IN (SELECT id FROM vendor_organizations WHERE owner_user_id = auth.uid())
+        OR organization_id IN (
+          SELECT organization_id FROM vendor_team_members
+          WHERE user_id = auth.uid() AND role IN (''owner'', ''admin'', ''manager'') AND is_active = true
+        )
+      ) WITH CHECK (
+        organization_id IN (SELECT id FROM vendor_organizations WHERE owner_user_id = auth.uid())
+        OR organization_id IN (
+          SELECT organization_id FROM vendor_team_members
+          WHERE user_id = auth.uid() AND role IN (''owner'', ''admin'', ''manager'') AND is_active = true
+        )
+      )',
+      operational_table,
+      operational_table
+    );
+  END LOOP;
+END $$;

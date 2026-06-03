@@ -8,36 +8,83 @@ import { ModuleCard } from '../components/ModuleCard';
 import { VendorOSLayout } from '../components/VendorOSLayout';
 import { getVendorOSModuleByPath, vendorOSModules } from '../data';
 import { useVendorOSAuditLogs, useVendorOSDocuments, useVendorOSNotifications, useVendorOSTenant } from '../hooks';
+import { vendorOSWorkflows } from '../moduleWorkflows';
 import type { VendorOSModule } from '../types';
-import { moduleContent } from './moduleContent';
 
 interface VendorOSDashboardProps {
   initialUserId?: string;
 }
 
 function ModuleWorkspace({ module }: { module: VendorOSModule }) {
-  const content = moduleContent[module];
+  const workflow = vendorOSWorkflows[module];
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-600">Module foundation</div>
-          <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">{content.title}</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">{content.subtitle}</p>
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-emerald-600">
+              Operating workspace
+            </div>
+            <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">{workflow.title}</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">{workflow.subtitle}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {workflow.primaryActions.map((action) => (
+              <Button
+                key={action}
+                className="rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700"
+              >
+                {action}
+              </Button>
+            ))}
+          </div>
         </div>
-        <Button className="rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700">
-          Create Record
-        </Button>
-      </div>
-      <div className="mt-6 grid gap-3 md:grid-cols-3">
-        {content.bullets.map((bullet) => (
-          <div key={bullet} className="rounded-xl bg-slate-50 p-4 text-sm font-bold text-slate-700 ring-1 ring-slate-100">
-            {bullet}
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        {workflow.kpis.map((kpi) => (
+          <div key={kpi.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">{kpi.label}</div>
+            <div className="mt-3 text-2xl font-black text-slate-950">{kpi.value}</div>
+            <div className="mt-2 text-xs font-bold uppercase tracking-widest text-emerald-600">{kpi.trend}</div>
           </div>
         ))}
-      </div>
-    </section>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-3">
+        {workflow.lanes.map((lane) => (
+          <div key={lane.title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-black text-slate-950">{lane.title}</h3>
+              <span className="rounded-full bg-slate-50 px-3 py-1 text-[10px] font-bold uppercase text-slate-500 ring-1 ring-slate-100">
+                {lane.status}
+              </span>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-500">{lane.description}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Operational Records</h3>
+          <span className="text-xs font-bold text-slate-400">{workflow.records.length} tracked</span>
+        </div>
+        <div className="space-y-3">
+          {workflow.records.map((record) => (
+            <div key={`${record.title}-${record.meta}`} className="grid gap-3 rounded-xl bg-slate-50 p-4 md:grid-cols-[1fr_1fr_auto_auto] md:items-center">
+              <div className="text-sm font-black text-slate-950">{record.title}</div>
+              <div className="text-sm text-slate-500">{record.meta}</div>
+              <div className="text-sm font-bold text-slate-900">{record.value}</div>
+              <div className="w-fit rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase text-emerald-700 ring-1 ring-emerald-100">
+                {record.status}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
