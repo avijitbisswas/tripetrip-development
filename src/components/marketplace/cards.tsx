@@ -61,7 +61,7 @@ export function PackageCard(props: PackageCardProps) {
           <span className="text-[11px] font-bold text-emerald-600">Book Direct & Save</span>
         </div>
         <div className="flex items-end justify-between gap-4">
-          <Link to="/search?category=packages">
+          <Link to="/packages">
             <Button size="sm" className="rounded-xl bg-slate-950 text-xs font-bold text-white hover:bg-slate-800">Book Now</Button>
           </Link>
           <PriceBlock original={props.originalPrice} direct={props.directPrice} />
@@ -110,7 +110,9 @@ export function PropertyCard(props: PropertyCardProps) {
         </div>
         <div className="flex items-end justify-between gap-4">
           <Badge className="bg-emerald-50 text-[10px] font-black text-emerald-700">{props.availability}</Badge>
-          <PriceBlock original={props.originalPrice} direct={props.directPrice} suffix="/ night" />
+          <Link to="/stays">
+            <PriceBlock original={props.originalPrice} direct={props.directPrice} suffix="/ night" />
+          </Link>
         </div>
       </div>
     </article>

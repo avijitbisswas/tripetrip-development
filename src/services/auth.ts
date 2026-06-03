@@ -1,5 +1,5 @@
 import type { Session, User } from '@supabase/supabase-js';
-import { supabase } from '@/src/lib/supabase';
+import { supabase, supabaseConfig } from '@/src/lib/supabase';
 import type { UserRole } from '@/src/types/domain';
 import { ServiceError } from './errors';
 import { upsertProfile } from './profiles';
@@ -14,6 +14,13 @@ export function getDashboardPathForRole(role?: UserRole | null) {
 }
 
 export async function getCurrentSession(): Promise<AuthState> {
+  if (!supabaseConfig.isConfigured) {
+    return {
+      session: null,
+      user: null,
+    };
+  }
+
   const { data, error } = await supabase.auth.getSession();
 
   if (error) {
@@ -27,6 +34,10 @@ export async function getCurrentSession(): Promise<AuthState> {
 }
 
 export function subscribeToAuthState(callback: (state: AuthState) => void) {
+  if (!supabaseConfig.isConfigured) {
+    return () => undefined;
+  }
+
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
     callback({
       session,

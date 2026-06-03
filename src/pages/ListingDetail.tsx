@@ -1,295 +1,348 @@
-import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import type { Listing } from '@/src/types/domain';
-import { getListingById } from '@/src/services/listings';
-import { Button } from '@/components/ui/button';
+import type { ReactNode } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { adventures, findAdventure, formatRupees } from '@/src/data/tripetripAdventures';
 import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import { 
-  Star, 
-  MapPin, 
-  Users, 
-  ArrowLeft, 
-  ShieldCheck, 
-  Calendar, 
-  CheckCircle2, 
-  Info,
-  Clock
+  BadgeCheck,
+  Calendar,
+  Camera,
+  Check,
+  ChevronRight,
+  Clock,
+  Heart,
+  MapPin,
+  MessageCircle,
+  Play,
+  ShieldCheck,
+  Sparkles,
+  Star,
+  Users,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 
 export default function ListingDetail() {
   const { id } = useParams();
-  const [listing, setListing] = useState<Listing | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedImage, setSelectedImage] = useState(0);
-
-  useEffect(() => {
-    fetchListing();
-  }, [id]);
-
-  const fetchListing = async () => {
-    if (!id) return;
-    try {
-      const listingData = await getListingById(id);
-      setListing(listingData);
-    } catch (error) {
-      console.error("Error fetching listing:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBooking = () => {
-    toast.success('Wait, the demo is still being built! Checking escrow logic...', {
-      description: 'The direct booking system is in preview mode.'
-    });
-  };
-
-  if (loading) return (
-    <div className="max-w-7xl mx-auto p-12 animate-pulse">
-      <div className="h-96 bg-white/5 rounded-[40px] mb-8" />
-      <div className="h-12 w-64 bg-white/5 rounded-xl mb-4" />
-      <div className="h-6 w-32 bg-white/5 rounded-xl" />
-    </div>
-  );
-
-  if (!listing) return (
-    <div className="py-32 text-center">
-      <h2 className="text-4xl font-light tracking-tighter uppercase mb-4">Listing not found</h2>
-      <Link to="/search">
-        <Button variant="link" className="text-white underline">Back to Search</Button>
-      </Link>
-    </div>
-  );
-
-  const images = listing.images.length > 0 ? listing.images : [
-    'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=1600',
-    'https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=1600',
-    'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1600'
-  ];
+  const adventure = findAdventure(id);
+  const similar = adventures.filter((item) => item.id !== adventure.id).slice(0, 4);
+  const total = adventure.directPrice * 2;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 bg-slate-50 min-h-screen">
-      {/* Navigation */}
-      <div className="mb-6">
-        <Link to="/search" className="inline-flex items-center text-xs font-bold uppercase tracking-widest text-slate-400 hover:text-indigo-600 transition-colors">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to results
-        </Link>
-      </div>
-
-      <div className="grid lg:grid-cols-12 gap-12">
-        {/* Main Content */}
-        <div className="lg:col-span-8 space-y-10">
-          {/* Gallery */}
-          <div className="space-y-4">
-            <div className="aspect-[16/9] rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-xl group">
-              <img 
-                src={images[selectedImage]} 
-                alt={listing.title} 
-                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                referrerPolicy="no-referrer"
-              />
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-              {images.map((img, i) => (
-                <button 
-                  key={i} 
-                  onClick={() => setSelectedImage(i)}
-                  className={cn(
-                    "relative flex-shrink-0 w-20 aspect-square rounded-xl overflow-hidden border-2 transition-all shadow-sm",
-                    selectedImage === i ? 'border-indigo-600 scale-95 shadow-inner' : 'border-transparent opacity-70 hover:opacity-100'
-                  )}
-                >
-                  <img src={img} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                </button>
-              ))}
-            </div>
+    <main className="bg-white pb-28 text-slate-950 lg:pb-14">
+      <div className="mx-auto max-w-[1500px] px-3 py-4 sm:px-4 md:px-8">
+        <div className="mb-4 flex items-center justify-between gap-4 text-xs font-bold text-slate-500">
+          <div className="flex min-w-0 items-center gap-2">
+            <Link to="/" className="hover:text-[#059669]">Home</Link>
+            <ChevronRight className="h-3 w-3" />
+            <Link to="/activities" className="hover:text-[#059669]">Activities</Link>
+            <ChevronRight className="h-3 w-3" />
+            <span className="truncate">{adventure.title}</span>
           </div>
-
-          {/* Header Info */}
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border-none rounded-lg px-3 py-1 uppercase text-[10px] font-bold tracking-widest shadow-sm">
-                {listing.category === 'Hotels' ? 'Stays' : listing.category}
-              </Badge>
-              <div className="flex items-center px-3 py-1 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg text-[10px] font-bold uppercase tracking-widest">
-                <ShieldCheck className="w-3 h-3 mr-1.5" />
-                Verified direct vendor
-              </div>
-            </div>
-            
-            <h1 className="text-4xl font-bold tracking-tight text-slate-900 uppercase leading-tight">{listing.title}</h1>
-            <div className="flex items-center text-slate-500 font-bold uppercase tracking-widest text-xs space-x-6">
-              <div className="flex items-center">
-                <MapPin className="w-4 h-4 mr-1.5 text-indigo-600" />
-                {listing.location}
-              </div>
-              <div className="flex items-center">
-                <Star className="w-4 h-4 mr-1.5 fill-orange-400 text-orange-400" />
-                4.9 <span className="font-medium text-slate-300 ml-1">(124)</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-8 bg-white rounded-2xl border border-slate-100 shadow-sm">
-            <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-slate-400 mb-6">About this experience</h2>
-            <div className="text-md font-medium leading-relaxed text-slate-600 max-w-3xl whitespace-pre-wrap">
-              {listing.description || "No description provided for this unique local experience."}
-            </div>
-          </div>
-          
-          {/* Specialized Details */}
-          {listing.specifics && Object.keys(listing.specifics).length > 0 && (
-            <div className="p-8 bg-white rounded-2xl border border-slate-100 shadow-sm">
-              <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-slate-400 mb-8">Specific Details</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                {Object.entries(listing.specifics).map(([key, value]) => (
-                  <div key={key} className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300 block">{key.replace(/_/g, ' ')}</span>
-                    <span className="text-sm font-bold text-slate-700 capitalize">{String(value)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Amenities */}
-          <div className="p-8 bg-white rounded-2xl border border-slate-100 shadow-sm">
-            <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-slate-400 mb-8">What you get</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-y-6">
-              {(listing.amenities && listing.amenities.length > 0 ? listing.amenities : ['Local Expertise', 'Verified Vendor', 'Direct Connection']).map((item) => (
-                <div key={item} className="flex items-center text-xs font-bold uppercase tracking-wider text-slate-600">
-                  <CheckCircle2 className="w-4 h-4 mr-3 text-emerald-500" />
-                  {item}
-                </div>
-              ))}
-            </div>
+          <div className="hidden gap-2 md:flex">
+            <Button variant="outline" size="sm" className="rounded-xl font-bold">Share</Button>
+            <Button variant="outline" size="sm" className="rounded-xl font-bold"><Heart className="mr-2 h-4 w-4" /> Save</Button>
           </div>
         </div>
 
-        {/* Sidebar / Booking */}
-        <aside className="lg:col-span-4 space-y-6">
-          <Card className="bg-white border-slate-200 rounded-2xl p-6 shadow-xl sticky top-24">
-            <div className="flex justify-between items-baseline mb-8">
-              <div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Direct Rate</span>
-                  <Popover>
-                    <PopoverTrigger className="text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer focus:outline-none flex items-center justify-center p-0 bg-transparent border-none" aria-label="OTA savings details">
-                      <Info className="w-3.5 h-3.5" />
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-80 p-4 bg-white border border-slate-200 shadow-xl rounded-xl">
-                      <PopoverHeader className="mb-2 border-b border-slate-100 pb-2">
-                        <PopoverTitle className="text-xs font-bold uppercase tracking-wider text-slate-800">Direct Savings Breakdown</PopoverTitle>
-                        <PopoverDescription className="text-[10px] text-slate-400 font-medium">Why booking direct on Tripetrip saves you money</PopoverDescription>
-                      </PopoverHeader>
-                      <div className="space-y-2.5 text-xs text-slate-600">
-                        <div className="flex justify-between items-center text-slate-500">
-                          <span>Standard OTA Price:</span>
-                          <span className="line-through">${Math.round(listing.base_price / 0.8)}</span>
+        <section className="grid gap-5 lg:grid-cols-[1fr_380px]">
+          <div>
+            <div className="relative aspect-[16/8] min-h-[360px] overflow-hidden rounded-[32px] bg-slate-100 shadow-[0_24px_90px_rgba(15,23,42,0.16)]">
+              <img src={adventure.gallery[0]} alt={adventure.title} className="h-full w-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/50 via-transparent to-transparent" />
+              <button aria-label="Play video preview" className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white/88 text-[#059669] shadow-2xl backdrop-blur-md">
+                <Play className="ml-1 h-7 w-7 fill-[#059669]" />
+              </button>
+              <div className="absolute bottom-5 left-5 flex flex-wrap items-center gap-2">
+                <Badge className="rounded-full bg-white/90 px-3 py-1 text-slate-900 backdrop-blur-md hover:bg-white/90">
+                  <BadgeCheck className="mr-1 h-3.5 w-3.5 text-[#059669]" />
+                  Verified Operator
+                </Badge>
+                <Badge className="rounded-full bg-emerald-500 px-3 py-1 text-white hover:bg-emerald-500">
+                  <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                  Safety Certified
+                </Badge>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-5 gap-3">
+              {adventure.gallery.slice(0, 5).map((image, index) => (
+                <div key={image} className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-slate-100">
+                  <img src={image} alt={`${adventure.title} gallery ${index + 1}`} className="h-full w-full object-cover" />
+                  {index === 4 && <div className="absolute inset-0 grid place-items-center bg-slate-950/55 text-sm font-black text-white">+12</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <BookingPanel title={adventure.title} price={adventure.directPrice} savings={adventure.savings} total={total} />
+        </section>
+
+        <section className="mt-9 grid gap-9 lg:grid-cols-[1fr_380px]">
+          <div className="space-y-9">
+            <section>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge className="rounded-full bg-emerald-50 px-3 py-1 text-[#059669] hover:bg-emerald-50">{adventure.activity}</Badge>
+                <span className="flex items-center gap-1 text-sm font-black"><Star className="h-4 w-4 fill-amber-400 text-amber-400" /> {adventure.rating} ({adventure.reviewsCount} reviews)</span>
+                <span className="text-sm font-bold text-slate-500">{adventure.totalBookings}+ bookings</span>
+              </div>
+              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">{adventure.title}</h1>
+              <p className="mt-3 flex items-center gap-2 text-sm font-bold text-slate-500">
+                <MapPin className="h-4 w-4 text-[#059669]" />
+                {adventure.location}
+                <span className="h-1 w-1 rounded-full bg-slate-300" />
+                By {adventure.operator.name}
+              </p>
+            </section>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <Metric icon={Clock} label="Duration" value={adventure.duration} />
+              <Metric icon={Users} label="Group" value={adventure.groupSize} />
+              <Metric icon={ShieldCheck} label="Safety Score" value={`${Math.round(adventure.safetyRating * 20)} / 100`} />
+              <Metric icon={Calendar} label="Best Season" value={adventure.bestSeason} />
+            </div>
+
+            <div className="rounded-[24px] border border-emerald-100 bg-emerald-50 p-4 text-sm font-bold text-[#047857]">
+              <Sparkles className="mr-2 inline h-4 w-4" />
+              Book Direct & Save {formatRupees(adventure.savings)} compared to other platforms.
+            </div>
+
+            <Section title="About The Experience">
+              <p className="max-w-4xl text-sm font-semibold leading-7 text-slate-600">{adventure.description}</p>
+            </Section>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <Section title="Highlights">
+                <PillList items={adventure.highlights} />
+              </Section>
+              <Section title="Requirements">
+                <PillList items={adventure.requirements} />
+              </Section>
+              <Section title="What To Bring">
+                <PillList items={adventure.whatToBring} />
+              </Section>
+              <Section title="Meeting Point">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-700">
+                  <MapPin className="mr-2 inline h-4 w-4 text-[#059669]" />
+                  {adventure.meetingPoint}
+                </div>
+              </Section>
+            </div>
+
+            <Section title="Itinerary">
+              <div className="space-y-0">
+                {adventure.itinerary.map((item) => (
+                  <div key={item.time} className="grid grid-cols-[72px_24px_1fr] gap-3">
+                    <span className="pt-1 text-xs font-black text-slate-500">{item.time}</span>
+                    <span className="relative flex justify-center">
+                      <span className="h-4 w-4 rounded-full border-4 border-emerald-100 bg-[#059669]" />
+                      <span className="absolute bottom-0 top-5 w-px bg-emerald-100 last:hidden" />
+                    </span>
+                    <div className="pb-6">
+                      <h3 className="text-sm font-black">{item.title}</h3>
+                      <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">{item.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="Safety">
+              <div className="grid gap-3 md:grid-cols-2">
+                {adventure.safety.map((item) => (
+                  <Card key={item.label} className="rounded-[22px] border-slate-200 bg-white p-4 shadow-sm">
+                    <item.icon className="mb-3 h-5 w-5 text-[#059669]" />
+                    <h3 className="text-sm font-black">{item.label}</h3>
+                    <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">{item.text}</p>
+                  </Card>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="Reviews">
+              <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <p className="text-4xl font-black">{adventure.rating}</p>
+                    <p className="mt-1 text-sm font-bold text-slate-500">Based on {adventure.reviewsCount} verified reviews</p>
+                  </div>
+                  <div className="flex text-amber-400">★★★★★</div>
+                </div>
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  {adventure.reviews.map((review) => (
+                    <article key={review.name} className="rounded-[22px] bg-slate-50 p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="grid h-10 w-10 place-items-center rounded-full bg-white text-sm font-black text-[#059669]">{review.name[0]}</div>
+                        <div>
+                          <h3 className="text-sm font-black">{review.name}</h3>
+                          <p className="text-xs font-semibold text-slate-500">{review.location} • {review.date}</p>
                         </div>
-                        <div className="flex justify-between items-center text-emerald-600 font-semibold bg-emerald-50 px-2 py-1.5 rounded-lg text-xs">
-                          <span>Our Price (Direct):</span>
-                          <span>${listing.base_price}</span>
-                        </div>
-                        <div className="flex justify-between items-center border-t border-slate-100 pt-2 font-bold text-slate-800">
-                          <span>Total Saved:</span>
-                          <span className="text-emerald-600">${Math.round(listing.base_price / 0.8) - listing.base_price} (20%)</span>
-                        </div>
-                        <p className="text-[10px] text-slate-400 leading-relaxed mt-2 border-t border-slate-50 pt-2">
-                          Standard Online Travel Agencies (OTAs) charge heavy commission fees (15-25%). Tripetrip matches you with verified vendors directly with zero markup commissions.
-                        </p>
                       </div>
-                    </PopoverContent>
-                  </Popover>
+                      <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">{review.story}</p>
+                      <div className="mt-3 flex gap-2">
+                        {review.photos.map((photo) => <img key={photo} src={photo} alt={`${review.name} adventure`} className="h-14 w-20 rounded-xl object-cover" />)}
+                      </div>
+                    </article>
+                  ))}
                 </div>
-                <span className="text-4xl font-bold tracking-tight text-slate-900">${listing.base_price}</span>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">/ {listing.price_unit.replace('per_', '')}</span>
               </div>
-              <Badge className="bg-emerald-100 text-emerald-600 border-none font-bold text-[10px] px-2 py-0.5 shadow-sm uppercase tracking-tighter">Save 20% vs OTA</Badge>
-            </div>
+            </Section>
 
-            <div className="space-y-3 mb-8">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
-                  <label className="text-[9px] uppercase font-bold tracking-widest text-slate-400 block">Check-in</label>
-                  <div className="flex items-center text-xs font-bold text-slate-700">
-                    <Calendar className="w-3 h-3 mr-2 text-indigo-400" />
-                    Apr 25, 2024
-                  </div>
-                </div>
-                <div className="space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
-                  <label className="text-[9px] uppercase font-bold tracking-widest text-slate-400 block">Check-out</label>
-                  <div className="flex items-center text-xs font-bold text-slate-700">
-                    <Calendar className="w-3 h-3 mr-2 text-indigo-400" />
-                    Apr 30, 2024
-                  </div>
-                </div>
+            <Section title="Similar Experiences">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {similar.map((item) => (
+                  <Link key={item.id} to={`/listing/${item.id}`} className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl">
+                    <img src={item.image} alt={item.title} className="aspect-[4/3] w-full object-cover" />
+                    <div className="p-4">
+                      <h3 className="text-sm font-black">{item.title}</h3>
+                      <p className="mt-1 text-xs font-bold text-slate-500">{item.location}</p>
+                      <p className="mt-4 text-sm font-black">{formatRupees(item.directPrice)} <span className="text-[10px] font-semibold text-slate-500">/person</span></p>
+                    </div>
+                  </Link>
+                ))}
               </div>
-              <div className="space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-inner">
-                <label className="text-[9px] uppercase font-bold tracking-widest text-slate-400 block">Guests</label>
-                <div className="flex items-center text-xs font-bold text-slate-700">
-                  <Users className="w-3 h-3 mr-2 text-indigo-400" />
-                  2 Adult Travelers
-                </div>
-              </div>
-            </div>
+            </Section>
+          </div>
 
-            <Button onClick={handleBooking} className="w-full bg-indigo-600 text-white hover:bg-indigo-700 h-14 rounded-xl font-bold uppercase tracking-widest text-xs shadow-lg shadow-indigo-100 group transition-all">
-              Direct Reservation
-              <ArrowLeft className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform rotate-180" />
-            </Button>
-
-            <div className="mt-8 space-y-4">
-              <div className="flex items-start space-x-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <ShieldCheck className="w-4 h-4 flex-shrink-0 text-indigo-500 mt-0.5" />
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 leading-relaxed">Escrow protected booking. vendor paid only after your arrival.</p>
-              </div>
-            </div>
-          </Card>
-
-          {/* Vendor Card */}
-          <Card className="bg-white border-slate-100 rounded-2xl p-6 shadow-sm">
-            <h4 className="text-[10px] uppercase tracking-[0.2em] font-bold text-slate-300 mb-4 ml-1">Verified Host</h4>
-            <div className="flex items-center space-x-4 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center text-lg font-bold text-indigo-600 shadow-inner border border-indigo-100">L</div>
-              <div>
-                <div className="text-md font-bold tracking-tight text-slate-800 uppercase">Local Host Collectve</div>
-                <div className="text-[9px] text-slate-400 font-bold tracking-widest uppercase flex items-center">
-                  <Badge className="bg-indigo-500 w-1.5 h-1.5 rounded-full p-0 mr-1.5" />
-                  Verified Agency
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 py-4 border-y border-slate-50 mb-4 text-center">
-              <div>
-                 <div className="text-xs font-bold text-slate-800">4.9</div>
-                 <div className="text-[8px] uppercase tracking-tighter font-bold text-slate-300">Ratings</div>
-              </div>
-              <div>
-                 <div className="text-xs font-bold text-slate-800">128</div>
-                 <div className="text-[8px] uppercase tracking-tighter font-bold text-slate-300">Jobs</div>
-              </div>
-              <div>
-                 <div className="text-xs font-bold text-slate-800">100%</div>
-                 <div className="text-[8px] uppercase tracking-tighter font-bold text-slate-300">Payout</div>
-              </div>
-            </div>
-            <Button variant="outline" className="w-full rounded-xl border-slate-200 uppercase text-[10px] font-bold tracking-widest h-10 hover:bg-slate-50">Contact Directly</Button>
-          </Card>
-        </aside>
+          <aside className="space-y-5">
+            <OperatorCard adventure={adventure} />
+            <AdvancedFeatures items={adventure.advanced} />
+          </aside>
+        </section>
       </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-14px_50px_rgba(15,23,42,0.14)] backdrop-blur-xl lg:hidden">
+        <div className="mx-auto flex max-w-md items-center gap-3">
+          <div className="flex-1">
+            <p className="text-lg font-black">{formatRupees(adventure.directPrice)} <span className="text-xs font-semibold text-slate-500">/person</span></p>
+            <p className="text-xs font-black text-[#059669]">Save {formatRupees(adventure.savings)}</p>
+          </div>
+          <Link to="/booking-confirmed" className="flex-1">
+            <Button className="h-12 w-full rounded-2xl bg-[#059669] font-black text-white hover:bg-emerald-700">Book Now</Button>
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function BookingPanel({ title, price, savings, total }: { title: string; price: number; savings: number; total: number }) {
+  return (
+    <Card className="hidden rounded-[28px] border-slate-200 bg-white/92 p-5 shadow-[0_22px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl lg:sticky lg:top-24 lg:block">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-3xl font-black">{formatRupees(price)} <span className="text-xs font-semibold text-slate-500">/person</span></p>
+          <p className="mt-2 text-xs font-black text-[#059669]">Best Price Guaranteed</p>
+        </div>
+        <Badge className="rounded-full bg-emerald-50 text-[#059669] hover:bg-emerald-50">Save {formatRupees(savings)}</Badge>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        <label className="block text-xs font-black">Select Date<Input type="date" className="mt-2 h-12 rounded-xl" aria-label={`Select date for ${title}`} /></label>
+        <div>
+          <p className="text-xs font-black">Select Slot</p>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {['8 AM', '10 AM', '12 PM', '2 PM', '4 PM'].map((slot) => (
+              <button key={slot} className={`h-10 rounded-xl border text-xs font-black ${slot === '10 AM' ? 'border-[#059669] bg-emerald-50 text-[#059669]' : 'border-slate-200 text-slate-600'}`}>{slot}</button>
+            ))}
+          </div>
+        </div>
+        <label className="block text-xs font-black">Participants<div className="mt-2 flex h-12 items-center justify-between rounded-xl border border-slate-200 px-3 text-sm font-bold"><Users className="h-4 w-4 text-slate-400" /> 2 Adults <ChevronRight className="h-4 w-4 rotate-90 text-slate-400" /></div></label>
+      </div>
+
+      <div className="my-5 flex items-end justify-between border-t border-slate-100 pt-4">
+        <div>
+          <p className="text-sm font-black">Total Amount</p>
+          <p className="text-xs font-semibold text-slate-500">({formatRupees(price)} x 2)</p>
+        </div>
+        <p className="text-2xl font-black">{formatRupees(total)}</p>
+      </div>
+
+      <Link to="/booking-confirmed"><Button className="h-12 w-full rounded-xl bg-[#059669] font-black text-white hover:bg-emerald-700">Book Now</Button></Link>
+      <Button variant="outline" className="mt-3 h-12 w-full rounded-xl font-black"><MessageCircle className="mr-2 h-4 w-4" /> Contact Operator</Button>
+      <div className="mt-4 space-y-3 text-xs font-bold text-slate-600">
+        <p><Check className="mr-2 inline h-4 w-4 text-[#059669]" /> Instant Confirmation</p>
+        <p><Check className="mr-2 inline h-4 w-4 text-[#059669]" /> Free Cancellation up to 24 hours before</p>
+        <p><Check className="mr-2 inline h-4 w-4 text-[#059669]" /> Secure Booking</p>
+      </div>
+    </Card>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <h2 className="mb-4 text-xl font-black tracking-tight">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function PillList({ items }: { items: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((item) => (
+        <span key={item} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-black text-slate-700 shadow-sm">{item}</span>
+      ))}
     </div>
+  );
+}
+
+function Metric({ icon: Icon, label, value }: { icon: typeof Clock; label: string; value: string }) {
+  return (
+    <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
+      <Icon className="mb-3 h-5 w-5 text-[#059669]" />
+      <p className="text-xs font-bold text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-black">{value}</p>
+    </div>
+  );
+}
+
+function OperatorCard({ adventure }: { adventure: ReturnType<typeof findAdventure> }) {
+  return (
+    <Card className="rounded-[26px] border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="mb-4 text-sm font-black">Operator Profile</h2>
+      <div className="flex items-center gap-4">
+        <div className="grid h-16 w-16 place-items-center rounded-2xl bg-emerald-100 text-lg font-black text-[#059669]">{adventure.operator.logo}</div>
+        <div>
+          <p className="font-black">{adventure.operator.name}</p>
+          <p className="mt-1 text-xs font-black text-[#059669]">Verified Operator</p>
+          <p className="mt-1 text-xs font-bold text-slate-500">{adventure.operator.rating} ({adventure.reviewsCount} reviews)</p>
+        </div>
+      </div>
+      <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+        <MiniStat label="Experience" value={adventure.operator.years} />
+        <MiniStat label="Trips" value={adventure.operator.trips} />
+        <MiniStat label="Response" value={adventure.operator.responseTime} />
+      </div>
+      <Button variant="outline" className="mt-5 h-11 w-full rounded-xl font-black">View Profile</Button>
+    </Card>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-3">
+      <p className="text-sm font-black">{value}</p>
+      <p className="mt-1 text-[10px] font-bold text-slate-500">{label}</p>
+    </div>
+  );
+}
+
+function AdvancedFeatures({ items }: { items: ReturnType<typeof findAdventure>['advanced'] }) {
+  return (
+    <Card className="rounded-[26px] border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="mb-4 text-sm font-black">Live Trip Intelligence</h2>
+      <div className="space-y-3">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-start gap-3 rounded-2xl bg-slate-50 p-3">
+            <item.icon className="mt-0.5 h-4 w-4 text-[#059669]" />
+            <div>
+              <p className="text-xs font-black">{item.label}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{item.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
