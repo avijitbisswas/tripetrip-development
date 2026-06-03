@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCurrentSession } from '@/src/services/auth';
 import { AuditTimeline } from '../components/AuditTimeline';
+import { CalendarInventoryWorkspace } from '../components/CalendarInventoryWorkspace';
 import { CrmInboxWorkspace } from '../components/CrmInboxWorkspace';
 import { DocumentVault } from '../components/DocumentVault';
 import { ModuleCard } from '../components/ModuleCard';
@@ -204,6 +205,8 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           </>
         ) : activeModule === 'crm' || activeModule === 'inbox' ? (
           <CrmInboxWorkspace mode={activeModule} />
+        ) : activeModule === 'calendar' ? (
+          <CalendarInventoryWorkspace />
         ) : (
           <ModuleWorkspace module={activeModule} organizationId={tenant.selectedOrganization?.id} />
         )}

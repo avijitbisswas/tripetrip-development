@@ -94,4 +94,18 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Quote Sent')).toBeInTheDocument();
     expect(screen.getByText('Aarav Mehta')).toBeInTheDocument();
   });
+
+  it('renders the Calendar module as a live inventory workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/calendar']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Calendar + Live Inventory')).toBeInTheDocument();
+    expect(screen.getByText('Unified Availability Board')).toBeInTheDocument();
+    expect(screen.getByText('PMS Rooms')).toBeInTheDocument();
+  });
 });
