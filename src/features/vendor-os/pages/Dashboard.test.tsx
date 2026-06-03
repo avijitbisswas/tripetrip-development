@@ -80,4 +80,18 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Backed by `vendor_properties`')).toBeInTheDocument();
     expect(screen.getByText('Property name')).toBeInTheDocument();
   });
+
+  it('renders the CRM module as a deep workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/crm']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('CRM Command Center')).toBeInTheDocument();
+    expect(screen.getByText('Quote Sent')).toBeInTheDocument();
+    expect(screen.getByText('Aarav Mehta')).toBeInTheDocument();
+  });
 });
