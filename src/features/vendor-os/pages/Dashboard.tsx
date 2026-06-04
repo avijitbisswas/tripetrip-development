@@ -309,7 +309,10 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
             branchId={tenant.activeBranch?.id || null}
           />
         ) : activeModule === 'pms' ? (
-          <PmsWorkspace />
+          <PmsWorkspace
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
         ) : activeModule === 'tours' || activeModule === 'activities' ? (
           <ToursActivitiesWorkspace mode={activeModule} />
         ) : activeModule === 'fleet' ? (

@@ -1,5 +1,12 @@
+import { useMemo, useState, type FormEvent } from 'react';
 import { BedDouble, CalendarCheck, ClipboardCheck, DoorOpen, FileBadge, Hotel, IndianRupee, KeyRound, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+
+interface PmsWorkspaceProps {
+  organizationId?: string;
+  branchId?: string | null;
+}
 
 const rooms = [
   { room: 'Room 204', type: 'Deluxe Sea View', guest: 'Aarav Mehta', status: 'Ready', housekeeping: 'Clean', rate: 'INR 8,999' },
@@ -34,6 +41,8 @@ const folios = [
   { title: 'Villa 3 weekend rate', value: '+12%', state: 'AI suggested' },
 ];
 
+const propertyTypeOptions = ['hotel', 'resort', 'homestay', 'hostel', 'villa'];
+
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -59,7 +68,45 @@ function StatePill({ state }: { state: string }) {
   );
 }
 
-export function PmsWorkspace() {
+export function PmsWorkspace({ organizationId, branchId }: PmsWorkspaceProps) {
+  const records = useVendorOSRecords('pms', organizationId);
+  const mutations = useVendorOSRecordMutations('pms', organizationId, branchId);
+  const [propertyForm, setPropertyForm] = useState({
+    name: '',
+    property_type: 'hotel',
+    address: '',
+  });
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const liveProperties = useMemo(
+    () =>
+      records.records.map((record) => ({
+        id: String(record.id),
+        name: String(record.name || 'Untitled property'),
+        propertyType: String(record.property_type || 'property'),
+        address: String(record.address || 'No address added'),
+        status: record.is_active === false ? 'Inactive' : 'Active',
+      })),
+    [records.records],
+  );
+
+  async function handlePropertySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        name: propertyForm.name,
+        property_type: propertyForm.property_type,
+        address: propertyForm.address,
+      });
+      setPropertyForm({ name: '', property_type: 'hotel', address: '' });
+      await records.refresh();
+      setFormMessage('Property created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create property');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -86,6 +133,64 @@ export function PmsWorkspace() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Create Property</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by vendor_properties</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Live PMS API
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[1fr_0.7fr_1.2fr_auto]" onSubmit={handlePropertySubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Property name *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Property name"
+              required
+              value={propertyForm.name}
+              onChange={(inputEvent) => setPropertyForm((current) => ({ ...current, name: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Property type *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={propertyForm.property_type}
+              onChange={(inputEvent) => setPropertyForm((current) => ({ ...current, property_type: inputEvent.target.value }))}
+            >
+              {propertyTypeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Address</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Property address"
+              value={propertyForm.address}
+              onChange={(inputEvent) => setPropertyForm((current) => ({ ...current, address: inputEvent.target.value }))}
+            />
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId}
+            type="submit"
+          >
+            Create Property
+          </Button>
+        </form>
+        {(formMessage || mutations.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        )}
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
         <Metric label="Occupancy" value="83%" detail="+9% this week" />
         <Metric label="Arrivals" value="14" detail="Today" />
@@ -98,6 +203,24 @@ export function PmsWorkspace() {
           <Hotel className="h-4 w-4 text-emerald-600" />
           <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Front Desk Command</h3>
         </div>
+        {liveProperties.length > 0 && (
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            {liveProperties.map((property) => (
+              <div key={property.id} className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{property.name}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">
+                      {property.propertyType}
+                    </div>
+                  </div>
+                  <StatePill state={property.status} />
+                </div>
+                <div className="mt-3 text-sm font-semibold text-slate-600">{property.address}</div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
           <div>
             <div className="mb-3 flex items-center gap-2">
