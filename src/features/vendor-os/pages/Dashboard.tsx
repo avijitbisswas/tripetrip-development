@@ -298,7 +298,11 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
             </section>
           </>
         ) : activeModule === 'crm' || activeModule === 'inbox' ? (
-          <CrmInboxWorkspace mode={activeModule} />
+          <CrmInboxWorkspace
+            mode={activeModule}
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
         ) : activeModule === 'calendar' ? (
           <CalendarInventoryWorkspace />
         ) : activeModule === 'pms' ? (

@@ -1,10 +1,14 @@
+import { useMemo, useState, type FormEvent } from 'react';
 import { Bot, CalendarClock, CheckCircle2, CircleDollarSign, MessageSquare, PhoneCall, Send, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
 
 type CrmInboxMode = 'crm' | 'inbox';
 
 interface CrmInboxWorkspaceProps {
   mode: CrmInboxMode;
+  organizationId?: string;
+  branchId?: string | null;
 }
 
 const pipelineStages = [
@@ -65,6 +69,18 @@ const conversations = [
   },
 ];
 
+const crmStageOptions = ['new', 'qualified', 'quote_sent', 'won', 'lost'];
+const inboxChannelOptions = ['tripetrip', 'email', 'phone', 'whatsapp'];
+const inboxStatusOptions = ['open', 'assigned', 'closed'];
+
+const stageLabels: Record<string, string> = {
+  new: 'New',
+  qualified: 'Qualified',
+  quote_sent: 'Quote Sent',
+  won: 'Won',
+  lost: 'Lost',
+};
+
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -75,8 +91,83 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function CrmInboxWorkspace({ mode }: CrmInboxWorkspaceProps) {
+function formatRecordValue(value: unknown) {
+  const amount = Number(value || 0);
+  if (!amount) return 'INR 0';
+  return `INR ${amount.toLocaleString('en-IN')}`;
+}
+
+export function CrmInboxWorkspace({ mode, organizationId, branchId }: CrmInboxWorkspaceProps) {
   const isCrm = mode === 'crm';
+  const records = useVendorOSRecords(mode, organizationId);
+  const mutations = useVendorOSRecordMutations(mode, organizationId, branchId);
+  const [leadForm, setLeadForm] = useState({ title: '', stage: 'new', estimated_value: '' });
+  const [threadForm, setThreadForm] = useState({ subject: '', channel: 'tripetrip', status: 'open' });
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+
+  const livePipelineStages = useMemo(() => {
+    if (!records.records.length) return pipelineStages;
+
+    return crmStageOptions.map((stage) => ({
+      title: stageLabels[stage] || stage,
+      leads: records.records
+        .filter((record) => String(record.stage || 'new') === stage)
+        .map((record) => ({
+          name: String(record.title || 'Untitled lead'),
+          request: String(record.source || 'direct inquiry'),
+          value: formatRecordValue(record.estimated_value),
+          status: stageLabels[String(record.stage || 'new')] || 'Active',
+        })),
+    }));
+  }, [records.records]);
+
+  const liveConversations = useMemo(() => {
+    if (!records.records.length) return conversations;
+
+    return records.records.map((record) => ({
+      title: String(record.subject || 'Untitled thread'),
+      channel: String(record.channel || 'tripetrip'),
+      customer: 'Traveler',
+      message: String(record.last_message_at || record.created_at || 'No messages yet'),
+      status: String(record.status || 'open'),
+    }));
+  }, [records.records]);
+
+  async function handleLeadSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        title: leadForm.title,
+        stage: leadForm.stage,
+        estimated_value: leadForm.estimated_value ? Number(leadForm.estimated_value) : 0,
+      });
+      setLeadForm({ title: '', stage: 'new', estimated_value: '' });
+      await records.refresh();
+      setFormMessage('Lead created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create lead');
+    }
+  }
+
+  async function handleThreadSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        subject: threadForm.subject,
+        channel: threadForm.channel,
+        status: threadForm.status,
+      });
+      setThreadForm({ subject: '', channel: 'tripetrip', status: 'open' });
+      await records.refresh();
+      setFormMessage('Thread created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create thread');
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -108,6 +199,119 @@ export function CrmInboxWorkspace({ mode }: CrmInboxWorkspaceProps) {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">
+              {isCrm ? 'Create Lead' : 'Create Thread'}
+            </h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">
+              Backed by {isCrm ? 'vendor_leads' : 'vendor_conversations'}
+            </p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Live CRM API
+          </span>
+        </div>
+        {isCrm ? (
+          <form className="grid gap-3 md:grid-cols-[1.3fr_0.7fr_0.7fr_auto]" onSubmit={handleLeadSubmit}>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Lead title *</span>
+              <input
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                placeholder="Trip request"
+                required
+                value={leadForm.title}
+                onChange={(event) => setLeadForm((current) => ({ ...current, title: event.target.value }))}
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Stage</span>
+              <select
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                value={leadForm.stage}
+                onChange={(event) => setLeadForm((current) => ({ ...current, stage: event.target.value }))}
+              >
+                {crmStageOptions.map((stage) => (
+                  <option key={stage} value={stage}>
+                    {stageLabels[stage]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Estimated value</span>
+              <input
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                min="0"
+                placeholder="0"
+                type="number"
+                value={leadForm.estimated_value}
+                onChange={(event) => setLeadForm((current) => ({ ...current, estimated_value: event.target.value }))}
+              />
+            </label>
+            <Button
+              className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+              disabled={mutations.submitting || !organizationId}
+              type="submit"
+            >
+              Create Lead
+            </Button>
+          </form>
+        ) : (
+          <form className="grid gap-3 md:grid-cols-[1.3fr_0.7fr_0.7fr_auto]" onSubmit={handleThreadSubmit}>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Subject *</span>
+              <input
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                placeholder="Conversation topic"
+                required
+                value={threadForm.subject}
+                onChange={(event) => setThreadForm((current) => ({ ...current, subject: event.target.value }))}
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Channel</span>
+              <select
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                value={threadForm.channel}
+                onChange={(event) => setThreadForm((current) => ({ ...current, channel: event.target.value }))}
+              >
+                {inboxChannelOptions.map((channel) => (
+                  <option key={channel} value={channel}>
+                    {channel}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Status</span>
+              <select
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                value={threadForm.status}
+                onChange={(event) => setThreadForm((current) => ({ ...current, status: event.target.value }))}
+              >
+                {inboxStatusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+              disabled={mutations.submitting || !organizationId}
+              type="submit"
+            >
+              Create Thread
+            </Button>
+          </form>
+        )}
+        {(formMessage || mutations.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        )}
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
         <Metric label={isCrm ? 'Open Leads' : 'Open Threads'} value={isCrm ? '48' : '27'} detail={isCrm ? '+12 this week' : '7 urgent'} />
         <Metric label={isCrm ? 'Quote Value' : 'Reply Time'} value={isCrm ? 'INR 8.4L' : '8m'} detail={isCrm ? 'Pipeline' : '-22%'} />
@@ -117,7 +321,7 @@ export function CrmInboxWorkspace({ mode }: CrmInboxWorkspaceProps) {
 
       {isCrm ? (
         <section className="grid gap-4 xl:grid-cols-4">
-          {pipelineStages.map((stage) => (
+          {livePipelineStages.map((stage) => (
             <div key={stage.title} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-sm font-black text-slate-950">{stage.title}</h3>
@@ -150,7 +354,7 @@ export function CrmInboxWorkspace({ mode }: CrmInboxWorkspaceProps) {
               <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Traveler Inbox</h3>
             </div>
             <div className="space-y-3">
-              {conversations.map((thread) => (
+              {liveConversations.map((thread) => (
                 <div key={thread.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div>

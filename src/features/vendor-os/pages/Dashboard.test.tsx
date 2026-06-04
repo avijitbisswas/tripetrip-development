@@ -269,7 +269,7 @@ describe('Vendor OS dashboard', () => {
     );
 
     expect(screen.getByText('CRM Command Center')).toBeInTheDocument();
-    expect(screen.getByText('Quote Sent')).toBeInTheDocument();
+    expect(screen.getAllByText('Quote Sent').length).toBeGreaterThan(0);
     expect(screen.getByText('Aarav Mehta')).toBeInTheDocument();
   });
 
