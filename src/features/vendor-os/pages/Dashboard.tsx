@@ -314,7 +314,11 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
             branchId={tenant.activeBranch?.id || null}
           />
         ) : activeModule === 'tours' || activeModule === 'activities' ? (
-          <ToursActivitiesWorkspace mode={activeModule} />
+          <ToursActivitiesWorkspace
+            mode={activeModule}
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
         ) : activeModule === 'fleet' ? (
           <FleetWorkspace />
         ) : activeModule === 'accounting' ? (
