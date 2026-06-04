@@ -12,6 +12,7 @@ import { FleetWorkspace } from '../components/FleetWorkspace';
 import { MarketplaceWorkspace } from '../components/MarketplaceWorkspace';
 import { ModuleCard } from '../components/ModuleCard';
 import { PmsWorkspace } from '../components/PmsWorkspace';
+import { SubscriptionWorkspace } from '../components/SubscriptionWorkspace';
 import { ToursActivitiesWorkspace } from '../components/ToursActivitiesWorkspace';
 import { VendorOSLayout } from '../components/VendorOSLayout';
 import { getVendorOSModuleByPath, vendorOSModules } from '../data';
@@ -225,6 +226,8 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <MarketplaceWorkspace />
         ) : activeModule === 'ai_assistant' ? (
           <AIAssistantWorkspace />
+        ) : activeModule === 'subscriptions' ? (
+          <SubscriptionWorkspace />
         ) : (
           <ModuleWorkspace module={activeModule} organizationId={tenant.selectedOrganization?.id} />
         )}

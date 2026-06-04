@@ -175,6 +175,22 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Pricing Suggestions')).toBeInTheDocument();
   });
 
+  it('renders the Subscriptions module as a plan and usage workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/subscriptions']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Subscription Management')).toBeInTheDocument();
+    expect(screen.getByText('Plan Control')).toBeInTheDocument();
+    expect(screen.getByText('Usage Metering')).toBeInTheDocument();
+    expect(screen.getByText('Add-ons & Limits')).toBeInTheDocument();
+    expect(screen.getByText('Branch Entitlements')).toBeInTheDocument();
+  });
+
   it('renders the PMS module as a front desk workspace', () => {
     render(
       <MemoryRouter initialEntries={['/vendor/os/pms']}>

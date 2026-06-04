@@ -519,10 +519,12 @@ Commands:
   - Dedicated listing operations workspace with Tripetrip listing sync, direct deals, inventory mapping, publishing queue, conversion health, and governance signals.
 - Phase 9: AI Operations Assistant
   - Dedicated operations intelligence workspace with daily briefs, risk alerts, reply drafts, pricing suggestions, automation queue, approval guardrails, and provider-integration readiness.
+- Phase 10A: Subscriptions
+  - Dedicated subscription workspace with plan control, usage meters, add-ons, branch entitlements, billing events, and upgrade governance signals.
 
 ### Remaining Dedicated Module Builds
 
-- Phase 10: Subscriptions And Analytics
+- Phase 10B: Analytics
 - Advanced team management workflows
 - Advanced multi-branch controls
 - Full API routes and realtime channels for every module
