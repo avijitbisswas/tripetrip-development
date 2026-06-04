@@ -513,10 +513,11 @@ Commands:
   - Dedicated tour operator and activity management workspace with departures, guide rosters, manifests, slots, equipment readiness, waivers, and safety desk.
 - Phase 6: Fleet
   - Dedicated fleet dispatch workspace with vehicles, drivers, assignments, maintenance, fuel, permits, compliance alerts, marketplace oversell guard, and trip manifests.
+- Phase 7: Accounting
+  - Dedicated finance workspace with receivables, invoices, expenses, payouts, commissions, tax controls, ledger health, role-based finance controls, and exports.
 
 ### Remaining Dedicated Module Builds
 
-- Phase 7: Accounting
 - Phase 8: Marketplace Operations
 - Phase 9: AI Operations Assistant
 - Phase 10: Subscriptions And Analytics

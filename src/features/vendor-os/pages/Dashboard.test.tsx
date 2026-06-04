@@ -127,6 +127,22 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Permit Compliance')).toBeInTheDocument();
   });
 
+  it('renders the Accounting module as a finance workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/accounting']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Accounting')).toBeInTheDocument();
+    expect(screen.getByText('Receivables Command')).toBeInTheDocument();
+    expect(screen.getByText('Expense Desk')).toBeInTheDocument();
+    expect(screen.getByText('Payouts & Commissions')).toBeInTheDocument();
+    expect(screen.getByText('Tax & Ledger')).toBeInTheDocument();
+  });
+
   it('renders the PMS module as a front desk workspace', () => {
     render(
       <MemoryRouter initialEntries={['/vendor/os/pms']}>
