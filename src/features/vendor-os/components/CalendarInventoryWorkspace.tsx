@@ -1,5 +1,12 @@
+import { useMemo, useState, type FormEvent } from 'react';
 import { AlertTriangle, CalendarDays, CheckCircle2, Hotel, Map, Mountain, Plus, RefreshCw, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+
+interface CalendarInventoryWorkspaceProps {
+  organizationId?: string;
+  branchId?: string | null;
+}
 
 const calendarDays = [
   { label: 'Today', date: '03 Jun', events: 42, risk: '6 risks', tone: 'attention' },
@@ -56,6 +63,8 @@ const syncEvents = [
   { title: 'Luxury SUV blocked for maintenance', detail: 'Transport listing protected from overbooking' },
 ];
 
+const eventTypeOptions = ['booking', 'blackout', 'departure', 'maintenance'];
+
 function StatusPill({ value }: { value: string }) {
   return (
     <span className="w-fit rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase text-emerald-700 ring-1 ring-emerald-100">
@@ -64,7 +73,60 @@ function StatusPill({ value }: { value: string }) {
   );
 }
 
-export function CalendarInventoryWorkspace() {
+function formatEventDate(value: unknown) {
+  if (!value) return 'No start time';
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export function CalendarInventoryWorkspace({ organizationId, branchId }: CalendarInventoryWorkspaceProps) {
+  const records = useVendorOSRecords('calendar', organizationId);
+  const mutations = useVendorOSRecordMutations('calendar', organizationId, branchId);
+  const [eventForm, setEventForm] = useState({
+    title: '',
+    event_type: 'booking',
+    starts_at: '',
+    capacity: '',
+  });
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const liveEvents = useMemo(
+    () =>
+      records.records.map((record) => ({
+        id: String(record.id),
+        title: String(record.title || 'Untitled event'),
+        type: String(record.event_type || 'booking'),
+        startsAt: formatEventDate(record.starts_at),
+        capacity: record.capacity === null || record.capacity === undefined ? 'Open capacity' : `${record.capacity} capacity`,
+        status: String(record.status || 'scheduled'),
+      })),
+    [records.records],
+  );
+
+  async function handleEventSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        title: eventForm.title,
+        event_type: eventForm.event_type,
+        starts_at: eventForm.starts_at,
+        capacity: eventForm.capacity ? Number(eventForm.capacity) : null,
+      });
+      setEventForm({ title: '', event_type: 'booking', starts_at: '', capacity: '' });
+      await records.refresh();
+      setFormMessage('Event created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create event');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -91,6 +153,76 @@ export function CalendarInventoryWorkspace() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Create Calendar Event</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by vendor_calendar_events</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Live Inventory API
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[1.2fr_0.7fr_0.9fr_0.55fr_auto]" onSubmit={handleEventSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Event title *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Inventory event"
+              required
+              value={eventForm.title}
+              onChange={(inputEvent) => setEventForm((current) => ({ ...current, title: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Event type *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={eventForm.event_type}
+              onChange={(inputEvent) => setEventForm((current) => ({ ...current, event_type: inputEvent.target.value }))}
+            >
+              {eventTypeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Starts at *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              type="datetime-local"
+              value={eventForm.starts_at}
+              onChange={(inputEvent) => setEventForm((current) => ({ ...current, starts_at: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Capacity</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              min="0"
+              placeholder="0"
+              type="number"
+              value={eventForm.capacity}
+              onChange={(inputEvent) => setEventForm((current) => ({ ...current, capacity: inputEvent.target.value }))}
+            />
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId}
+            type="submit"
+          >
+            Create Event
+          </Button>
+        </form>
+        {(formMessage || mutations.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        )}
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
         {[
           ['Events Today', '42', 'Across 6 branches'],
@@ -111,6 +243,21 @@ export function CalendarInventoryWorkspace() {
           <CalendarDays className="h-4 w-4 text-emerald-600" />
           <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Unified Availability Board</h3>
         </div>
+        {liveEvents.length > 0 && (
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            {liveEvents.map((event) => (
+              <div key={event.id} className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <div className="text-sm font-black text-slate-950">{event.title}</div>
+                <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{event.type}</div>
+                <div className="mt-3 text-sm font-semibold text-slate-600">{event.startsAt}</div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <StatusPill value={event.capacity} />
+                  <StatusPill value={event.status} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="grid gap-3 md:grid-cols-7">
           {calendarDays.map((day) => (
             <div
