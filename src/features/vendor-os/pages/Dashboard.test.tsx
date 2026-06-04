@@ -66,6 +66,23 @@ describe('Vendor OS dashboard', () => {
 
   it('renders a generic developed module workspace from the route', () => {
     render(
+      <MemoryRouter initialEntries={['/vendor/os/fleet']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Fleet Management System')).toBeInTheDocument();
+    expect(screen.getByText('Dispatch Board')).toBeInTheDocument();
+    expect(screen.getByText('Toyota Innova')).toBeInTheDocument();
+    expect(screen.getByText('Assign vehicle')).toBeInTheDocument();
+    expect(screen.getByText('Backed by `vendor_vehicles`')).toBeInTheDocument();
+    expect(screen.getByText('Vehicle name')).toBeInTheDocument();
+  });
+
+  it('renders the Tours module as a departure workspace', () => {
+    render(
       <MemoryRouter initialEntries={['/vendor/os/tours']}>
         <Routes>
           <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
@@ -74,11 +91,24 @@ describe('Vendor OS dashboard', () => {
     );
 
     expect(screen.getByText('Tour Operator System')).toBeInTheDocument();
-    expect(screen.getByText('Itinerary Builder')).toBeInTheDocument();
-    expect(screen.getByText('Kerala Backwaters')).toBeInTheDocument();
-    expect(screen.getByText('Create itinerary')).toBeInTheDocument();
-    expect(screen.getByText('Backed by `vendor_tour_itineraries`')).toBeInTheDocument();
-    expect(screen.getByText('Itinerary title')).toBeInTheDocument();
+    expect(screen.getByText('Departure Control')).toBeInTheDocument();
+    expect(screen.getByText('Guide Roster')).toBeInTheDocument();
+    expect(screen.getByText('Group Manifest')).toBeInTheDocument();
+  });
+
+  it('renders the Activities module as a safety and slots workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/activities']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Activity Management System')).toBeInTheDocument();
+    expect(screen.getByText('Slot Control')).toBeInTheDocument();
+    expect(screen.getByText('Safety Desk')).toBeInTheDocument();
+    expect(screen.getByText('Equipment Readiness')).toBeInTheDocument();
   });
 
   it('renders the PMS module as a front desk workspace', () => {
