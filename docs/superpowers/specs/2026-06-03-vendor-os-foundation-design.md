@@ -521,10 +521,11 @@ Commands:
   - Dedicated operations intelligence workspace with daily briefs, risk alerts, reply drafts, pricing suggestions, automation queue, approval guardrails, and provider-integration readiness.
 - Phase 10A: Subscriptions
   - Dedicated subscription workspace with plan control, usage meters, add-ons, branch entitlements, billing events, and upgrade governance signals.
+- Phase 10B: Analytics
+  - Dedicated reporting workspace with executive reports, branch comparison, category performance, operational KPIs, export center, and snapshot governance signals.
 
 ### Remaining Dedicated Module Builds
 
-- Phase 10B: Analytics
 - Advanced team management workflows
 - Advanced multi-branch controls
 - Full API routes and realtime channels for every module

@@ -66,19 +66,19 @@ describe('Vendor OS dashboard', () => {
 
   it('renders a generic developed module workspace from the route', () => {
     render(
-      <MemoryRouter initialEntries={['/vendor/os/analytics']}>
+      <MemoryRouter initialEntries={['/vendor/os/team']}>
         <Routes>
           <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
         </Routes>
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Analytics & Reporting')).toBeInTheDocument();
-    expect(screen.getByText('Executive Reports')).toBeInTheDocument();
-    expect(screen.getByText('Goa Branch')).toBeInTheDocument();
-    expect(screen.getByText('Export report')).toBeInTheDocument();
-    expect(screen.getByText('Backed by `vendor_analytics_snapshots`')).toBeInTheDocument();
-    expect(screen.getByText('Snapshot date')).toBeInTheDocument();
+    expect(screen.getByText('Team Management')).toBeInTheDocument();
+    expect(screen.getByText('Role Access')).toBeInTheDocument();
+    expect(screen.getByText('Neha Kapoor')).toBeInTheDocument();
+    expect(screen.getByText('Invite member')).toBeInTheDocument();
+    expect(screen.getByText('Backed by `vendor_team_members`')).toBeInTheDocument();
+    expect(screen.getByText('Email')).toBeInTheDocument();
   });
 
   it('renders the Tours module as a departure workspace', () => {
@@ -189,6 +189,22 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Usage Metering')).toBeInTheDocument();
     expect(screen.getByText('Add-ons & Limits')).toBeInTheDocument();
     expect(screen.getByText('Branch Entitlements')).toBeInTheDocument();
+  });
+
+  it('renders the Analytics module as a reporting workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/analytics']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Analytics & Reporting')).toBeInTheDocument();
+    expect(screen.getByText('Executive Reports')).toBeInTheDocument();
+    expect(screen.getByText('Branch Comparison')).toBeInTheDocument();
+    expect(screen.getByText('Category Performance')).toBeInTheDocument();
+    expect(screen.getByText('Export Center')).toBeInTheDocument();
   });
 
   it('renders the PMS module as a front desk workspace', () => {
