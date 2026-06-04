@@ -515,10 +515,11 @@ Commands:
   - Dedicated fleet dispatch workspace with vehicles, drivers, assignments, maintenance, fuel, permits, compliance alerts, marketplace oversell guard, and trip manifests.
 - Phase 7: Accounting
   - Dedicated finance workspace with receivables, invoices, expenses, payouts, commissions, tax controls, ledger health, role-based finance controls, and exports.
+- Phase 8: Marketplace Operations
+  - Dedicated listing operations workspace with Tripetrip listing sync, direct deals, inventory mapping, publishing queue, conversion health, and governance signals.
 
 ### Remaining Dedicated Module Builds
 
-- Phase 8: Marketplace Operations
 - Phase 9: AI Operations Assistant
 - Phase 10: Subscriptions And Analytics
 - Advanced team management workflows

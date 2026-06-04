@@ -8,6 +8,7 @@ import { CalendarInventoryWorkspace } from '../components/CalendarInventoryWorks
 import { CrmInboxWorkspace } from '../components/CrmInboxWorkspace';
 import { DocumentVault } from '../components/DocumentVault';
 import { FleetWorkspace } from '../components/FleetWorkspace';
+import { MarketplaceWorkspace } from '../components/MarketplaceWorkspace';
 import { ModuleCard } from '../components/ModuleCard';
 import { PmsWorkspace } from '../components/PmsWorkspace';
 import { ToursActivitiesWorkspace } from '../components/ToursActivitiesWorkspace';
@@ -219,6 +220,8 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <FleetWorkspace />
         ) : activeModule === 'accounting' ? (
           <AccountingWorkspace />
+        ) : activeModule === 'marketplace' ? (
+          <MarketplaceWorkspace />
         ) : (
           <ModuleWorkspace module={activeModule} organizationId={tenant.selectedOrganization?.id} />
         )}

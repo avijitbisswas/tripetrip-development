@@ -143,6 +143,22 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Tax & Ledger')).toBeInTheDocument();
   });
 
+  it('renders the Marketplace module as a listing operations workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/marketplace']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Marketplace Listing Management')).toBeInTheDocument();
+    expect(screen.getByText('Listing Sync Command')).toBeInTheDocument();
+    expect(screen.getByText('Direct Deals Desk')).toBeInTheDocument();
+    expect(screen.getByText('Inventory Mapping')).toBeInTheDocument();
+    expect(screen.getByText('Conversion Health')).toBeInTheDocument();
+  });
+
   it('renders the PMS module as a front desk workspace', () => {
     render(
       <MemoryRouter initialEntries={['/vendor/os/pms']}>
