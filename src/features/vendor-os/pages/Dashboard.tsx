@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCurrentSession } from '@/src/services/auth';
 import { AccountingWorkspace } from '../components/AccountingWorkspace';
+import { AIAssistantWorkspace } from '../components/AIAssistantWorkspace';
 import { AuditTimeline } from '../components/AuditTimeline';
 import { CalendarInventoryWorkspace } from '../components/CalendarInventoryWorkspace';
 import { CrmInboxWorkspace } from '../components/CrmInboxWorkspace';
@@ -222,6 +223,8 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <AccountingWorkspace />
         ) : activeModule === 'marketplace' ? (
           <MarketplaceWorkspace />
+        ) : activeModule === 'ai_assistant' ? (
+          <AIAssistantWorkspace />
         ) : (
           <ModuleWorkspace module={activeModule} organizationId={tenant.selectedOrganization?.id} />
         )}

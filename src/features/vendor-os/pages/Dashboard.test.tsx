@@ -159,6 +159,22 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Conversion Health')).toBeInTheDocument();
   });
 
+  it('renders the AI Assistant module as an operations intelligence workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/ai-assistant']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('AI Operations Assistant')).toBeInTheDocument();
+    expect(screen.getByText('Daily Brief')).toBeInTheDocument();
+    expect(screen.getAllByText('Risk Alerts')).toHaveLength(2);
+    expect(screen.getByText('Reply Drafts')).toBeInTheDocument();
+    expect(screen.getByText('Pricing Suggestions')).toBeInTheDocument();
+  });
+
   it('renders the PMS module as a front desk workspace', () => {
     render(
       <MemoryRouter initialEntries={['/vendor/os/pms']}>

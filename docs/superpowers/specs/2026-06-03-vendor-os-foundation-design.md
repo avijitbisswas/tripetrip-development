@@ -517,10 +517,11 @@ Commands:
   - Dedicated finance workspace with receivables, invoices, expenses, payouts, commissions, tax controls, ledger health, role-based finance controls, and exports.
 - Phase 8: Marketplace Operations
   - Dedicated listing operations workspace with Tripetrip listing sync, direct deals, inventory mapping, publishing queue, conversion health, and governance signals.
+- Phase 9: AI Operations Assistant
+  - Dedicated operations intelligence workspace with daily briefs, risk alerts, reply drafts, pricing suggestions, automation queue, approval guardrails, and provider-integration readiness.
 
 ### Remaining Dedicated Module Builds
 
-- Phase 9: AI Operations Assistant
 - Phase 10: Subscriptions And Analytics
 - Advanced team management workflows
 - Advanced multi-branch controls
