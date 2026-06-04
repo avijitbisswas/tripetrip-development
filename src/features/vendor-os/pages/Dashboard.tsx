@@ -7,6 +7,7 @@ import { CalendarInventoryWorkspace } from '../components/CalendarInventoryWorks
 import { CrmInboxWorkspace } from '../components/CrmInboxWorkspace';
 import { DocumentVault } from '../components/DocumentVault';
 import { ModuleCard } from '../components/ModuleCard';
+import { PmsWorkspace } from '../components/PmsWorkspace';
 import { VendorOSLayout } from '../components/VendorOSLayout';
 import { getVendorOSModuleByPath, vendorOSModules } from '../data';
 import {
@@ -207,6 +208,8 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <CrmInboxWorkspace mode={activeModule} />
         ) : activeModule === 'calendar' ? (
           <CalendarInventoryWorkspace />
+        ) : activeModule === 'pms' ? (
+          <PmsWorkspace />
         ) : (
           <ModuleWorkspace module={activeModule} organizationId={tenant.selectedOrganization?.id} />
         )}

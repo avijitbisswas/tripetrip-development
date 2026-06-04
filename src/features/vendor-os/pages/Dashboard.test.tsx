@@ -64,7 +64,24 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Hotel Trade License')).toBeInTheDocument();
   });
 
-  it('renders a developed module workspace from the route', () => {
+  it('renders a generic developed module workspace from the route', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/tours']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Tour Operator System')).toBeInTheDocument();
+    expect(screen.getByText('Itinerary Builder')).toBeInTheDocument();
+    expect(screen.getByText('Kerala Backwaters')).toBeInTheDocument();
+    expect(screen.getByText('Create itinerary')).toBeInTheDocument();
+    expect(screen.getByText('Backed by `vendor_tour_itineraries`')).toBeInTheDocument();
+    expect(screen.getByText('Itinerary title')).toBeInTheDocument();
+  });
+
+  it('renders the PMS module as a front desk workspace', () => {
     render(
       <MemoryRouter initialEntries={['/vendor/os/pms']}>
         <Routes>
@@ -73,12 +90,9 @@ describe('Vendor OS dashboard', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Property Management System')).toBeInTheDocument();
-    expect(screen.getByText('Front Desk')).toBeInTheDocument();
-    expect(screen.getByText('Room 204')).toBeInTheDocument();
-    expect(screen.getByText('Check in guest')).toBeInTheDocument();
-    expect(screen.getByText('Backed by `vendor_properties`')).toBeInTheDocument();
-    expect(screen.getByText('Property name')).toBeInTheDocument();
+    expect(screen.getByText('Front Desk Command')).toBeInTheDocument();
+    expect(screen.getByText('Room Grid')).toBeInTheDocument();
+    expect(screen.getByText('Housekeeping Board')).toBeInTheDocument();
   });
 
   it('renders the CRM module as a deep workspace', () => {
