@@ -66,19 +66,19 @@ describe('Vendor OS dashboard', () => {
 
   it('renders a generic developed module workspace from the route', () => {
     render(
-      <MemoryRouter initialEntries={['/vendor/os/fleet']}>
+      <MemoryRouter initialEntries={['/vendor/os/analytics']}>
         <Routes>
           <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
         </Routes>
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Fleet Management System')).toBeInTheDocument();
-    expect(screen.getByText('Dispatch Board')).toBeInTheDocument();
-    expect(screen.getByText('Toyota Innova')).toBeInTheDocument();
-    expect(screen.getByText('Assign vehicle')).toBeInTheDocument();
-    expect(screen.getByText('Backed by `vendor_vehicles`')).toBeInTheDocument();
-    expect(screen.getByText('Vehicle name')).toBeInTheDocument();
+    expect(screen.getByText('Analytics & Reporting')).toBeInTheDocument();
+    expect(screen.getByText('Executive Reports')).toBeInTheDocument();
+    expect(screen.getByText('Goa Branch')).toBeInTheDocument();
+    expect(screen.getByText('Export report')).toBeInTheDocument();
+    expect(screen.getByText('Backed by `vendor_analytics_snapshots`')).toBeInTheDocument();
+    expect(screen.getByText('Snapshot date')).toBeInTheDocument();
   });
 
   it('renders the Tours module as a departure workspace', () => {
@@ -109,6 +109,22 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Slot Control')).toBeInTheDocument();
     expect(screen.getByText('Safety Desk')).toBeInTheDocument();
     expect(screen.getByText('Equipment Readiness')).toBeInTheDocument();
+  });
+
+  it('renders the Fleet module as a dispatch workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/fleet']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Fleet Management System')).toBeInTheDocument();
+    expect(screen.getByText('Dispatch Command')).toBeInTheDocument();
+    expect(screen.getByText('Driver Duty Board')).toBeInTheDocument();
+    expect(screen.getByText('Maintenance & Fuel')).toBeInTheDocument();
+    expect(screen.getByText('Permit Compliance')).toBeInTheDocument();
   });
 
   it('renders the PMS module as a front desk workspace', () => {

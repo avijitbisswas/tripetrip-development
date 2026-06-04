@@ -6,6 +6,7 @@ import { AuditTimeline } from '../components/AuditTimeline';
 import { CalendarInventoryWorkspace } from '../components/CalendarInventoryWorkspace';
 import { CrmInboxWorkspace } from '../components/CrmInboxWorkspace';
 import { DocumentVault } from '../components/DocumentVault';
+import { FleetWorkspace } from '../components/FleetWorkspace';
 import { ModuleCard } from '../components/ModuleCard';
 import { PmsWorkspace } from '../components/PmsWorkspace';
 import { ToursActivitiesWorkspace } from '../components/ToursActivitiesWorkspace';
@@ -213,6 +214,8 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <PmsWorkspace />
         ) : activeModule === 'tours' || activeModule === 'activities' ? (
           <ToursActivitiesWorkspace mode={activeModule} />
+        ) : activeModule === 'fleet' ? (
+          <FleetWorkspace />
         ) : (
           <ModuleWorkspace module={activeModule} organizationId={tenant.selectedOrganization?.id} />
         )}

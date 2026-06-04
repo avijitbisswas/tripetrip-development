@@ -497,6 +497,35 @@ Commands:
 
 ## Implementation Roadmap
 
+## Development Status
+
+### Completed And Committed
+
+- Phase 1: Vendor OS Foundation
+  - Multi-tenant shell, organization and branch context, permission matrix, audit logs, notifications, document vault, service boundaries, route shell, and dashboard foundation.
+- Phase 2: CRM And Inbox
+  - Dedicated CRM and Inbox command center with lead pipeline, traveler conversation queue, follow-up signals, assignments, and deep workspace tests.
+- Phase 3: Calendar And Live Inventory
+  - Dedicated calendar and capacity workspace across PMS rooms, tours, activity slots, fleet availability, blackouts, and marketplace sync lanes.
+- Phase 4: PMS
+  - Dedicated front desk workspace with room grid, housekeeping board, arrivals/departures, folio snapshot, guest verification, and property operations controls.
+- Phase 5: Tours And Activities
+  - Dedicated tour operator and activity management workspace with departures, guide rosters, manifests, slots, equipment readiness, waivers, and safety desk.
+- Phase 6: Fleet
+  - Dedicated fleet dispatch workspace with vehicles, drivers, assignments, maintenance, fuel, permits, compliance alerts, marketplace oversell guard, and trip manifests.
+
+### Remaining Dedicated Module Builds
+
+- Phase 7: Accounting
+- Phase 8: Marketplace Operations
+- Phase 9: AI Operations Assistant
+- Phase 10: Subscriptions And Analytics
+- Advanced team management workflows
+- Advanced multi-branch controls
+- Full API routes and realtime channels for every module
+- Production AI provider integrations
+- Deeper document automation and approval workflows
+
 ### Phase 1: Vendor OS Foundation
 
 1. Extend Supabase schema with organizations, branches, team members, role permissions, audit logs, notifications, documents, and module settings.
@@ -559,4 +588,3 @@ Phase one is successful when:
 - Team, branch, notification, audit, and document foundations exist in schema and services.
 - Existing marketplace routes continue to work.
 - Tests, lint, and production build pass.
-
