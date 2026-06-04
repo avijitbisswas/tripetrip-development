@@ -243,7 +243,7 @@ export async function createVendorOSRecord(
 ) {
   const payload = {
     organization_id: organizationId,
-    branch_id: branchId,
+    ...(operation.branchScoped === false ? {} : { branch_id: branchId }),
     ...input,
   };
 
@@ -251,4 +251,27 @@ export async function createVendorOSRecord(
 
   if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_WRITE_FAILED');
   return data;
+}
+
+export async function updateVendorOSRecord(
+  operation: VendorOSOperation,
+  recordId: string,
+  input: Record<string, unknown>,
+) {
+  const { data, error } = await supabase
+    .from(operation.table)
+    .update(input)
+    .eq('id', recordId)
+    .select()
+    .single<VendorOSRecordRow>();
+
+  if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_UPDATE_FAILED');
+  return data;
+}
+
+export async function deleteVendorOSRecord(operation: VendorOSOperation, recordId: string) {
+  const { error } = await supabase.from(operation.table).delete().eq('id', recordId);
+
+  if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_DELETE_FAILED');
+  return { id: recordId };
 }

@@ -17,6 +17,7 @@ export interface VendorOSOperation {
   statusField: string;
   valueField?: string;
   dateField?: string;
+  branchScoped?: boolean;
   createFields: VendorOSCreateField[];
 }
 
@@ -176,6 +177,7 @@ export const vendorOSOperations: Record<VendorOSModule, VendorOSOperation> = {
     titleField: 'plan_code',
     statusField: 'status',
     dateField: 'current_period_end',
+    branchScoped: false,
     createFields: [
       { name: 'plan_code', label: 'Plan code', type: 'select', required: true, options: ['starter', 'growth', 'scale', 'enterprise'] },
       { name: 'billing_cycle', label: 'Billing cycle', type: 'select', options: ['monthly', 'annual'] },
@@ -198,6 +200,7 @@ export const vendorOSOperations: Record<VendorOSModule, VendorOSOperation> = {
     titleField: 'name',
     statusField: 'is_active',
     dateField: 'created_at',
+    branchScoped: false,
     createFields: [
       { name: 'name', label: 'Branch name', type: 'text', required: true },
       { name: 'city', label: 'City', type: 'text' },

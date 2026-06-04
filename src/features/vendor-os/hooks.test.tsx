@@ -1,6 +1,6 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useVendorOSNotifications, useVendorOSTenant } from './hooks';
+import { useVendorOSNotifications, useVendorOSRecordMutations, useVendorOSRecords, useVendorOSTenant } from './hooks';
 import type { VendorBranch, VendorNotification, VendorOrganization, VendorTeamMember } from './types';
 
 vi.mock('./api', () => ({
@@ -8,13 +8,21 @@ vi.mock('./api', () => ({
   listVendorBranches: vi.fn(),
   listVendorTeamMembers: vi.fn(),
   listVendorNotifications: vi.fn(),
+  listVendorOSRecords: vi.fn(),
+  createVendorOSRecord: vi.fn(),
+  updateVendorOSRecord: vi.fn(),
+  deleteVendorOSRecord: vi.fn(),
 }));
 
 import {
+  createVendorOSRecord,
+  deleteVendorOSRecord,
   listVendorBranches,
   listVendorNotifications,
+  listVendorOSRecords,
   listVendorOrganizations,
   listVendorTeamMembers,
+  updateVendorOSRecord,
 } from './api';
 
 const organization: VendorOrganization = {
@@ -94,6 +102,22 @@ describe('Vendor OS hooks', () => {
     vi.mocked(listVendorBranches).mockResolvedValue([branch]);
     vi.mocked(listVendorTeamMembers).mockResolvedValue([member]);
     vi.mocked(listVendorNotifications).mockResolvedValue([unread, { ...unread, id: 'note-2', status: 'read' }]);
+    vi.mocked(listVendorOSRecords).mockResolvedValue([]);
+    vi.mocked(createVendorOSRecord).mockResolvedValue({
+      id: 'lead-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      title: 'Goa group trip',
+      stage: 'new',
+    });
+    vi.mocked(updateVendorOSRecord).mockResolvedValue({
+      id: 'lead-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      title: 'Goa group trip',
+      stage: 'won',
+    });
+    vi.mocked(deleteVendorOSRecord).mockResolvedValue({ id: 'lead-1' });
   });
 
   it('loads tenant context and exposes permission helper', async () => {
@@ -115,5 +139,50 @@ describe('Vendor OS hooks', () => {
 
     expect(result.current.notifications).toHaveLength(2);
     expect(result.current.unreadCount).toBe(1);
+  });
+
+  it('reloads module records on demand', async () => {
+    vi.mocked(listVendorOSRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'lead-1',
+          organization_id: 'org-1',
+          title: 'Goa group trip',
+          stage: 'new',
+        },
+      ]);
+
+    const { result } = renderHook(() => useVendorOSRecords('crm', 'org-1'));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.records).toHaveLength(0);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.records).toHaveLength(1);
+    expect(result.current.records[0].title).toBe('Goa group trip');
+  });
+
+  it('creates, updates, and deletes records through module mutations', async () => {
+    const { result } = renderHook(() => useVendorOSRecordMutations('crm', 'org-1', 'branch-1'));
+
+    await act(async () => {
+      await result.current.createRecord({ title: 'Goa group trip', stage: 'new' });
+      await result.current.updateRecord('lead-1', { stage: 'won' });
+      await result.current.deleteRecord('lead-1');
+    });
+
+    expect(createVendorOSRecord).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendor_leads' }), 'org-1', 'branch-1', {
+      title: 'Goa group trip',
+      stage: 'new',
+    });
+    expect(updateVendorOSRecord).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendor_leads' }), 'lead-1', {
+      stage: 'won',
+    });
+    expect(deleteVendorOSRecord).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendor_leads' }), 'lead-1');
+    expect(result.current.submitting).toBe(false);
   });
 });

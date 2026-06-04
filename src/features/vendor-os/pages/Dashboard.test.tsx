@@ -1,7 +1,11 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from './Dashboard';
+
+const createRecord = vi.fn();
+const refreshRecords = vi.fn();
 
 vi.mock('../hooks', () => ({
   useVendorOSTenant: () => ({
@@ -43,10 +47,23 @@ vi.mock('../hooks', () => ({
     records: [],
     loading: false,
     error: null,
+    refresh: refreshRecords,
+  }),
+  useVendorOSRecordMutations: () => ({
+    createRecord,
+    updateRecord: vi.fn(),
+    deleteRecord: vi.fn(),
+    submitting: false,
+    error: null,
   }),
 }));
 
 describe('Vendor OS dashboard', () => {
+  beforeEach(() => {
+    createRecord.mockReset();
+    refreshRecords.mockReset();
+  });
+
   it('renders the operating system shell and staff-safe modules', () => {
     render(
       <MemoryRouter>
@@ -78,7 +95,28 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Neha Kapoor')).toBeInTheDocument();
     expect(screen.getByText('Invite member')).toBeInTheDocument();
     expect(screen.getByText('Backed by `vendor_team_members`')).toBeInTheDocument();
-    expect(screen.getByText('Email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email *')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument();
+  });
+
+  it('creates a generic module record through the live workspace form', async () => {
+    createRecord.mockResolvedValueOnce({ id: 'member-1' });
+    refreshRecords.mockResolvedValueOnce(undefined);
+
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/team']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByLabelText('Email *'), 'ops@example.com');
+    await userEvent.selectOptions(screen.getByLabelText('Role *'), 'manager');
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(createRecord).toHaveBeenCalledWith({ invited_email: 'ops@example.com', role: 'manager' });
+    expect(refreshRecords).toHaveBeenCalled();
   });
 
   it('renders the Tours module as a departure workspace', () => {

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  createVendorOSRecord,
+  deleteVendorOSRecord,
   listVendorAuditLogs,
   listVendorBranches,
   listVendorDocuments,
@@ -7,6 +9,7 @@ import {
   listVendorOSRecords,
   listVendorOrganizations,
   listVendorTeamMembers,
+  updateVendorOSRecord,
   type VendorOSRecordRow,
 } from './api';
 import { getVendorOSOperation } from './operations';
@@ -170,32 +173,118 @@ export function useVendorOSRecords(module: VendorOSModule, organizationId?: stri
   const [records, setRecords] = useState<VendorOSRecordRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const operation = useMemo(() => getVendorOSOperation(module), [module]);
+
+  const loadRecords = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await listVendorOSRecords(operation, organizationId || undefined);
+      setRecords(rows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load module records');
+    } finally {
+      setLoading(false);
+    }
+  }, [operation, organizationId]);
 
   useEffect(() => {
     let mounted = true;
-    const operation = getVendorOSOperation(module);
 
-    setLoading(true);
-    setError(null);
-    listVendorOSRecords(operation, organizationId || undefined)
-      .then((rows) => {
+    async function loadWhenMounted() {
+      setLoading(true);
+      setError(null);
+      try {
+        const rows = await listVendorOSRecords(operation, organizationId || undefined);
         if (mounted) setRecords(rows);
-      })
-      .catch((err) => {
+      } catch (err) {
         if (mounted) setError(err instanceof Error ? err.message : 'Unable to load module records');
-      })
-      .finally(() => {
+      } finally {
         if (mounted) setLoading(false);
-      });
+      }
+    }
+
+    loadWhenMounted();
 
     return () => {
       mounted = false;
     };
-  }, [module, organizationId]);
+  }, [operation, organizationId]);
 
   return {
     records,
     loading,
+    error,
+    refresh: loadRecords,
+  };
+}
+
+export function useVendorOSRecordMutations(
+  module: VendorOSModule,
+  organizationId?: string | null,
+  branchId?: string | null,
+) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const operation = useMemo(() => getVendorOSOperation(module), [module]);
+
+  const createRecord = useCallback(
+    async (input: Record<string, unknown>) => {
+      if (!organizationId) throw new Error('Select an organization before creating records');
+      setSubmitting(true);
+      setError(null);
+      try {
+        return await createVendorOSRecord(operation, organizationId, branchId || null, input);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to create module record';
+        setError(message);
+        throw err;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [branchId, operation, organizationId],
+  );
+
+  const updateRecord = useCallback(
+    async (recordId: string, input: Record<string, unknown>) => {
+      setSubmitting(true);
+      setError(null);
+      try {
+        return await updateVendorOSRecord(operation, recordId, input);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to update module record';
+        setError(message);
+        throw err;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [operation],
+  );
+
+  const deleteRecord = useCallback(
+    async (recordId: string) => {
+      setSubmitting(true);
+      setError(null);
+      try {
+        return await deleteVendorOSRecord(operation, recordId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to delete module record';
+        setError(message);
+        throw err;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [operation],
+  );
+
+  return {
+    createRecord,
+    updateRecord,
+    deleteRecord,
+    submitting,
     error,
   };
 }

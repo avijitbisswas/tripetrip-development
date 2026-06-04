@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { getCurrentSession } from '@/src/services/auth';
@@ -21,6 +21,7 @@ import {
   useVendorOSAuditLogs,
   useVendorOSDocuments,
   useVendorOSNotifications,
+  useVendorOSRecordMutations,
   useVendorOSRecords,
   useVendorOSTenant,
 } from '../hooks';
@@ -32,10 +33,40 @@ interface VendorOSDashboardProps {
   initialUserId?: string;
 }
 
-function ModuleWorkspace({ module, organizationId }: { module: VendorOSModule; organizationId?: string }) {
+function getInitialFieldValue(fieldType: string, options?: string[]) {
+  if (fieldType === 'select') return options?.[0] || '';
+  return '';
+}
+
+function normalizeFieldValue(fieldType: string, value: string) {
+  if (fieldType === 'number') return value === '' ? null : Number(value);
+  if (fieldType === 'select' && value === 'true') return true;
+  if (fieldType === 'select' && value === 'false') return false;
+  return value;
+}
+
+function ModuleWorkspace({
+  module,
+  organizationId,
+  branchId,
+}: {
+  module: VendorOSModule;
+  organizationId?: string;
+  branchId?: string | null;
+}) {
   const workflow = vendorOSWorkflows[module];
   const operation = getVendorOSOperation(module);
   const moduleRecords = useVendorOSRecords(module, organizationId);
+  const mutations = useVendorOSRecordMutations(module, organizationId, branchId);
+  const initialFormValues = useMemo(
+    () =>
+      Object.fromEntries(
+        operation.createFields.map((field) => [field.name, getInitialFieldValue(field.type, field.options)]),
+      ),
+    [operation.createFields],
+  );
+  const [formValues, setFormValues] = useState<Record<string, string>>(initialFormValues);
+  const [createMessage, setCreateMessage] = useState<string | null>(null);
   const displayedRecords = moduleRecords.records.length
     ? moduleRecords.records.map((row) => ({
         title: String(row[operation.titleField] || 'Untitled record'),
@@ -44,6 +75,29 @@ function ModuleWorkspace({ module, organizationId }: { module: VendorOSModule; o
         status: String(row[operation.statusField] || 'active'),
       }))
     : workflow.records;
+
+  useEffect(() => {
+    setFormValues(initialFormValues);
+  }, [initialFormValues]);
+
+  async function handleCreateRecord(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreateMessage(null);
+    const payload = Object.fromEntries(
+      operation.createFields
+        .filter((field) => formValues[field.name] !== '')
+        .map((field) => [field.name, normalizeFieldValue(field.type, formValues[field.name] || '')]),
+    );
+
+    try {
+      await mutations.createRecord(payload);
+      setFormValues(initialFormValues);
+      await moduleRecords.refresh();
+      setCreateMessage('Record created');
+    } catch (err) {
+      setCreateMessage(err instanceof Error ? err.message : 'Unable to create record');
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -117,22 +171,54 @@ function ModuleWorkspace({ module, organizationId }: { module: VendorOSModule; o
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Create Fields</h3>
+          <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Create Record</h3>
           <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
-            API Ready
+            Live API
           </span>
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
+        <form className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={handleCreateRecord}>
           {operation.createFields.map((field) => (
-            <div key={field.name} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-              <div className="text-sm font-black text-slate-950">{field.label}</div>
-              <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                {field.type}
-                {field.required ? ' / required' : ''}
-              </div>
-            </div>
+            <label key={field.name} className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                {field.label}
+                {field.required ? ' *' : ''}
+              </span>
+              {field.type === 'select' ? (
+                <select
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                  required={field.required}
+                  value={formValues[field.name] || ''}
+                  onChange={(event) => setFormValues((current) => ({ ...current, [field.name]: event.target.value }))}
+                >
+                  {(field.options || []).map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                  required={field.required}
+                  type={field.type === 'datetime' ? 'datetime-local' : field.type}
+                  value={formValues[field.name] || ''}
+                  onChange={(event) => setFormValues((current) => ({ ...current, [field.name]: event.target.value }))}
+                  placeholder={field.label}
+                />
+              )}
+            </label>
           ))}
-        </div>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId}
+            type="submit"
+          >
+            {mutations.submitting ? 'Saving' : 'Create'}
+          </Button>
+        </form>
+        {(createMessage || mutations.error || moduleRecords.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{createMessage || mutations.error || moduleRecords.error}</p>
+        )}
       </section>
     </div>
   );
@@ -232,7 +318,11 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
         ) : activeModule === 'analytics' ? (
           <AnalyticsWorkspace />
         ) : (
-          <ModuleWorkspace module={activeModule} organizationId={tenant.selectedOrganization?.id} />
+          <ModuleWorkspace
+            module={activeModule}
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
         )}
       </div>
     </VendorOSLayout>
