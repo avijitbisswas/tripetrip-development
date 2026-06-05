@@ -101,6 +101,51 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByLabelText('Email *')).toBeInTheDocument();
   });
 
+  it('renders the Branches module as a multi-branch workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/branches']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Multi-branch Support')).toBeInTheDocument();
+    expect(screen.getByText('Branch Registry')).toBeInTheDocument();
+    expect(screen.getByText('Category Mix')).toBeInTheDocument();
+    expect(screen.getByText('Local Controls')).toBeInTheDocument();
+    expect(screen.getByText('Operating Policies')).toBeInTheDocument();
+    expect(screen.getByText('Backed by vendor_branches')).toBeInTheDocument();
+    expect(screen.getByLabelText('Branch name *')).toBeInTheDocument();
+  });
+
+  it('creates a branch through the live workspace form', async () => {
+    createRecord.mockResolvedValueOnce({ id: 'branch-1' });
+    refreshRecords.mockResolvedValueOnce(undefined);
+
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/branches']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByLabelText('Branch name *'), 'Jaipur DMC Desk');
+    await userEvent.type(screen.getByLabelText('City'), 'Jaipur');
+    await userEvent.type(screen.getByLabelText('Country'), 'India');
+    await userEvent.selectOptions(screen.getByLabelText('Status *'), 'active');
+    await userEvent.click(screen.getByRole('button', { name: 'Create Branch' }));
+
+    expect(createRecord).toHaveBeenCalledWith({
+      name: 'Jaipur DMC Desk',
+      city: 'Jaipur',
+      country: 'India',
+      is_active: true,
+    });
+    expect(refreshRecords).toHaveBeenCalled();
+  });
+
   it('creates a team invitation through the live workspace form', async () => {
     createRecord.mockResolvedValueOnce({ id: 'member-1' });
     refreshRecords.mockResolvedValueOnce(undefined);
