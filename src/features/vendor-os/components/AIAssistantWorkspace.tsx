@@ -1,3 +1,4 @@
+import { useMemo, useState, type FormEvent } from 'react';
 import {
   AlertTriangle,
   Bot,
@@ -13,6 +14,12 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+
+interface AIAssistantWorkspaceProps {
+  organizationId?: string;
+  branchId?: string | null;
+}
 
 const briefItems = [
   { title: 'Morning operations brief', detail: '14 arrivals, 6 dirty rooms, 3 high-value leads, 2 permit risks', state: 'Ready' },
@@ -62,6 +69,16 @@ const approvalSignals: Array<{ title: string; detail: string; icon: LucideIcon }
   },
 ];
 
+const insightStatusOptions = ['review', 'ready', 'approved', 'dismissed'];
+
+function titleCase(value: string) {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function StatePill({ state }: { state: string }) {
   const attention = ['Attention', 'Urgent', 'Review', 'Needs approval'].includes(state);
   return (
@@ -87,7 +104,55 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function AIAssistantWorkspace() {
+export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWorkspaceProps) {
+  const records = useVendorOSRecords('ai_assistant', organizationId);
+  const mutations = useVendorOSRecordMutations('ai_assistant', organizationId, branchId);
+  const [insightForm, setInsightForm] = useState({
+    title: '',
+    recommendation: '',
+    confidence: '',
+    status: 'review',
+  });
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const liveInsights = useMemo(
+    () =>
+      records.records.map((record) => ({
+        id: String(record.id),
+        title: String(record.title || 'Untitled AI insight'),
+        recommendation: String(record.recommendation || 'Recommendation pending review'),
+        confidence:
+          record.confidence === null || record.confidence === undefined
+            ? 'Confidence pending'
+            : `${record.confidence}% confidence`,
+        state: titleCase(String(record.status || 'review')),
+      })),
+    [records.records],
+  );
+
+  async function handleInsightSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        title: insightForm.title,
+        recommendation: insightForm.recommendation,
+        confidence: insightForm.confidence ? Number(insightForm.confidence) : null,
+        status: insightForm.status,
+      });
+      setInsightForm({
+        title: '',
+        recommendation: '',
+        confidence: '',
+        status: 'review',
+      });
+      await records.refresh();
+      setFormMessage('AI insight created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create AI insight');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -114,6 +179,76 @@ export function AIAssistantWorkspace() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">AI Insight Entry</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by vendor_ai_insights</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Auditable AI Record
+          </span>
+        </div>
+        <form className="grid gap-3 xl:grid-cols-[0.85fr_1.35fr_0.45fr_0.55fr_auto]" onSubmit={handleInsightSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Insight title *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="AI insight"
+              required
+              value={insightForm.title}
+              onChange={(inputEvent) => setInsightForm((current) => ({ ...current, title: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Recommendation *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Recommended action"
+              required
+              value={insightForm.recommendation}
+              onChange={(inputEvent) => setInsightForm((current) => ({ ...current, recommendation: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Confidence</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              max="100"
+              min="0"
+              type="number"
+              value={insightForm.confidence}
+              onChange={(inputEvent) => setInsightForm((current) => ({ ...current, confidence: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Status *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={insightForm.status}
+              onChange={(inputEvent) => setInsightForm((current) => ({ ...current, status: inputEvent.target.value }))}
+            >
+              {insightStatusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {titleCase(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId}
+            type="submit"
+          >
+            Create AI Insight
+          </Button>
+        </form>
+        {(formMessage || mutations.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        )}
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
         <Metric label="Insights" value="8" detail="Today" />
         <Metric label="Draft Replies" value="14" detail="Ready" />
@@ -128,6 +263,18 @@ export function AIAssistantWorkspace() {
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Daily Brief</h3>
           </div>
           <div className="space-y-3">
+            {liveInsights.map((insight) => (
+              <div key={insight.id} className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{insight.title}</div>
+                    <div className="mt-1 text-sm leading-6 text-slate-600">{insight.recommendation}</div>
+                    <div className="mt-2 text-xs font-bold uppercase tracking-widest text-emerald-700">{insight.confidence}</div>
+                  </div>
+                  <StatePill state={insight.state} />
+                </div>
+              </div>
+            ))}
             {briefItems.map((item) => (
               <div key={item.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">

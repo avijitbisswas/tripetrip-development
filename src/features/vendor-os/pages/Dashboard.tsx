@@ -335,7 +335,10 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
             branchId={tenant.activeBranch?.id || null}
           />
         ) : activeModule === 'ai_assistant' ? (
-          <AIAssistantWorkspace />
+          <AIAssistantWorkspace
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
         ) : activeModule === 'subscriptions' ? (
           <SubscriptionWorkspace />
         ) : activeModule === 'analytics' ? (
