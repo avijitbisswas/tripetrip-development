@@ -67,6 +67,44 @@ function toServiceError(error: { message: string }, code: string) {
   return new ServiceError(error.message, code, 500);
 }
 
+async function getCurrentAuditActorId() {
+  const { data, error } = await supabase.auth.getUser();
+  if (error) return null;
+  return data.user?.id || null;
+}
+
+async function writeVendorOSRecordAudit(
+  operation: VendorOSOperation,
+  action: 'created' | 'updated' | 'deleted',
+  row: VendorOSRecordRow,
+  metadata: Record<string, unknown> = {},
+) {
+  const actorUserId = await getCurrentAuditActorId();
+  if (!actorUserId) return;
+
+  const { error } = await supabase
+    .from('vendor_audit_logs')
+    .insert({
+      organization_id: row.organization_id,
+      branch_id: row.branch_id || null,
+      actor_user_id: actorUserId,
+      module: operation.module,
+      action: `${operation.module}.${action}`,
+      entity_type: operation.table,
+      entity_id: row.id,
+      severity: 'info',
+      metadata: {
+        table: operation.table,
+        title_field: operation.titleField,
+        ...metadata,
+      },
+    })
+    .select()
+    .single();
+
+  if (error) throw toServiceError(error, 'VENDOR_OS_AUDIT_WRITE_FAILED');
+}
+
 export async function listVendorOrganizations(userId?: string) {
   if (!userId) return [];
 
@@ -250,6 +288,7 @@ export async function createVendorOSRecord(
   const { data, error } = await supabase.from(operation.table).insert(payload).select().single<VendorOSRecordRow>();
 
   if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_WRITE_FAILED');
+  await writeVendorOSRecordAudit(operation, 'created', data, { fields: Object.keys(input) });
   return data;
 }
 
@@ -266,12 +305,19 @@ export async function updateVendorOSRecord(
     .single<VendorOSRecordRow>();
 
   if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_UPDATE_FAILED');
+  await writeVendorOSRecordAudit(operation, 'updated', data, { changed_fields: Object.keys(input) });
   return data;
 }
 
 export async function deleteVendorOSRecord(operation: VendorOSOperation, recordId: string) {
-  const { error } = await supabase.from(operation.table).delete().eq('id', recordId);
+  const { data, error } = await supabase
+    .from(operation.table)
+    .delete()
+    .eq('id', recordId)
+    .select()
+    .single<VendorOSRecordRow>();
 
   if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_DELETE_FAILED');
+  await writeVendorOSRecordAudit(operation, 'deleted', data);
   return { id: recordId };
 }
