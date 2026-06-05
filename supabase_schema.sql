@@ -2,6 +2,31 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('vendor-documents', 'vendor-documents', false)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Authenticated users upload vendor document objects" ON storage.objects;
+CREATE POLICY "Authenticated users upload vendor document objects"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'vendor-documents');
+
+DROP POLICY IF EXISTS "Owners read vendor document objects" ON storage.objects;
+CREATE POLICY "Owners read vendor document objects"
+  ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'vendor-documents' AND owner = auth.uid());
+
+DROP POLICY IF EXISTS "Owners update vendor document objects" ON storage.objects;
+CREATE POLICY "Owners update vendor document objects"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'vendor-documents' AND owner = auth.uid())
+  WITH CHECK (bucket_id = 'vendor-documents' AND owner = auth.uid());
+
+DROP POLICY IF EXISTS "Owners delete vendor document objects" ON storage.objects;
+CREATE POLICY "Owners delete vendor document objects"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'vendor-documents' AND owner = auth.uid());
+
 DO $$ BEGIN
   CREATE TYPE user_role AS ENUM ('traveler', 'vendor', 'admin');
 EXCEPTION

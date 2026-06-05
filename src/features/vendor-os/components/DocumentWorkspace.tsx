@@ -12,7 +12,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { useVendorDocumentUpload, useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
 
 interface DocumentWorkspaceProps {
   organizationId?: string;
@@ -57,7 +57,7 @@ const documentSignals: Array<{ title: string; detail: string; icon: LucideIcon }
   },
   {
     title: 'Storage-provider ready',
-    detail: 'Records store paths now, while upload and signed URL services can be wired in the next backend slice.',
+    detail: 'Files upload to private vendor storage and records retain their tenant-scoped object paths.',
     icon: UploadCloud,
   },
 ];
@@ -103,12 +103,15 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspaceProps) {
   const records = useVendorOSRecords('documents', organizationId);
   const mutations = useVendorOSRecordMutations('documents', organizationId, branchId);
+  const uploads = useVendorDocumentUpload(organizationId, branchId);
   const [documentForm, setDocumentForm] = useState({
     name: '',
     document_type: '',
     storage_path: '',
     status: 'active',
+    file: null as File | null,
   });
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [formMessage, setFormMessage] = useState<string | null>(null);
 
   const liveDocuments = useMemo(
@@ -130,20 +133,32 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
     setFormMessage(null);
 
     try {
-      await mutations.createRecord({
-        name: documentForm.name,
-        document_type: documentForm.document_type,
-        storage_path: documentForm.storage_path,
-        status: documentForm.status,
-      });
+      if (documentForm.file) {
+        await uploads.uploadDocument({
+          name: documentForm.name,
+          document_type: documentForm.document_type,
+          status: documentForm.status as 'draft' | 'active' | 'expired' | 'archived',
+          file: documentForm.file,
+        });
+      } else {
+        await mutations.createRecord({
+          module: 'documents',
+          name: documentForm.name,
+          document_type: documentForm.document_type,
+          storage_path: documentForm.storage_path,
+          status: documentForm.status,
+        });
+      }
       setDocumentForm({
         name: '',
         document_type: '',
         storage_path: '',
         status: 'active',
+        file: null,
       });
+      setFileInputKey((current) => current + 1);
       await records.refresh();
-      setFormMessage('Document created');
+      setFormMessage(documentForm.file ? 'Document uploaded' : 'Document created');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to create document');
     }
@@ -185,7 +200,7 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
             Branch Scoped
           </span>
         </div>
-        <form className="grid gap-3 md:grid-cols-[1fr_0.65fr_1fr_0.6fr_auto]" onSubmit={handleDocumentSubmit}>
+        <form className="grid gap-3 lg:grid-cols-[1fr_0.65fr_1fr_1fr_0.6fr_auto]" onSubmit={handleDocumentSubmit}>
           <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Document name *</span>
             <input
@@ -207,13 +222,29 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
             />
           </label>
           <label className="space-y-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Storage path *</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              Storage path {!documentForm.file ? '*' : ''}
+            </span>
             <input
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
               placeholder="vendors/org-1/licenses/file.pdf"
-              required
+              required={!documentForm.file}
               value={documentForm.storage_path}
               onChange={(inputEvent) => setDocumentForm((current) => ({ ...current, storage_path: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">File upload</span>
+            <input
+              key={fileInputKey}
+              className="block h-11 w-full cursor-pointer rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs font-bold text-slate-600 outline-none transition file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-600 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:border-emerald-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              type="file"
+              onChange={(inputEvent) =>
+                setDocumentForm((current) => ({
+                  ...current,
+                  file: inputEvent.target.files?.[0] || null,
+                }))
+              }
             />
           </label>
           <label className="space-y-2">
@@ -233,14 +264,16 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
           </label>
           <Button
             className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
-            disabled={mutations.submitting || !organizationId}
+            disabled={mutations.submitting || uploads.submitting || !organizationId}
             type="submit"
           >
             Create Document
           </Button>
         </form>
-        {(formMessage || mutations.error || records.error) && (
-          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        {(formMessage || mutations.error || uploads.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">
+            {formMessage || mutations.error || uploads.error || records.error}
+          </p>
         )}
       </section>
 

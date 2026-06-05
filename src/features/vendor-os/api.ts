@@ -3,9 +3,11 @@ import { ServiceError } from '@/src/services/errors';
 import type {
   VendorAuditLog,
   VendorBranch,
+  DocumentStatus,
   VendorDocument,
   VendorNotification,
   VendorOrganization,
+  VendorOSModule,
   VendorRolePermission,
   VendorTeamMember,
 } from './types';
@@ -63,6 +65,22 @@ type DocumentInput = Pick<VendorDocument, 'organization_id' | 'module' | 'name' 
     >
   >;
 
+export const VENDOR_DOCUMENTS_BUCKET = 'vendor-documents';
+
+type UploadVendorDocumentInput = {
+  organizationId: string;
+  branchId?: string | null;
+  module: VendorOSModule;
+  name: string;
+  documentType: string;
+  status?: DocumentStatus;
+  file: File | Blob;
+  fileName?: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
 function toServiceError(error: { message: string }, code: string) {
   return new ServiceError(error.message, code, 500);
 }
@@ -71,6 +89,48 @@ async function getCurrentAuditActorId() {
   const { data, error } = await supabase.auth.getUser();
   if (error) return null;
   return data.user?.id || null;
+}
+
+async function getRequiredCurrentUserId() {
+  const userId = await getCurrentAuditActorId();
+  if (!userId) {
+    throw new ServiceError('Sign in before uploading vendor documents', 'VENDOR_OS_AUTH_REQUIRED', 401);
+  }
+  return userId;
+}
+
+function sanitizeStorageSegment(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'document';
+}
+
+function getFileMetadata(file: File | Blob, fallbackName: string) {
+  const candidate = 'name' in file && typeof file.name === 'string' ? file.name : fallbackName;
+  return {
+    fileName: candidate,
+    mimeType: file.type || null,
+    size: typeof file.size === 'number' ? file.size : null,
+  };
+}
+
+export function buildVendorDocumentStoragePath(input: {
+  organizationId: string;
+  branchId?: string | null;
+  documentType: string;
+  fileName: string;
+}) {
+  const branchPath = input.branchId ? `branches/${input.branchId}/` : '';
+  return [
+    `organizations/${input.organizationId}`,
+    branchPath,
+    sanitizeStorageSegment(input.documentType),
+    `${Date.now()}-${sanitizeStorageSegment(input.fileName)}`,
+  ]
+    .join('/')
+    .replace(/\/+/g, '/');
 }
 
 async function writeVendorOSRecordAudit(
@@ -266,10 +326,51 @@ export async function listVendorDocuments(organizationId?: string) {
 }
 
 export async function createVendorDocumentRecord(input: DocumentInput) {
-  const { data, error } = await supabase.from('vendor_documents').insert(input).select().single<VendorDocument>();
+  const uploadedBy = input.uploaded_by || (await getRequiredCurrentUserId());
+  const { data, error } = await supabase
+    .from('vendor_documents')
+    .insert({ ...input, uploaded_by: uploadedBy })
+    .select()
+    .single<VendorDocument>();
 
   if (error) throw toServiceError(error, 'VENDOR_OS_DOCUMENT_WRITE_FAILED');
   return data;
+}
+
+export async function uploadVendorDocumentFile(input: UploadVendorDocumentInput) {
+  const uploadedBy = await getRequiredCurrentUserId();
+  const fileMetadata = getFileMetadata(input.file, input.fileName || input.name);
+  const storagePath = buildVendorDocumentStoragePath({
+    organizationId: input.organizationId,
+    branchId: input.branchId,
+    documentType: input.documentType,
+    fileName: fileMetadata.fileName,
+  });
+
+  const { data: uploadData, error: uploadError } = await supabase.storage
+    .from(VENDOR_DOCUMENTS_BUCKET)
+    .upload(storagePath, input.file, {
+      contentType: fileMetadata.mimeType || undefined,
+      upsert: false,
+    });
+
+  if (uploadError) throw toServiceError(uploadError, 'VENDOR_OS_DOCUMENT_UPLOAD_FAILED');
+
+  return createVendorDocumentRecord({
+    organization_id: input.organizationId,
+    branch_id: input.branchId || null,
+    uploaded_by: uploadedBy,
+    module: input.module,
+    entity_type: input.entityType || null,
+    entity_id: input.entityId || null,
+    name: input.name,
+    document_type: input.documentType,
+    storage_path: uploadData?.path || storagePath,
+    mime_type: fileMetadata.mimeType,
+    file_size_bytes: fileMetadata.size,
+    status: input.status || 'active',
+    metadata: input.metadata || {},
+  });
 }
 
 export type VendorOSRecordRow = Record<string, unknown> & {
@@ -299,9 +400,17 @@ export async function createVendorOSRecord(
   branchId: string | null,
   input: Record<string, unknown>,
 ) {
-  const payload = {
+  const documentDefaults: Record<string, unknown> =
+    operation.module === 'documents'
+      ? {
+          module: 'documents',
+          uploaded_by: await getRequiredCurrentUserId(),
+        }
+      : {};
+  const payload: Record<string, unknown> = {
     organization_id: organizationId,
     ...(operation.branchScoped === false ? {} : { branch_id: branchId }),
+    ...documentDefaults,
     ...input,
   };
 

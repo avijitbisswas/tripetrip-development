@@ -5,6 +5,7 @@ import { DocumentWorkspace } from './DocumentWorkspace';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
+  uploadDocument: vi.fn(),
   refresh: vi.fn(),
   records: [] as Record<string, unknown>[],
 }));
@@ -23,11 +24,17 @@ vi.mock('../hooks', () => ({
     submitting: false,
     error: null,
   }),
+  useVendorDocumentUpload: () => ({
+    uploadDocument: hookMocks.uploadDocument,
+    submitting: false,
+    error: null,
+  }),
 }));
 
 describe('DocumentWorkspace', () => {
   beforeEach(() => {
     hookMocks.createRecord.mockReset();
+    hookMocks.uploadDocument.mockReset();
     hookMocks.refresh.mockReset();
     hookMocks.records = [];
   });
@@ -57,11 +64,35 @@ describe('DocumentWorkspace', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create Document' }));
 
     expect(hookMocks.createRecord).toHaveBeenCalledWith({
+      module: 'documents',
       name: 'Hotel Trade License',
       document_type: 'license',
       storage_path: 'vendors/org-1/licenses/hotel-trade-license.pdf',
       status: 'active',
     });
+    expect(hookMocks.refresh).toHaveBeenCalled();
+  });
+
+  it('uploads a selected file through the workspace form', async () => {
+    hookMocks.uploadDocument.mockResolvedValueOnce({ id: 'doc-1' });
+    hookMocks.refresh.mockResolvedValueOnce(undefined);
+    const file = new File(['license'], 'hotel-trade-license.pdf', { type: 'application/pdf' });
+
+    render(<DocumentWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await userEvent.type(screen.getByLabelText('Document name *'), 'Hotel Trade License');
+    await userEvent.type(screen.getByLabelText('Document type *'), 'license');
+    await userEvent.upload(screen.getByLabelText('File upload'), file);
+    await userEvent.selectOptions(screen.getByLabelText('Status *'), 'active');
+    await userEvent.click(screen.getByRole('button', { name: 'Create Document' }));
+
+    expect(hookMocks.uploadDocument).toHaveBeenCalledWith({
+      name: 'Hotel Trade License',
+      document_type: 'license',
+      status: 'active',
+      file,
+    });
+    expect(hookMocks.createRecord).not.toHaveBeenCalled();
     expect(hookMocks.refresh).toHaveBeenCalled();
   });
 

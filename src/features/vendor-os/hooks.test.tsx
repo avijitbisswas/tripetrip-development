@@ -1,6 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useVendorOSNotifications, useVendorOSRecordMutations, useVendorOSRecords, useVendorOSTenant } from './hooks';
+import {
+  useVendorDocumentUpload,
+  useVendorOSNotifications,
+  useVendorOSRecordMutations,
+  useVendorOSRecords,
+  useVendorOSTenant,
+} from './hooks';
 import type { VendorBranch, VendorNotification, VendorOrganization, VendorTeamMember } from './types';
 
 vi.mock('./api', () => ({
@@ -14,6 +20,7 @@ vi.mock('./api', () => ({
   deleteVendorOSRecord: vi.fn(),
   markVendorNotificationRead: vi.fn(),
   subscribeVendorNotifications: vi.fn(),
+  uploadVendorDocumentFile: vi.fn(),
 }));
 
 import {
@@ -26,6 +33,7 @@ import {
   listVendorTeamMembers,
   markVendorNotificationRead,
   subscribeVendorNotifications,
+  uploadVendorDocumentFile,
   updateVendorOSRecord,
 } from './api';
 
@@ -124,6 +132,24 @@ describe('Vendor OS hooks', () => {
     vi.mocked(deleteVendorOSRecord).mockResolvedValue({ id: 'lead-1' });
     vi.mocked(markVendorNotificationRead).mockResolvedValue({ ...unread, status: 'read' });
     vi.mocked(subscribeVendorNotifications).mockReturnValue(vi.fn());
+    vi.mocked(uploadVendorDocumentFile).mockResolvedValue({
+      id: 'doc-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      uploaded_by: 'user-1',
+      module: 'documents',
+      name: 'Hotel Trade License',
+      document_type: 'license',
+      storage_path: 'organizations/org-1/branches/branch-1/license/file.pdf',
+      mime_type: 'application/pdf',
+      file_size_bytes: 7,
+      status: 'active',
+      expires_at: null,
+      entity_type: null,
+      entity_id: null,
+      metadata: {},
+      created_at: '2026-06-03T00:00:00.000Z',
+    });
   });
 
   it('loads tenant context and exposes permission helper', async () => {
@@ -235,6 +261,31 @@ describe('Vendor OS hooks', () => {
       stage: 'won',
     });
     expect(deleteVendorOSRecord).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendor_leads' }), 'lead-1');
+    expect(result.current.submitting).toBe(false);
+  });
+
+  it('uploads document files through the document upload hook', async () => {
+    const file = new File(['license'], 'license.pdf', { type: 'application/pdf' });
+    const { result } = renderHook(() => useVendorDocumentUpload('org-1', 'branch-1'));
+
+    await act(async () => {
+      await result.current.uploadDocument({
+        name: 'Hotel Trade License',
+        document_type: 'license',
+        status: 'active',
+        file,
+      });
+    });
+
+    expect(uploadVendorDocumentFile).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      branchId: 'branch-1',
+      module: 'documents',
+      name: 'Hotel Trade License',
+      documentType: 'license',
+      status: 'active',
+      file,
+    });
     expect(result.current.submitting).toBe(false);
   });
 });

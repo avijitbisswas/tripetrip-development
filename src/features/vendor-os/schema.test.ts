@@ -12,4 +12,13 @@ describe('Vendor OS database schema', () => {
     expect(schema).toContain('ALTER TABLE vendor_os_module_settings ENABLE ROW LEVEL SECURITY');
     expect(schema).toContain('CREATE TRIGGER set_vendor_os_module_settings_updated_at');
   });
+
+  it('provisions a private storage bucket for uploaded vendor documents', () => {
+    expect(schema).toContain("INSERT INTO storage.buckets (id, name, public)");
+    expect(schema).toContain("'vendor-documents', 'vendor-documents', false");
+    expect(schema).toContain('CREATE POLICY "Authenticated users upload vendor document objects"');
+    expect(schema).toContain('CREATE POLICY "Owners read vendor document objects"');
+    expect(schema).toContain('CREATE POLICY "Owners update vendor document objects"');
+    expect(schema).toContain('CREATE POLICY "Owners delete vendor document objects"');
+  });
 });

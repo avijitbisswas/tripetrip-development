@@ -8,6 +8,7 @@ const createRecord = vi.fn();
 const updateRecord = vi.fn();
 const deleteRecord = vi.fn();
 const refreshRecords = vi.fn();
+const uploadDocument = vi.fn();
 
 vi.mock('../hooks', () => ({
   useVendorOSTenant: () => ({
@@ -58,6 +59,11 @@ vi.mock('../hooks', () => ({
     submitting: false,
     error: null,
   }),
+  useVendorDocumentUpload: () => ({
+    uploadDocument,
+    submitting: false,
+    error: null,
+  }),
 }));
 
 describe('Vendor OS dashboard', () => {
@@ -66,6 +72,7 @@ describe('Vendor OS dashboard', () => {
     updateRecord.mockReset();
     deleteRecord.mockReset();
     refreshRecords.mockReset();
+    uploadDocument.mockReset();
   });
 
   it('renders the operating system shell and staff-safe modules', () => {
@@ -187,6 +194,7 @@ describe('Vendor OS dashboard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create Document' }));
 
     expect(createRecord).toHaveBeenCalledWith({
+      module: 'documents',
       name: 'Hotel Trade License',
       document_type: 'license',
       storage_path: 'vendors/org-1/licenses/hotel-trade-license.pdf',

@@ -12,6 +12,7 @@ import {
   markVendorNotificationRead,
   subscribeVendorNotifications,
   updateVendorOSRecord,
+  uploadVendorDocumentFile,
   type VendorOSRecordRow,
 } from './api';
 import { getVendorOSOperation } from './operations';
@@ -26,6 +27,7 @@ import type {
   VendorOSModule,
   VendorOSRole,
   VendorTeamMember,
+  DocumentStatus,
 } from './types';
 
 const DEFAULT_ROLE: VendorOSRole = 'owner';
@@ -316,6 +318,43 @@ export function useVendorOSRecordMutations(
     createRecord,
     updateRecord,
     deleteRecord,
+    submitting,
+    error,
+  };
+}
+
+export function useVendorDocumentUpload(organizationId?: string | null, branchId?: string | null) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const uploadDocument = useCallback(
+    async (input: { name: string; document_type: string; status?: DocumentStatus; file: File | Blob }) => {
+      if (!organizationId) throw new Error('Select an organization before uploading documents');
+      setSubmitting(true);
+      setError(null);
+      try {
+        return await uploadVendorDocumentFile({
+          organizationId,
+          branchId: branchId || null,
+          module: 'documents',
+          name: input.name,
+          documentType: input.document_type,
+          status: input.status || 'active',
+          file: input.file,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to upload document';
+        setError(message);
+        throw err;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [branchId, organizationId],
+  );
+
+  return {
+    uploadDocument,
     submitting,
     error,
   };

@@ -1,9 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { supabase } from '@/src/lib/supabase';
 import {
+  createVendorDocumentRecord,
+  createVendorOSRecord,
   deleteVendorOSRecord,
   markVendorNotificationRead,
   subscribeVendorNotifications,
+  uploadVendorDocumentFile,
+  VENDOR_DOCUMENTS_BUCKET,
   updateVendorOSRecord,
   type VendorOSRecordRow,
 } from './api';
@@ -14,6 +18,9 @@ vi.mock('@/src/lib/supabase', () => ({
     from: vi.fn(),
     channel: vi.fn(),
     removeChannel: vi.fn(),
+    storage: {
+      from: vi.fn(),
+    },
     auth: {
       getUser: vi.fn(),
     },
@@ -36,6 +43,7 @@ describe('Vendor OS record API', () => {
     vi.mocked(supabase.from).mockReset();
     vi.mocked(supabase.channel).mockReset();
     vi.mocked(supabase.removeChannel).mockReset();
+    vi.mocked(supabase.storage.from).mockReset();
     vi.mocked(supabase.auth.getUser).mockResolvedValue({
       data: { user: { id: 'user-1' } },
       error: null,
@@ -148,8 +156,6 @@ describe('Vendor OS record API', () => {
       .mockReturnValueOnce({ insert } as never)
       .mockReturnValueOnce({ insert: auditInsert } as never);
 
-    const { createVendorOSRecord } = await import('./api');
-
     await expect(createVendorOSRecord(branchOperation, 'org-1', 'branch-1', { name: 'Goa Office' })).resolves.toEqual(row);
     expect(insert).toHaveBeenCalledWith({ organization_id: 'org-1', name: 'Goa Office' });
     expect(auditInsert).toHaveBeenCalledWith({
@@ -166,6 +172,159 @@ describe('Vendor OS record API', () => {
         table: 'vendor_branches',
         title_field: 'name',
       },
+    });
+  });
+
+  it('adds the authenticated uploader when creating document records', async () => {
+    const row = {
+      id: 'doc-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      uploaded_by: 'user-1',
+      module: 'documents',
+      name: 'Hotel Trade License',
+      document_type: 'license',
+      storage_path: 'vendors/org-1/licenses/hotel-trade-license.pdf',
+      status: 'active',
+    };
+    const single = vi.fn().mockResolvedValue({ data: row, error: null });
+    const select = vi.fn(() => ({ single }));
+    const insert = vi.fn(() => ({ select }));
+
+    vi.mocked(supabase.from).mockReturnValueOnce({ insert } as never);
+
+    await expect(
+      createVendorDocumentRecord({
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        module: 'documents',
+        name: 'Hotel Trade License',
+        document_type: 'license',
+        storage_path: 'vendors/org-1/licenses/hotel-trade-license.pdf',
+        status: 'active',
+      }),
+    ).resolves.toEqual(row);
+
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      module: 'documents',
+      name: 'Hotel Trade License',
+      document_type: 'license',
+      storage_path: 'vendors/org-1/licenses/hotel-trade-license.pdf',
+      status: 'active',
+      uploaded_by: 'user-1',
+    });
+  });
+
+  it('adds document module and uploader fields for generic document creates', async () => {
+    const documentOperation: VendorOSOperation = {
+      module: 'documents',
+      table: 'vendor_documents',
+      titleField: 'name',
+      statusField: 'status',
+      createFields: [],
+    };
+    const row: VendorOSRecordRow = {
+      id: 'doc-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      uploaded_by: 'user-1',
+      module: 'documents',
+      name: 'Insurance Policy',
+      status: 'active',
+    };
+    const single = vi.fn().mockResolvedValue({ data: row, error: null });
+    const select = vi.fn(() => ({ single }));
+    const insert = vi.fn(() => ({ select }));
+    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
+    const auditSelect = vi.fn(() => ({ single: auditSingle }));
+    const auditInsert = vi.fn(() => ({ select: auditSelect }));
+
+    vi.mocked(supabase.from)
+      .mockReturnValueOnce({ insert } as never)
+      .mockReturnValueOnce({ insert: auditInsert } as never);
+
+    await expect(
+      createVendorOSRecord(documentOperation, 'org-1', 'branch-1', {
+        name: 'Insurance Policy',
+        document_type: 'insurance',
+        storage_path: 'vendors/org-1/insurance/policy.pdf',
+        status: 'active',
+      }),
+    ).resolves.toEqual(row);
+
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      module: 'documents',
+      uploaded_by: 'user-1',
+      name: 'Insurance Policy',
+      document_type: 'insurance',
+      storage_path: 'vendors/org-1/insurance/policy.pdf',
+      status: 'active',
+    });
+  });
+
+  it('uploads a vendor document file to storage and creates its document record', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(123456);
+    const file = new File(['license'], 'Hotel Trade License.pdf', { type: 'application/pdf' });
+    const upload = vi.fn().mockResolvedValue({
+      data: { path: 'organizations/org-1/branches/branch-1/license/123456-hotel-trade-license.pdf' },
+      error: null,
+    });
+    const row = {
+      id: 'doc-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      uploaded_by: 'user-1',
+      module: 'documents',
+      name: 'Hotel Trade License',
+      document_type: 'license',
+      storage_path: 'organizations/org-1/branches/branch-1/license/123456-hotel-trade-license.pdf',
+      mime_type: 'application/pdf',
+      file_size_bytes: file.size,
+      status: 'active',
+    };
+    const single = vi.fn().mockResolvedValue({ data: row, error: null });
+    const select = vi.fn(() => ({ single }));
+    const insert = vi.fn(() => ({ select }));
+
+    vi.mocked(supabase.storage.from).mockReturnValue({ upload } as never);
+    vi.mocked(supabase.from).mockReturnValueOnce({ insert } as never);
+
+    await expect(
+      uploadVendorDocumentFile({
+        organizationId: 'org-1',
+        branchId: 'branch-1',
+        module: 'documents',
+        name: 'Hotel Trade License',
+        documentType: 'license',
+        status: 'active',
+        file,
+      }),
+    ).resolves.toEqual(row);
+
+    expect(supabase.storage.from).toHaveBeenCalledWith(VENDOR_DOCUMENTS_BUCKET);
+    expect(upload).toHaveBeenCalledWith(
+      'organizations/org-1/branches/branch-1/license/123456-hotel-trade-license.pdf',
+      file,
+      { contentType: 'application/pdf', upsert: false },
+    );
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      uploaded_by: 'user-1',
+      module: 'documents',
+      entity_type: null,
+      entity_id: null,
+      name: 'Hotel Trade License',
+      document_type: 'license',
+      storage_path: 'organizations/org-1/branches/branch-1/license/123456-hotel-trade-license.pdf',
+      mime_type: 'application/pdf',
+      file_size_bytes: file.size,
+      status: 'active',
+      metadata: {},
     });
   });
 
