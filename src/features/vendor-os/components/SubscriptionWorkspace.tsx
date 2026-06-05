@@ -1,3 +1,4 @@
+import { useMemo, useState, type FormEvent } from 'react';
 import {
   BadgeCheck,
   BarChart3,
@@ -13,6 +14,11 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+
+interface SubscriptionWorkspaceProps {
+  organizationId?: string;
+}
 
 const usageMeters = [
   { label: 'Listings', value: '24 / 40', detail: '60% used', state: 'Healthy' },
@@ -57,6 +63,18 @@ const planSignals: Array<{ title: string; detail: string; icon: LucideIcon }> = 
   },
 ];
 
+const planOptions = ['starter', 'growth', 'scale', 'enterprise'];
+const billingCycleOptions = ['monthly', 'annual'];
+const subscriptionStatusOptions = ['active', 'trialing', 'past_due', 'cancelled'];
+
+function titleCase(value: string) {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function StatePill({ state }: { state: string }) {
   const attention = ['Monitor', 'Review', 'Scheduled', 'Limited'].includes(state);
   return (
@@ -82,7 +100,55 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function SubscriptionWorkspace() {
+export function SubscriptionWorkspace({ organizationId }: SubscriptionWorkspaceProps) {
+  const records = useVendorOSRecords('subscriptions', organizationId);
+  const mutations = useVendorOSRecordMutations('subscriptions', organizationId, null);
+  const [subscriptionForm, setSubscriptionForm] = useState({
+    plan_code: 'growth',
+    billing_cycle: 'monthly',
+    status: 'active',
+    team_seats: '',
+  });
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const liveSubscriptions = useMemo(
+    () =>
+      records.records.map((record) => ({
+        id: String(record.id),
+        plan: `${titleCase(String(record.plan_code || 'growth'))} Plan`,
+        billing: `${titleCase(String(record.billing_cycle || 'monthly'))} billing`,
+        seats:
+          record.team_seats === null || record.team_seats === undefined
+            ? 'Seats not configured'
+            : `${record.team_seats} team seats`,
+        state: titleCase(String(record.status || 'active')),
+      })),
+    [records.records],
+  );
+
+  async function handleSubscriptionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        plan_code: subscriptionForm.plan_code,
+        billing_cycle: subscriptionForm.billing_cycle,
+        status: subscriptionForm.status,
+        team_seats: subscriptionForm.team_seats ? Number(subscriptionForm.team_seats) : null,
+      });
+      setSubscriptionForm({
+        plan_code: 'growth',
+        billing_cycle: 'monthly',
+        status: 'active',
+        team_seats: '',
+      });
+      await records.refresh();
+      setFormMessage('Subscription created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create subscription');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -109,6 +175,85 @@ export function SubscriptionWorkspace() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Subscription Entry</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by vendor_subscription_accounts</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Organization Scoped
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[0.7fr_0.65fr_0.65fr_0.5fr_auto]" onSubmit={handleSubscriptionSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Plan code *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={subscriptionForm.plan_code}
+              onChange={(inputEvent) => setSubscriptionForm((current) => ({ ...current, plan_code: inputEvent.target.value }))}
+            >
+              {planOptions.map((plan) => (
+                <option key={plan} value={plan}>
+                  {titleCase(plan)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Billing cycle *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={subscriptionForm.billing_cycle}
+              onChange={(inputEvent) => setSubscriptionForm((current) => ({ ...current, billing_cycle: inputEvent.target.value }))}
+            >
+              {billingCycleOptions.map((cycle) => (
+                <option key={cycle} value={cycle}>
+                  {titleCase(cycle)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Status *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={subscriptionForm.status}
+              onChange={(inputEvent) => setSubscriptionForm((current) => ({ ...current, status: inputEvent.target.value }))}
+            >
+              {subscriptionStatusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {titleCase(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Team seats</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              min="1"
+              type="number"
+              value={subscriptionForm.team_seats}
+              onChange={(inputEvent) => setSubscriptionForm((current) => ({ ...current, team_seats: inputEvent.target.value }))}
+            />
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId}
+            type="submit"
+          >
+            Create Subscription
+          </Button>
+        </form>
+        {(formMessage || mutations.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        )}
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
         <Metric label="Plan" value="Growth" detail="Active" />
         <Metric label="Usage" value="68%" detail="Healthy" />
@@ -122,6 +267,21 @@ export function SubscriptionWorkspace() {
             <BadgeCheck className="h-4 w-4 text-emerald-600" />
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Plan Control</h3>
           </div>
+          {liveSubscriptions.map((subscription) => (
+            <div key={subscription.id} className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-2xl font-black text-slate-950">{subscription.plan}</div>
+                  <div className="mt-2 text-sm leading-6 text-slate-600">{subscription.billing}</div>
+                </div>
+                <StatePill state={subscription.state} />
+              </div>
+              <div className="mt-5 flex items-center gap-2 text-sm font-bold text-slate-700">
+                <Users className="h-4 w-4 text-emerald-600" />
+                {subscription.seats}
+              </div>
+            </div>
+          ))}
           <div className="rounded-2xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
             <div className="flex items-start justify-between gap-3">
               <div>

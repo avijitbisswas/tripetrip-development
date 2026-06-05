@@ -340,7 +340,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
             branchId={tenant.activeBranch?.id || null}
           />
         ) : activeModule === 'subscriptions' ? (
-          <SubscriptionWorkspace />
+          <SubscriptionWorkspace organizationId={tenant.selectedOrganization?.id} />
         ) : activeModule === 'analytics' ? (
           <AnalyticsWorkspace />
         ) : (
