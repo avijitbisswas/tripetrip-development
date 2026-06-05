@@ -9,6 +9,7 @@ import { AuditTimeline } from '../components/AuditTimeline';
 import { BranchWorkspace } from '../components/BranchWorkspace';
 import { CalendarInventoryWorkspace } from '../components/CalendarInventoryWorkspace';
 import { CrmInboxWorkspace } from '../components/CrmInboxWorkspace';
+import { DocumentWorkspace } from '../components/DocumentWorkspace';
 import { DocumentVault } from '../components/DocumentVault';
 import { FleetWorkspace } from '../components/FleetWorkspace';
 import { MarketplaceWorkspace } from '../components/MarketplaceWorkspace';
@@ -355,6 +356,11 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           />
         ) : activeModule === 'branches' ? (
           <BranchWorkspace organizationId={tenant.selectedOrganization?.id} />
+        ) : activeModule === 'documents' ? (
+          <DocumentWorkspace
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
         ) : (
           <ModuleWorkspace
             module={activeModule}

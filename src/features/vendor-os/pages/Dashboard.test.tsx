@@ -146,6 +146,51 @@ describe('Vendor OS dashboard', () => {
     expect(refreshRecords).toHaveBeenCalled();
   });
 
+  it('renders the Documents module as a document management workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/documents']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Document Management')).toBeInTheDocument();
+    expect(screen.getByText('Compliance Vault')).toBeInTheDocument();
+    expect(screen.getByText('Expiry Alerts')).toBeInTheDocument();
+    expect(screen.getAllByText('Booking Docs').length).toBeGreaterThan(0);
+    expect(screen.getByText('Storage Governance')).toBeInTheDocument();
+    expect(screen.getByText('Backed by vendor_documents')).toBeInTheDocument();
+    expect(screen.getByLabelText('Document name *')).toBeInTheDocument();
+  });
+
+  it('creates a document through the live workspace form', async () => {
+    createRecord.mockResolvedValueOnce({ id: 'doc-1' });
+    refreshRecords.mockResolvedValueOnce(undefined);
+
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/documents']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByLabelText('Document name *'), 'Hotel Trade License');
+    await userEvent.type(screen.getByLabelText('Document type *'), 'license');
+    await userEvent.type(screen.getByLabelText('Storage path *'), 'vendors/org-1/licenses/hotel-trade-license.pdf');
+    await userEvent.selectOptions(screen.getByLabelText('Status *'), 'active');
+    await userEvent.click(screen.getByRole('button', { name: 'Create Document' }));
+
+    expect(createRecord).toHaveBeenCalledWith({
+      name: 'Hotel Trade License',
+      document_type: 'license',
+      storage_path: 'vendors/org-1/licenses/hotel-trade-license.pdf',
+      status: 'active',
+    });
+    expect(refreshRecords).toHaveBeenCalled();
+  });
+
   it('creates a team invitation through the live workspace form', async () => {
     createRecord.mockResolvedValueOnce({ id: 'member-1' });
     refreshRecords.mockResolvedValueOnce(undefined);
