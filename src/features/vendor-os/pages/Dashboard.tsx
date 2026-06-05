@@ -342,7 +342,10 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
         ) : activeModule === 'subscriptions' ? (
           <SubscriptionWorkspace organizationId={tenant.selectedOrganization?.id} />
         ) : activeModule === 'analytics' ? (
-          <AnalyticsWorkspace />
+          <AnalyticsWorkspace
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
         ) : (
           <ModuleWorkspace
             module={activeModule}

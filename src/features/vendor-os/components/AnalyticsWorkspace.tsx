@@ -1,3 +1,4 @@
+import { useMemo, useState, type FormEvent } from 'react';
 import {
   BarChart3,
   Building2,
@@ -12,6 +13,12 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+
+interface AnalyticsWorkspaceProps {
+  organizationId?: string;
+  branchId?: string | null;
+}
 
 const executiveReports = [
   { title: 'Revenue', value: 'INR 18.4L', detail: '+18% month over month', state: 'Strong' },
@@ -63,6 +70,16 @@ const analyticsSignals: Array<{ title: string; detail: string; icon: LucideIcon 
   },
 ];
 
+const analyticsModuleOptions = ['crm', 'pms', 'tours', 'activities', 'fleet', 'marketplace'];
+
+function titleCase(value: string) {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function StatePill({ state }: { state: string }) {
   const attention = ['Review', 'Scheduled'].includes(state);
   return (
@@ -88,7 +105,52 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function AnalyticsWorkspace() {
+export function AnalyticsWorkspace({ organizationId, branchId }: AnalyticsWorkspaceProps) {
+  const records = useVendorOSRecords('analytics', organizationId);
+  const mutations = useVendorOSRecordMutations('analytics', organizationId, branchId);
+  const [snapshotForm, setSnapshotForm] = useState({
+    module: 'marketplace',
+    snapshot_date: '',
+    metric_label: '',
+    metric_value: '',
+  });
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const liveSnapshots = useMemo(
+    () =>
+      records.records.map((record) => ({
+        id: String(record.id),
+        title: `${titleCase(String(record.module || 'analytics'))} Snapshot`,
+        date: String(record.snapshot_date || 'Date pending'),
+        label: String(record.metric_label || 'Metric'),
+        value: String(record.metric_value || record.value || 'Value pending'),
+      })),
+    [records.records],
+  );
+
+  async function handleSnapshotSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        module: snapshotForm.module,
+        snapshot_date: snapshotForm.snapshot_date,
+        metric_label: snapshotForm.metric_label,
+        metric_value: snapshotForm.metric_value,
+      });
+      setSnapshotForm({
+        module: 'marketplace',
+        snapshot_date: '',
+        metric_label: '',
+        metric_value: '',
+      });
+      await records.refresh();
+      setFormMessage('Analytics snapshot created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create analytics snapshot');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -115,6 +177,75 @@ export function AnalyticsWorkspace() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Snapshot Entry</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by vendor_analytics_snapshots</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Report Snapshot
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[0.65fr_0.65fr_0.8fr_0.65fr_auto]" onSubmit={handleSnapshotSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Module *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={snapshotForm.module}
+              onChange={(inputEvent) => setSnapshotForm((current) => ({ ...current, module: inputEvent.target.value }))}
+            >
+              {analyticsModuleOptions.map((module) => (
+                <option key={module} value={module}>
+                  {titleCase(module)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Snapshot date *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              type="date"
+              value={snapshotForm.snapshot_date}
+              onChange={(inputEvent) => setSnapshotForm((current) => ({ ...current, snapshot_date: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Metric label *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Metric"
+              required
+              value={snapshotForm.metric_label}
+              onChange={(inputEvent) => setSnapshotForm((current) => ({ ...current, metric_label: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Metric value *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Value"
+              required
+              value={snapshotForm.metric_value}
+              onChange={(inputEvent) => setSnapshotForm((current) => ({ ...current, metric_value: inputEvent.target.value }))}
+            />
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId}
+            type="submit"
+          >
+            Create Snapshot
+          </Button>
+        </form>
+        {(formMessage || mutations.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        )}
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
         <Metric label="Revenue" value="INR 18.4L" detail="+18%" />
         <Metric label="Bookings" value="1,204" detail="+11%" />
@@ -129,6 +260,19 @@ export function AnalyticsWorkspace() {
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Executive Reports</h3>
           </div>
           <div className="space-y-3">
+            {liveSnapshots.map((snapshot) => (
+              <div key={snapshot.id} className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{snapshot.title}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{snapshot.date}</div>
+                  </div>
+                  <StatePill state="Ready" />
+                </div>
+                <div className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">{snapshot.label}</div>
+                <div className="mt-2 text-2xl font-black text-slate-950">{snapshot.value}</div>
+              </div>
+            ))}
             {executiveReports.map((report) => (
               <div key={report.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
