@@ -10,6 +10,7 @@ import {
   listVendorOrganizations,
   listVendorTeamMembers,
   markVendorNotificationRead,
+  subscribeVendorNotifications,
   updateVendorOSRecord,
   type VendorOSRecordRow,
 } from './api';
@@ -140,6 +141,13 @@ export function useVendorOSNotifications(userId?: string | null) {
       mounted = false;
     };
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return undefined;
+    return subscribeVendorNotifications(userId, () => {
+      loadNotifications();
+    });
+  }, [loadNotifications, userId]);
 
   const markAsRead = useCallback(
     async (notificationId: string) => {

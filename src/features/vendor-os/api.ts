@@ -211,6 +211,26 @@ export async function markVendorNotificationRead(notificationId: string) {
   return data;
 }
 
+export function subscribeVendorNotifications(userId: string, onChange: () => void) {
+  const channel = supabase.channel(`vendor-notifications:${userId}`);
+  channel
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'vendor_notifications',
+        filter: `recipient_user_id=eq.${userId}`,
+      },
+      onChange,
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 export async function createVendorAuditLog(input: AuditLogInput) {
   const { data, error } = await supabase.from('vendor_audit_logs').insert(input).select().single<VendorAuditLog>();
 

@@ -13,6 +13,7 @@ vi.mock('./api', () => ({
   updateVendorOSRecord: vi.fn(),
   deleteVendorOSRecord: vi.fn(),
   markVendorNotificationRead: vi.fn(),
+  subscribeVendorNotifications: vi.fn(),
 }));
 
 import {
@@ -24,6 +25,7 @@ import {
   listVendorOrganizations,
   listVendorTeamMembers,
   markVendorNotificationRead,
+  subscribeVendorNotifications,
   updateVendorOSRecord,
 } from './api';
 
@@ -121,6 +123,7 @@ describe('Vendor OS hooks', () => {
     });
     vi.mocked(deleteVendorOSRecord).mockResolvedValue({ id: 'lead-1' });
     vi.mocked(markVendorNotificationRead).mockResolvedValue({ ...unread, status: 'read' });
+    vi.mocked(subscribeVendorNotifications).mockReturnValue(vi.fn());
   });
 
   it('loads tenant context and exposes permission helper', async () => {
@@ -161,6 +164,33 @@ describe('Vendor OS hooks', () => {
     expect(markVendorNotificationRead).toHaveBeenCalledWith('note-1');
     expect(result.current.notifications[0].status).toBe('read');
     expect(result.current.unreadCount).toBe(0);
+  });
+
+  it('subscribes to realtime notification updates and cleans up on unmount', async () => {
+    const unsubscribe = vi.fn();
+    let realtimeHandler: (() => void) | undefined;
+    vi.mocked(subscribeVendorNotifications).mockImplementation((_userId, handler) => {
+      realtimeHandler = handler;
+      return unsubscribe;
+    });
+    vi.mocked(listVendorNotifications)
+      .mockResolvedValueOnce([unread])
+      .mockResolvedValueOnce([{ ...unread, id: 'note-2', title: 'New direct booking' }]);
+
+    const { result, unmount } = renderHook(() => useVendorOSNotifications('user-1'));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(subscribeVendorNotifications).toHaveBeenCalledWith('user-1', expect.any(Function));
+
+    await act(async () => {
+      realtimeHandler?.();
+    });
+
+    expect(vi.mocked(listVendorNotifications).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(result.current.notifications[0].title).toBe('New direct booking');
+
+    unmount();
+    expect(unsubscribe).toHaveBeenCalled();
   });
 
   it('reloads module records on demand', async () => {

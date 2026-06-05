@@ -3,6 +3,7 @@ import { supabase } from '@/src/lib/supabase';
 import {
   deleteVendorOSRecord,
   markVendorNotificationRead,
+  subscribeVendorNotifications,
   updateVendorOSRecord,
   type VendorOSRecordRow,
 } from './api';
@@ -11,6 +12,8 @@ import type { VendorOSOperation } from './operations';
 vi.mock('@/src/lib/supabase', () => ({
   supabase: {
     from: vi.fn(),
+    channel: vi.fn(),
+    removeChannel: vi.fn(),
     auth: {
       getUser: vi.fn(),
     },
@@ -31,6 +34,8 @@ describe('Vendor OS record API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(supabase.from).mockReset();
+    vi.mocked(supabase.channel).mockReset();
+    vi.mocked(supabase.removeChannel).mockReset();
     vi.mocked(supabase.auth.getUser).mockResolvedValue({
       data: { user: { id: 'user-1' } },
       error: null,
@@ -210,5 +215,32 @@ describe('Vendor OS record API', () => {
       read_at: expect.any(String),
     });
     expect(eq).toHaveBeenCalledWith('id', 'note-1');
+  });
+
+  it('subscribes to realtime notification changes for a user and cleans up the channel', () => {
+    const onChange = vi.fn();
+    const subscribe = vi.fn();
+    const on = vi.fn(() => ({ subscribe }));
+    const channel = { on, subscribe };
+
+    vi.mocked(supabase.channel).mockReturnValue(channel as never);
+
+    const unsubscribe = subscribeVendorNotifications('user-1', onChange);
+
+    expect(supabase.channel).toHaveBeenCalledWith('vendor-notifications:user-1');
+    expect(on).toHaveBeenCalledWith(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'vendor_notifications',
+        filter: 'recipient_user_id=eq.user-1',
+      },
+      onChange,
+    );
+    expect(subscribe).toHaveBeenCalled();
+
+    unsubscribe();
+    expect(supabase.removeChannel).toHaveBeenCalledWith(channel);
   });
 });
