@@ -14,6 +14,7 @@ import { MarketplaceWorkspace } from '../components/MarketplaceWorkspace';
 import { ModuleCard } from '../components/ModuleCard';
 import { PmsWorkspace } from '../components/PmsWorkspace';
 import { SubscriptionWorkspace } from '../components/SubscriptionWorkspace';
+import { TeamWorkspace } from '../components/TeamWorkspace';
 import { ToursActivitiesWorkspace } from '../components/ToursActivitiesWorkspace';
 import { VendorOSLayout } from '../components/VendorOSLayout';
 import { getVendorOSModuleByPath, vendorOSModules } from '../data';
@@ -343,6 +344,11 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <SubscriptionWorkspace organizationId={tenant.selectedOrganization?.id} />
         ) : activeModule === 'analytics' ? (
           <AnalyticsWorkspace
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
+        ) : activeModule === 'team' ? (
+          <TeamWorkspace
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />

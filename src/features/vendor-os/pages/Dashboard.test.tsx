@@ -81,7 +81,7 @@ describe('Vendor OS dashboard', () => {
     expect(screen.getByText('Hotel Trade License')).toBeInTheDocument();
   });
 
-  it('renders a generic developed module workspace from the route', () => {
+  it('renders the Team module as a team management workspace', () => {
     render(
       <MemoryRouter initialEntries={['/vendor/os/team']}>
         <Routes>
@@ -92,14 +92,16 @@ describe('Vendor OS dashboard', () => {
 
     expect(screen.getByText('Team Management')).toBeInTheDocument();
     expect(screen.getByText('Role Access')).toBeInTheDocument();
+    expect(screen.getByText('Branch Staffing')).toBeInTheDocument();
+    expect(screen.getByText('Permission Matrix')).toBeInTheDocument();
+    expect(screen.getByText('Audit Accountability')).toBeInTheDocument();
     expect(screen.getByText('Neha Kapoor')).toBeInTheDocument();
-    expect(screen.getByText('Invite member')).toBeInTheDocument();
-    expect(screen.getByText('Backed by `vendor_team_members`')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Invite Member' })).toBeInTheDocument();
+    expect(screen.getByText('Backed by vendor_team_members')).toBeInTheDocument();
     expect(screen.getByLabelText('Email *')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument();
   });
 
-  it('creates a generic module record through the live workspace form', async () => {
+  it('creates a team invitation through the live workspace form', async () => {
     createRecord.mockResolvedValueOnce({ id: 'member-1' });
     refreshRecords.mockResolvedValueOnce(undefined);
 
@@ -113,9 +115,16 @@ describe('Vendor OS dashboard', () => {
 
     await userEvent.type(screen.getByLabelText('Email *'), 'ops@example.com');
     await userEvent.selectOptions(screen.getByLabelText('Role *'), 'manager');
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await userEvent.selectOptions(screen.getByLabelText('Status *'), 'invited');
+    await userEvent.type(screen.getByLabelText('Display name'), 'Ops Manager');
+    await userEvent.click(screen.getByRole('button', { name: 'Invite Member' }));
 
-    expect(createRecord).toHaveBeenCalledWith({ invited_email: 'ops@example.com', role: 'manager' });
+    expect(createRecord).toHaveBeenCalledWith({
+      invited_email: 'ops@example.com',
+      role: 'manager',
+      status: 'invited',
+      display_name: 'Ops Manager',
+    });
     expect(refreshRecords).toHaveBeenCalled();
   });
 
