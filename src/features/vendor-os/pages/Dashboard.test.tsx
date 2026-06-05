@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from './Dashboard';
 
 const createRecord = vi.fn();
+const updateRecord = vi.fn();
+const deleteRecord = vi.fn();
 const refreshRecords = vi.fn();
 
 vi.mock('../hooks', () => ({
@@ -51,8 +53,8 @@ vi.mock('../hooks', () => ({
   }),
   useVendorOSRecordMutations: () => ({
     createRecord,
-    updateRecord: vi.fn(),
-    deleteRecord: vi.fn(),
+    updateRecord,
+    deleteRecord,
     submitting: false,
     error: null,
   }),
@@ -61,6 +63,8 @@ vi.mock('../hooks', () => ({
 describe('Vendor OS dashboard', () => {
   beforeEach(() => {
     createRecord.mockReset();
+    updateRecord.mockReset();
+    deleteRecord.mockReset();
     refreshRecords.mockReset();
   });
 
@@ -187,6 +191,49 @@ describe('Vendor OS dashboard', () => {
       document_type: 'license',
       storage_path: 'vendors/org-1/licenses/hotel-trade-license.pdf',
       status: 'active',
+    });
+    expect(refreshRecords).toHaveBeenCalled();
+  });
+
+  it('renders the Settings module as module controls workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/settings']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByText('Settings').length).toBeGreaterThan(0);
+    expect(screen.getByText('Business Profile')).toBeInTheDocument();
+    expect(screen.getByText('Module Controls')).toBeInTheDocument();
+    expect(screen.getAllByText('Integrations').length).toBeGreaterThan(0);
+    expect(screen.getByText('Policy Center')).toBeInTheDocument();
+    expect(screen.getByText('Backed by vendor_os_module_settings')).toBeInTheDocument();
+    expect(screen.getByLabelText('Module *')).toBeInTheDocument();
+  });
+
+  it('creates a module setting through the live workspace form', async () => {
+    createRecord.mockResolvedValueOnce({ id: 'setting-1' });
+    refreshRecords.mockResolvedValueOnce(undefined);
+
+    render(
+      <MemoryRouter initialEntries={['/vendor/os/settings']}>
+        <Routes>
+          <Route path="/vendor/os/:module" element={<Dashboard initialUserId="user-1" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await userEvent.selectOptions(screen.getByLabelText('Module *'), 'marketplace');
+    await userEvent.selectOptions(screen.getByLabelText('Enabled *'), 'false');
+    await userEvent.type(screen.getByLabelText('Policy note'), 'Pause public sync during audit');
+    await userEvent.click(screen.getByRole('button', { name: 'Save Setting' }));
+
+    expect(createRecord).toHaveBeenCalledWith({
+      module: 'marketplace',
+      is_enabled: false,
+      settings: { policy_note: 'Pause public sync during audit' },
     });
     expect(refreshRecords).toHaveBeenCalled();
   });

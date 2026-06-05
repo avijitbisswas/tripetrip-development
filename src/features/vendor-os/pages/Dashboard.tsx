@@ -15,6 +15,7 @@ import { FleetWorkspace } from '../components/FleetWorkspace';
 import { MarketplaceWorkspace } from '../components/MarketplaceWorkspace';
 import { ModuleCard } from '../components/ModuleCard';
 import { PmsWorkspace } from '../components/PmsWorkspace';
+import { SettingsWorkspace } from '../components/SettingsWorkspace';
 import { SubscriptionWorkspace } from '../components/SubscriptionWorkspace';
 import { TeamWorkspace } from '../components/TeamWorkspace';
 import { ToursActivitiesWorkspace } from '../components/ToursActivitiesWorkspace';
@@ -358,6 +359,11 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <BranchWorkspace organizationId={tenant.selectedOrganization?.id} />
         ) : activeModule === 'documents' ? (
           <DocumentWorkspace
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
+        ) : activeModule === 'settings' ? (
+          <SettingsWorkspace
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />

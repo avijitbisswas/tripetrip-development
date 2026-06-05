@@ -350,6 +350,21 @@ CREATE INDEX IF NOT EXISTS idx_vendor_team_members_org ON vendor_team_members(or
 CREATE INDEX IF NOT EXISTS idx_vendor_audit_logs_org_created ON vendor_audit_logs(organization_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_vendor_notifications_recipient_status ON vendor_notifications(recipient_user_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_vendor_documents_org_module ON vendor_documents(organization_id, module, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_module_settings_org_branch ON vendor_os_module_settings(organization_id, branch_id, module);
+
+CREATE OR REPLACE FUNCTION set_updated_at_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_vendor_os_module_settings_updated_at ON vendor_os_module_settings;
+CREATE TRIGGER set_vendor_os_module_settings_updated_at
+  BEFORE UPDATE ON vendor_os_module_settings
+  FOR EACH ROW
+  EXECUTE FUNCTION set_updated_at_timestamp();
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_profiles ENABLE ROW LEVEL SECURITY;
