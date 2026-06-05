@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { supabase } from '@/src/lib/supabase';
 import {
   deleteVendorOSRecord,
+  markVendorNotificationRead,
   updateVendorOSRecord,
   type VendorOSRecordRow,
 } from './api';
@@ -183,5 +184,31 @@ describe('Vendor OS record API', () => {
 
     await expect(updateVendorOSRecord(operation, 'lead-1', { stage: 'won' })).resolves.toEqual(row);
     expect(supabase.from).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks a notification as read in Supabase', async () => {
+    const notification = {
+      id: 'note-1',
+      organization_id: 'org-1',
+      recipient_user_id: 'user-1',
+      module: 'calendar',
+      title: 'New booking',
+      status: 'read',
+      created_at: '2026-06-03T00:00:00.000Z',
+    };
+    const single = vi.fn().mockResolvedValue({ data: notification, error: null });
+    const select = vi.fn(() => ({ single }));
+    const eq = vi.fn(() => ({ select }));
+    const update = vi.fn(() => ({ eq }));
+
+    vi.mocked(supabase.from).mockReturnValueOnce({ update } as never);
+
+    await expect(markVendorNotificationRead('note-1')).resolves.toEqual(notification);
+    expect(supabase.from).toHaveBeenCalledWith('vendor_notifications');
+    expect(update).toHaveBeenCalledWith({
+      status: 'read',
+      read_at: expect.any(String),
+    });
+    expect(eq).toHaveBeenCalledWith('id', 'note-1');
   });
 });

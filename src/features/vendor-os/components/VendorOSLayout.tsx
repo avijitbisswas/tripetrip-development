@@ -13,6 +13,7 @@ interface VendorOSLayoutProps {
   role: VendorOSRole;
   notifications: Partial<VendorNotification>[];
   unreadCount: number;
+  markNotificationAsRead?: (notificationId: string) => Promise<void> | void;
   can: (module: VendorOSModule, action?: PermissionAction) => boolean;
 }
 
@@ -24,6 +25,7 @@ export function VendorOSLayout({
   role,
   notifications,
   unreadCount,
+  markNotificationAsRead,
   can,
 }: VendorOSLayoutProps) {
   const visibleModules = vendorOSModules.filter((module) => can(module.id, 'view'));
@@ -40,6 +42,7 @@ export function VendorOSLayout({
             role={role}
             notifications={notifications}
             unreadCount={unreadCount}
+            markNotificationAsRead={markNotificationAsRead}
           />
           <div className="border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
             <div className="flex gap-2 overflow-x-auto">

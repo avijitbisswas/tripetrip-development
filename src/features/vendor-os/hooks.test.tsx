@@ -12,6 +12,7 @@ vi.mock('./api', () => ({
   createVendorOSRecord: vi.fn(),
   updateVendorOSRecord: vi.fn(),
   deleteVendorOSRecord: vi.fn(),
+  markVendorNotificationRead: vi.fn(),
 }));
 
 import {
@@ -22,6 +23,7 @@ import {
   listVendorOSRecords,
   listVendorOrganizations,
   listVendorTeamMembers,
+  markVendorNotificationRead,
   updateVendorOSRecord,
 } from './api';
 
@@ -118,6 +120,7 @@ describe('Vendor OS hooks', () => {
       stage: 'won',
     });
     vi.mocked(deleteVendorOSRecord).mockResolvedValue({ id: 'lead-1' });
+    vi.mocked(markVendorNotificationRead).mockResolvedValue({ ...unread, status: 'read' });
   });
 
   it('loads tenant context and exposes permission helper', async () => {
@@ -139,6 +142,25 @@ describe('Vendor OS hooks', () => {
 
     expect(result.current.notifications).toHaveLength(2);
     expect(result.current.unreadCount).toBe(1);
+  });
+
+  it('marks notifications as read and refreshes notification state', async () => {
+    vi.mocked(listVendorNotifications)
+      .mockResolvedValueOnce([unread])
+      .mockResolvedValueOnce([{ ...unread, status: 'read', read_at: '2026-06-03T00:05:00.000Z' }]);
+
+    const { result } = renderHook(() => useVendorOSNotifications('user-1'));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.unreadCount).toBe(1);
+
+    await act(async () => {
+      await result.current.markAsRead('note-1');
+    });
+
+    expect(markVendorNotificationRead).toHaveBeenCalledWith('note-1');
+    expect(result.current.notifications[0].status).toBe('read');
+    expect(result.current.unreadCount).toBe(0);
   });
 
   it('reloads module records on demand', async () => {

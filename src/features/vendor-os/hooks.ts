@@ -9,6 +9,7 @@ import {
   listVendorOSRecords,
   listVendorOrganizations,
   listVendorTeamMembers,
+  markVendorNotificationRead,
   updateVendorOSRecord,
   type VendorOSRecordRow,
 } from './api';
@@ -104,10 +105,23 @@ export function useVendorOSNotifications(userId?: string | null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadNotifications = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await listVendorNotifications(userId || undefined);
+      setNotifications(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load notifications');
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
   useEffect(() => {
     let mounted = true;
 
-    async function loadNotifications() {
+    async function loadWhenMounted() {
       setLoading(true);
       setError(null);
       try {
@@ -120,18 +134,28 @@ export function useVendorOSNotifications(userId?: string | null) {
       }
     }
 
-    loadNotifications();
+    loadWhenMounted();
 
     return () => {
       mounted = false;
     };
   }, [userId]);
 
+  const markAsRead = useCallback(
+    async (notificationId: string) => {
+      await markVendorNotificationRead(notificationId);
+      await loadNotifications();
+    },
+    [loadNotifications],
+  );
+
   return {
     notifications,
     unreadCount: notifications.filter((notification) => notification.status === 'unread').length,
     loading,
     error,
+    markAsRead,
+    refresh: loadNotifications,
   };
 }
 

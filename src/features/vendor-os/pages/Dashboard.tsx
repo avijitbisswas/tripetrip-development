@@ -260,6 +260,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
       role={tenant.role}
       notifications={notifications.notifications}
       unreadCount={notifications.unreadCount}
+      markNotificationAsRead={notifications.markAsRead}
       can={tenant.can}
     >
       <div className="space-y-6">

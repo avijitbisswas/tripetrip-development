@@ -10,6 +10,7 @@ interface VendorOSTopbarProps {
   role: VendorOSRole;
   notifications: Partial<VendorNotification>[];
   unreadCount: number;
+  markNotificationAsRead?: (notificationId: string) => Promise<void> | void;
 }
 
 export function VendorOSTopbar({
@@ -19,6 +20,7 @@ export function VendorOSTopbar({
   role,
   notifications,
   unreadCount,
+  markNotificationAsRead,
 }: VendorOSTopbarProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur-xl lg:px-8">
@@ -37,7 +39,11 @@ export function VendorOSTopbar({
         </div>
         <div className="grid gap-3 md:grid-cols-[minmax(0,280px)_minmax(0,320px)]">
           <BranchSwitcher branches={branches} activeBranch={activeBranch} />
-          <NotificationCenter notifications={notifications} unreadCount={unreadCount} />
+          <NotificationCenter
+            markAsRead={markNotificationAsRead}
+            notifications={notifications}
+            unreadCount={unreadCount}
+          />
         </div>
       </div>
     </header>
