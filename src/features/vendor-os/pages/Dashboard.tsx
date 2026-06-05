@@ -320,7 +320,10 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
             branchId={tenant.activeBranch?.id || null}
           />
         ) : activeModule === 'fleet' ? (
-          <FleetWorkspace />
+          <FleetWorkspace
+            organizationId={tenant.selectedOrganization?.id}
+            branchId={tenant.activeBranch?.id || null}
+          />
         ) : activeModule === 'accounting' ? (
           <AccountingWorkspace />
         ) : activeModule === 'marketplace' ? (

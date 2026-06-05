@@ -1,3 +1,4 @@
+import { useMemo, useState, type FormEvent } from 'react';
 import {
   AlertTriangle,
   ClipboardList,
@@ -12,6 +13,12 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+
+interface FleetWorkspaceProps {
+  organizationId?: string;
+  branchId?: string | null;
+}
 
 const vehicles = [
   { name: 'Toyota Innova', route: 'Airport transfer', driver: 'Amit Das', status: 'Assigned', seats: '6 seats' },
@@ -62,6 +69,8 @@ const readinessSignals: Array<{ title: string; detail: string; icon: LucideIcon 
   },
 ];
 
+const vehicleTypeOptions = ['suv', 'sedan', 'tempo', 'bike', 'bus'];
+
 function StatePill({ state }: { state: string }) {
   const attention = ['Attention', 'Due', 'Pending', 'Service due'].includes(state);
   return (
@@ -87,7 +96,48 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function FleetWorkspace() {
+export function FleetWorkspace({ organizationId, branchId }: FleetWorkspaceProps) {
+  const records = useVendorOSRecords('fleet', organizationId);
+  const mutations = useVendorOSRecordMutations('fleet', organizationId, branchId);
+  const [vehicleForm, setVehicleForm] = useState({
+    name: '',
+    vehicle_type: 'suv',
+    registration_number: '',
+    seats: '',
+  });
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const liveVehicles = useMemo(
+    () =>
+      records.records.map((record) => ({
+        id: String(record.id),
+        name: String(record.name || 'Untitled vehicle'),
+        type: String(record.vehicle_type || 'vehicle'),
+        registration: String(record.registration_number || 'No registration'),
+        seats: record.seats === null || record.seats === undefined ? 'Seats not set' : `${record.seats} seats`,
+        status: String(record.status || 'available'),
+      })),
+    [records.records],
+  );
+
+  async function handleVehicleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        name: vehicleForm.name,
+        vehicle_type: vehicleForm.vehicle_type,
+        registration_number: vehicleForm.registration_number,
+        seats: vehicleForm.seats ? Number(vehicleForm.seats) : null,
+      });
+      setVehicleForm({ name: '', vehicle_type: 'suv', registration_number: '', seats: '' });
+      await records.refresh();
+      setFormMessage('Vehicle created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create vehicle');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -114,6 +164,74 @@ export function FleetWorkspace() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Create Vehicle</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by vendor_vehicles</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Live Fleet API
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[1fr_0.65fr_0.85fr_0.45fr_auto]" onSubmit={handleVehicleSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Vehicle name *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Vehicle name"
+              required
+              value={vehicleForm.name}
+              onChange={(inputEvent) => setVehicleForm((current) => ({ ...current, name: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Vehicle type *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={vehicleForm.vehicle_type}
+              onChange={(inputEvent) => setVehicleForm((current) => ({ ...current, vehicle_type: inputEvent.target.value }))}
+            >
+              {vehicleTypeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Registration number</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Number plate"
+              value={vehicleForm.registration_number}
+              onChange={(inputEvent) => setVehicleForm((current) => ({ ...current, registration_number: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Seats</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              min="1"
+              type="number"
+              value={vehicleForm.seats}
+              onChange={(inputEvent) => setVehicleForm((current) => ({ ...current, seats: inputEvent.target.value }))}
+            />
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId}
+            type="submit"
+          >
+            Create Vehicle
+          </Button>
+        </form>
+        {(formMessage || mutations.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        )}
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
         <Metric label="Vehicles Active" value="24" detail="4 free" />
         <Metric label="Drivers On Duty" value="18" detail="Covered" />
@@ -127,6 +245,23 @@ export function FleetWorkspace() {
             <Truck className="h-4 w-4 text-emerald-600" />
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Dispatch Command</h3>
           </div>
+          {liveVehicles.length > 0 && (
+            <div className="mb-4 grid gap-3 md:grid-cols-2">
+              {liveVehicles.map((vehicle) => (
+                <div key={vehicle.id} className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black text-slate-950">{vehicle.name}</div>
+                      <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{vehicle.type}</div>
+                    </div>
+                    <StatePill state={vehicle.status} />
+                  </div>
+                  <div className="mt-3 text-sm font-semibold text-slate-600">{vehicle.seats}</div>
+                  <div className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-500">{vehicle.registration}</div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="grid gap-3 md:grid-cols-2">
             {vehicles.map((vehicle) => (
               <div key={vehicle.name} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
