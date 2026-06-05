@@ -1,3 +1,4 @@
+import { useMemo, useState, type FormEvent } from 'react';
 import {
   ArrowDownUp,
   Banknote,
@@ -11,6 +12,12 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+
+interface AccountingWorkspaceProps {
+  organizationId?: string;
+  branchId?: string | null;
+}
 
 const invoices = [
   { number: 'INV-2048', booking: 'Goa Beach Escape', amount: 'INR 29,999', state: 'Due' },
@@ -54,6 +61,27 @@ const financeSignals: Array<{ title: string; detail: string; icon: LucideIcon }>
   },
 ];
 
+const invoiceStatusOptions = ['due', 'sent', 'paid', 'overdue'];
+
+function formatCurrency(value: unknown) {
+  const amount = typeof value === 'number' ? value : Number(value || 0);
+  return new Intl.NumberFormat('en-IN', {
+    maximumFractionDigits: 0,
+    style: 'currency',
+    currency: 'INR',
+  })
+    .format(Number.isFinite(amount) ? amount : 0)
+    .replace('₹', 'INR ');
+}
+
+function titleCase(value: string) {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function StatePill({ state }: { state: string }) {
   const attention = ['Due', 'Review', 'Reconcile', 'Processing'].includes(state);
   return (
@@ -79,7 +107,55 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function AccountingWorkspace() {
+export function AccountingWorkspace({ organizationId, branchId }: AccountingWorkspaceProps) {
+  const records = useVendorOSRecords('accounting', organizationId);
+  const mutations = useVendorOSRecordMutations('accounting', organizationId, branchId);
+  const [invoiceForm, setInvoiceForm] = useState({
+    invoice_number: '',
+    booking_reference: '',
+    amount: '',
+    status: 'due',
+  });
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+  const liveInvoices = useMemo(
+    () =>
+      records.records
+        .filter((record) => String(record.record_type || 'invoice') === 'invoice')
+        .map((record) => ({
+          id: String(record.id),
+          number: String(record.invoice_number || record.number || 'Draft invoice'),
+          booking: String(record.booking_reference || record.booking || record.customer_name || 'Unlinked booking'),
+          amount: formatCurrency(record.amount),
+          state: titleCase(String(record.status || 'due')),
+        })),
+    [records.records],
+  );
+
+  async function handleInvoiceSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        record_type: 'invoice',
+        invoice_number: invoiceForm.invoice_number,
+        booking_reference: invoiceForm.booking_reference,
+        amount: Number(invoiceForm.amount),
+        status: invoiceForm.status,
+      });
+      setInvoiceForm({
+        invoice_number: '',
+        booking_reference: '',
+        amount: '',
+        status: 'due',
+      });
+      await records.refresh();
+      setFormMessage('Invoice created');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to create invoice');
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -96,7 +172,7 @@ export function AccountingWorkspace() {
           <div className="flex flex-wrap gap-2">
             <Button className="rounded-xl bg-emerald-600 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700">
               <FileText className="mr-2 h-4 w-4" />
-              Create Invoice
+              New Invoice
             </Button>
             <Button variant="outline" className="rounded-xl text-xs font-bold uppercase tracking-widest">
               <ClipboardList className="mr-2 h-4 w-4" />
@@ -104,6 +180,76 @@ export function AccountingWorkspace() {
             </Button>
           </div>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Invoice Entry</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by vendor_accounting_records</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Live Finance API
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[0.75fr_1fr_0.55fr_0.55fr_auto]" onSubmit={handleInvoiceSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Invoice number *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="INV-3001"
+              required
+              value={invoiceForm.invoice_number}
+              onChange={(inputEvent) => setInvoiceForm((current) => ({ ...current, invoice_number: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Booking or customer *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Booking or customer"
+              required
+              value={invoiceForm.booking_reference}
+              onChange={(inputEvent) => setInvoiceForm((current) => ({ ...current, booking_reference: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Amount *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              min="1"
+              required
+              type="number"
+              value={invoiceForm.amount}
+              onChange={(inputEvent) => setInvoiceForm((current) => ({ ...current, amount: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Status *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={invoiceForm.status}
+              onChange={(inputEvent) => setInvoiceForm((current) => ({ ...current, status: inputEvent.target.value }))}
+            >
+              {invoiceStatusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {titleCase(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId}
+            type="submit"
+          >
+            Create Invoice
+          </Button>
+        </form>
+        {(formMessage || mutations.error || records.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        )}
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
@@ -120,6 +266,16 @@ export function AccountingWorkspace() {
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Receivables Command</h3>
           </div>
           <div className="space-y-3">
+            {liveInvoices.map((invoice) => (
+              <div key={invoice.id} className="grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 md:grid-cols-[1fr_auto_auto] md:items-center">
+                <div>
+                  <div className="text-sm font-black text-slate-950">{invoice.number}</div>
+                  <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{invoice.booking}</div>
+                </div>
+                <div className="text-lg font-black text-slate-950">{invoice.amount}</div>
+                <StatePill state={invoice.state} />
+              </div>
+            ))}
             {invoices.map((invoice) => (
               <div key={invoice.number} className="grid gap-3 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100 md:grid-cols-[1fr_auto_auto] md:items-center">
                 <div>
