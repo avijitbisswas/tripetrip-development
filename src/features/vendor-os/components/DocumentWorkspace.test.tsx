@@ -6,6 +6,7 @@ import { DocumentWorkspace } from './DocumentWorkspace';
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
   uploadDocument: vi.fn(),
+  createDownloadUrl: vi.fn(),
   refresh: vi.fn(),
   records: [] as Record<string, unknown>[],
 }));
@@ -29,12 +30,18 @@ vi.mock('../hooks', () => ({
     submitting: false,
     error: null,
   }),
+  useVendorDocumentDownload: () => ({
+    createDownloadUrl: hookMocks.createDownloadUrl,
+    submitting: false,
+    error: null,
+  }),
 }));
 
 describe('DocumentWorkspace', () => {
   beforeEach(() => {
     hookMocks.createRecord.mockReset();
     hookMocks.uploadDocument.mockReset();
+    hookMocks.createDownloadUrl.mockReset();
     hookMocks.refresh.mockReset();
     hookMocks.records = [];
   });
@@ -104,6 +111,7 @@ describe('DocumentWorkspace', () => {
         branch_id: 'branch-1',
         name: 'Rafting Safety Permit',
         document_type: 'permit',
+        storage_path: 'organizations/org-1/permits/rafting-safety.pdf',
         status: 'active',
         expires_at: '2026-09-30',
       },
@@ -114,5 +122,28 @@ describe('DocumentWorkspace', () => {
     expect(screen.getByText('Rafting Safety Permit')).toBeInTheDocument();
     expect(screen.getByText('Permit')).toBeInTheDocument();
     expect(screen.getByText('Expires 2026-09-30')).toBeInTheDocument();
+  });
+
+  it('opens a signed download URL for live document records', async () => {
+    hookMocks.records = [
+      {
+        id: 'doc-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        name: 'Hotel Trade License',
+        document_type: 'license',
+        storage_path: 'organizations/org-1/licenses/hotel-trade-license.pdf',
+        status: 'active',
+      },
+    ];
+    hookMocks.createDownloadUrl.mockResolvedValueOnce('https://storage.example.com/signed-license.pdf');
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    render(<DocumentWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Download Hotel Trade License' }));
+
+    expect(hookMocks.createDownloadUrl).toHaveBeenCalledWith('organizations/org-1/licenses/hotel-trade-license.pdf');
+    expect(open).toHaveBeenCalledWith('https://storage.example.com/signed-license.pdf', '_blank', 'noopener,noreferrer');
   });
 });

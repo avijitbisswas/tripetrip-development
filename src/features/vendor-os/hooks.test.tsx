@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  useVendorDocumentDownload,
   useVendorDocumentUpload,
   useVendorOSNotifications,
   useVendorOSRecordMutations,
@@ -21,9 +22,11 @@ vi.mock('./api', () => ({
   markVendorNotificationRead: vi.fn(),
   subscribeVendorNotifications: vi.fn(),
   uploadVendorDocumentFile: vi.fn(),
+  createVendorDocumentSignedUrl: vi.fn(),
 }));
 
 import {
+  createVendorDocumentSignedUrl,
   createVendorOSRecord,
   deleteVendorOSRecord,
   listVendorBranches,
@@ -134,6 +137,7 @@ describe('Vendor OS hooks', () => {
     vi.mocked(deleteVendorOSRecord).mockResolvedValue({ id: 'lead-1' });
     vi.mocked(markVendorNotificationRead).mockResolvedValue({ ...unread, status: 'read' });
     vi.mocked(subscribeVendorNotifications).mockReturnValue(vi.fn());
+    vi.mocked(createVendorDocumentSignedUrl).mockResolvedValue('https://storage.example.com/license.pdf');
     vi.mocked(uploadVendorDocumentFile).mockResolvedValue({
       id: 'doc-1',
       organization_id: 'org-1',
@@ -288,6 +292,19 @@ describe('Vendor OS hooks', () => {
       status: 'active',
       file,
     });
+    expect(result.current.submitting).toBe(false);
+  });
+
+  it('creates signed document URLs through the download hook', async () => {
+    const { result } = renderHook(() => useVendorDocumentDownload());
+
+    await act(async () => {
+      await expect(result.current.createDownloadUrl('organizations/org-1/license/file.pdf')).resolves.toBe(
+        'https://storage.example.com/license.pdf',
+      );
+    });
+
+    expect(createVendorDocumentSignedUrl).toHaveBeenCalledWith('organizations/org-1/license/file.pdf');
     expect(result.current.submitting).toBe(false);
   });
 });

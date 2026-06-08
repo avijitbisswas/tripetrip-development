@@ -9,6 +9,7 @@ const updateRecord = vi.fn();
 const deleteRecord = vi.fn();
 const refreshRecords = vi.fn();
 const uploadDocument = vi.fn();
+const createDownloadUrl = vi.fn();
 
 vi.mock('../hooks', () => ({
   useVendorOSTenant: () => ({
@@ -64,6 +65,11 @@ vi.mock('../hooks', () => ({
     submitting: false,
     error: null,
   }),
+  useVendorDocumentDownload: () => ({
+    createDownloadUrl,
+    submitting: false,
+    error: null,
+  }),
 }));
 
 describe('Vendor OS dashboard', () => {
@@ -73,6 +79,7 @@ describe('Vendor OS dashboard', () => {
     deleteRecord.mockReset();
     refreshRecords.mockReset();
     uploadDocument.mockReset();
+    createDownloadUrl.mockReset();
   });
 
   it('renders the operating system shell and staff-safe modules', () => {

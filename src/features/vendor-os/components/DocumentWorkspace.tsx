@@ -3,6 +3,7 @@ import {
   Archive,
   BellRing,
   CalendarClock,
+  Download,
   FileCheck2,
   FileText,
   FolderLock,
@@ -12,7 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useVendorDocumentUpload, useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { useVendorDocumentDownload, useVendorDocumentUpload, useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
 
 interface DocumentWorkspaceProps {
   organizationId?: string;
@@ -104,6 +105,7 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
   const records = useVendorOSRecords('documents', organizationId);
   const mutations = useVendorOSRecordMutations('documents', organizationId, branchId);
   const uploads = useVendorDocumentUpload(organizationId, branchId);
+  const downloads = useVendorDocumentDownload();
   const [documentForm, setDocumentForm] = useState({
     name: '',
     document_type: '',
@@ -123,6 +125,7 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
         owner: String(record.entity_type || record.module || 'Vendor OS'),
         expiry: record.expires_at ? `Expires ${record.expires_at}` : 'No expiry set',
         state: titleCase(String(record.status || 'active')),
+        storagePath: String(record.storage_path || ''),
       })),
     [records.records],
   );
@@ -161,6 +164,16 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
       setFormMessage(documentForm.file ? 'Document uploaded' : 'Document created');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to create document');
+    }
+  }
+
+  async function handleDocumentDownload(storagePath: string) {
+    if (!storagePath) return;
+    try {
+      const signedUrl = await downloads.createDownloadUrl(storagePath);
+      window.open(signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to prepare document download');
     }
   }
 
@@ -270,9 +283,9 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
             Create Document
           </Button>
         </form>
-        {(formMessage || mutations.error || uploads.error || records.error) && (
+        {(formMessage || mutations.error || uploads.error || downloads.error || records.error) && (
           <p className="mt-3 text-xs font-bold text-slate-500">
-            {formMessage || mutations.error || uploads.error || records.error}
+            {formMessage || mutations.error || uploads.error || downloads.error || records.error}
           </p>
         )}
       </section>
@@ -309,6 +322,19 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
                 <div className="text-sm font-bold text-slate-800">{document.type}</div>
                 <div className="text-sm font-semibold text-slate-500">{document.expiry}</div>
                 <StatePill state={document.state} />
+                {'storagePath' in document && document.storagePath ? (
+                  <Button
+                    aria-label={`Download ${document.name}`}
+                    className="h-9 rounded-xl border-emerald-200 bg-white px-3 text-[10px] font-bold uppercase tracking-widest text-emerald-700 hover:bg-emerald-50"
+                    disabled={downloads.submitting}
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleDocumentDownload(String(document.storagePath))}
+                  >
+                    <Download className="mr-2 h-3.5 w-3.5" />
+                    Download
+                  </Button>
+                ) : null}
               </div>
             ))}
           </div>

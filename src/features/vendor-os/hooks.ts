@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  createVendorDocumentSignedUrl,
   createVendorOSRecord,
   deleteVendorOSRecord,
   listVendorAuditLogs,
@@ -355,6 +356,31 @@ export function useVendorDocumentUpload(organizationId?: string | null, branchId
 
   return {
     uploadDocument,
+    submitting,
+    error,
+  };
+}
+
+export function useVendorDocumentDownload() {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const createDownloadUrl = useCallback(async (storagePath: string) => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      return await createVendorDocumentSignedUrl(storagePath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to prepare document download';
+      setError(message);
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
+  }, []);
+
+  return {
+    createDownloadUrl,
     submitting,
     error,
   };

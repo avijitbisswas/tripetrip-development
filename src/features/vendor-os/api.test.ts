@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { supabase } from '@/src/lib/supabase';
 import {
   createVendorDocumentRecord,
+  createVendorDocumentSignedUrl,
   createVendorOSRecord,
   deleteVendorOSRecord,
   markVendorNotificationRead,
@@ -421,6 +422,21 @@ describe('Vendor OS record API', () => {
       status: 'active',
       metadata: {},
     });
+  });
+
+  it('creates a short-lived signed URL for private vendor documents', async () => {
+    const createSignedUrl = vi.fn().mockResolvedValue({
+      data: { signedUrl: 'https://storage.example.com/signed-license.pdf' },
+      error: null,
+    });
+    vi.mocked(supabase.storage.from).mockReturnValue({ createSignedUrl } as never);
+
+    await expect(createVendorDocumentSignedUrl('organizations/org-1/license/file.pdf')).resolves.toEqual(
+      'https://storage.example.com/signed-license.pdf',
+    );
+
+    expect(supabase.storage.from).toHaveBeenCalledWith(VENDOR_DOCUMENTS_BUCKET);
+    expect(createSignedUrl).toHaveBeenCalledWith('organizations/org-1/license/file.pdf', 300);
   });
 
   it('skips audit writes when no authenticated user is available', async () => {

@@ -396,6 +396,15 @@ export async function uploadVendorDocumentFile(input: UploadVendorDocumentInput)
   });
 }
 
+export async function createVendorDocumentSignedUrl(storagePath: string, expiresInSeconds = 300) {
+  const { data, error } = await supabase.storage
+    .from(VENDOR_DOCUMENTS_BUCKET)
+    .createSignedUrl(storagePath, expiresInSeconds);
+
+  if (error) throw toServiceError(error, 'VENDOR_OS_DOCUMENT_SIGNED_URL_FAILED');
+  return data.signedUrl;
+}
+
 export type VendorOSRecordRow = Record<string, unknown> & {
   id: string;
   organization_id: string;
