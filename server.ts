@@ -5,6 +5,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { Resend } from 'resend';
+import { buildVendorAIBriefPrompt, normalizeVendorAIBrief } from './src/features/vendor-os/aiProvider';
 
 dotenv.config();
 
@@ -107,6 +108,63 @@ async function startServer() {
       res.json({ id: data?.id ?? null });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Email send failed';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/vendor-os/ai/brief', async (req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'AI provider is not configured',
+      });
+    }
+
+    const { organizationName, branchName, signals } = req.body as {
+      organizationName?: string;
+      branchName?: string;
+      signals?: string[];
+    };
+
+    try {
+      const prompt = buildVendorAIBriefPrompt({
+        organizationName,
+        branchName,
+        signals: Array.isArray(signals) ? signals : [],
+      });
+      const providerResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: 0.2,
+            },
+          }),
+        },
+      );
+
+      if (!providerResponse.ok) {
+        return res.status(502).json({ error: 'AI provider request failed' });
+      }
+
+      const payload = (await providerResponse.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+      const text =
+        payload.candidates?.[0]?.content?.parts
+          ?.map((part) => part.text || '')
+          .join('\n')
+          .trim() || '';
+
+      res.json(normalizeVendorAIBrief(text));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI brief generation failed';
       res.status(500).json({ error: message });
     }
   });

@@ -30,6 +30,18 @@ describe('AIAssistantWorkspace', () => {
     hookMocks.createRecord.mockReset();
     hookMocks.refresh.mockReset();
     hookMocks.records = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          title: 'Generated morning brief',
+          recommendation: 'Prioritize housekeeping for six rooms before 2 PM arrivals.',
+          confidence: 84,
+          status: 'review',
+        }),
+      }),
+    );
   });
 
   it('renders daily brief, risk alerts, reply drafts, pricing, automation, and approval controls', () => {
@@ -84,5 +96,30 @@ describe('AIAssistantWorkspace', () => {
     expect(screen.getByText('Weekend revenue brief')).toBeInTheDocument();
     expect(screen.getByText('Raise Goa villa prices by 12% for Saturday inventory.')).toBeInTheDocument();
     expect(screen.getByText('86% confidence')).toBeInTheDocument();
+  });
+
+  it('generates an AI brief and saves it as an auditable insight', async () => {
+    hookMocks.createRecord.mockResolvedValueOnce({ id: 'insight-1' });
+    hookMocks.refresh.mockResolvedValueOnce(undefined);
+
+    render(<AIAssistantWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Generate Brief' }));
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/vendor-os/ai/brief',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: expect.stringContaining('"organizationId":"org-1"'),
+      }),
+    );
+    expect(hookMocks.createRecord).toHaveBeenCalledWith({
+      title: 'Generated morning brief',
+      recommendation: 'Prioritize housekeeping for six rooms before 2 PM arrivals.',
+      confidence: 84,
+      status: 'review',
+    });
+    expect(hookMocks.refresh).toHaveBeenCalled();
   });
 });

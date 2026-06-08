@@ -113,6 +113,7 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
     confidence: '',
     status: 'review',
   });
+  const [generating, setGenerating] = useState(false);
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const liveInsights = useMemo(
     () =>
@@ -153,6 +154,60 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
     }
   }
 
+  async function handleGenerateBrief() {
+    if (!organizationId) {
+      setFormMessage('Select an organization before generating an AI brief');
+      return;
+    }
+
+    setGenerating(true);
+    setFormMessage(null);
+
+    try {
+      const response = await fetch('/api/vendor-os/ai/brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          organizationId,
+          branchId: branchId || null,
+          organizationName: 'Tripetrip Vendor OS',
+          branchName: branchId ? 'Selected branch' : 'All branches',
+          signals: [
+            '14 arrivals today',
+            '6 dirty rooms before 2 PM arrivals',
+            '3 high-value direct booking leads',
+            '1 fleet permit requires review',
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || 'Unable to generate AI brief');
+      }
+
+      const insight = (await response.json()) as {
+        title: string;
+        recommendation: string;
+        confidence: number;
+        status: string;
+      };
+
+      await mutations.createRecord({
+        title: insight.title,
+        recommendation: insight.recommendation,
+        confidence: insight.confidence,
+        status: insight.status,
+      });
+      await records.refresh();
+      setFormMessage('AI brief generated');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to generate AI brief');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -167,7 +222,12 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button className="rounded-xl bg-emerald-600 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700">
+            <Button
+              className="rounded-xl bg-emerald-600 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+              disabled={generating || mutations.submitting || !organizationId}
+              type="button"
+              onClick={handleGenerateBrief}
+            >
               <Sparkles className="mr-2 h-4 w-4" />
               Generate Brief
             </Button>
