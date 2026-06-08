@@ -112,24 +112,33 @@ export function MarketplaceWorkspace({ organizationId, branchId }: MarketplaceWo
   const mutations = useVendorOSRecordMutations('marketplace', organizationId, branchId);
   const [syncForm, setSyncForm] = useState({
     listing_title: '',
+    public_slug: '',
     module: 'pms',
     sync_status: 'pending',
     conversion_rate: '',
+    direct_deal_enabled: false,
+    deal_badge: '',
   });
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const liveListings = useMemo(
     () =>
-      records.records.map((record) => ({
-        id: String(record.id),
-        title: String(record.listing_title || record.title || 'Untitled listing'),
-        source: `${String(record.module || 'marketplace').toUpperCase()} source`,
-        sync: String(record.last_synced_at ? `Synced ${record.last_synced_at}` : 'Awaiting marketplace sync'),
-        state: titleCase(String(record.sync_status || 'pending')),
-        metric:
-          record.conversion_rate === null || record.conversion_rate === undefined
-            ? 'Conversion pending'
-            : `${record.conversion_rate}% conversion`,
-      })),
+      records.records.map((record) => {
+        const metadata =
+          record.metadata && typeof record.metadata === 'object' ? (record.metadata as Record<string, unknown>) : {};
+        return {
+          id: String(record.id),
+          title: String(metadata.listing_title || record.title || 'Untitled listing'),
+          slug: String(metadata.public_slug || 'Slug pending'),
+          dealBadge: metadata.direct_deal_enabled ? `${String(metadata.deal_badge || 'Direct deal')} direct deal` : 'No direct deal',
+          source: `${String(record.module || 'marketplace').toUpperCase()} source`,
+          sync: String(record.last_synced_at ? `Synced ${record.last_synced_at}` : 'Awaiting marketplace sync'),
+          state: titleCase(String(record.sync_status || 'pending')),
+          metric:
+            record.conversion_rate === null || record.conversion_rate === undefined
+              ? 'Conversion pending'
+              : `${record.conversion_rate}% conversion`,
+        };
+      }),
     [records.records],
   );
 
@@ -140,15 +149,21 @@ export function MarketplaceWorkspace({ organizationId, branchId }: MarketplaceWo
     try {
       await mutations.createRecord({
         listing_title: syncForm.listing_title,
+        public_slug: syncForm.public_slug,
         module: syncForm.module,
         sync_status: syncForm.sync_status,
         conversion_rate: syncForm.conversion_rate ? Number(syncForm.conversion_rate) : null,
+        direct_deal_enabled: syncForm.direct_deal_enabled,
+        deal_badge: syncForm.deal_badge,
       });
       setSyncForm({
         listing_title: '',
+        public_slug: '',
         module: 'pms',
         sync_status: 'pending',
         conversion_rate: '',
+        direct_deal_enabled: false,
+        deal_badge: '',
       });
       await records.refresh();
       setFormMessage('Listing sync created');
@@ -193,7 +208,7 @@ export function MarketplaceWorkspace({ organizationId, branchId }: MarketplaceWo
             Live Marketplace API
           </span>
         </div>
-        <form className="grid gap-3 md:grid-cols-[1fr_0.65fr_0.65fr_0.55fr_auto]" onSubmit={handleSyncSubmit}>
+        <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_0.8fr_0.6fr_0.6fr_0.55fr_auto]" onSubmit={handleSyncSubmit}>
           <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Listing title *</span>
             <input
@@ -202,6 +217,15 @@ export function MarketplaceWorkspace({ organizationId, branchId }: MarketplaceWo
               required
               value={syncForm.listing_title}
               onChange={(inputEvent) => setSyncForm((current) => ({ ...current, listing_title: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Public slug</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="private-villa-goa"
+              value={syncForm.public_slug}
+              onChange={(inputEvent) => setSyncForm((current) => ({ ...current, public_slug: inputEvent.target.value }))}
             />
           </label>
           <label className="space-y-2">
@@ -245,6 +269,26 @@ export function MarketplaceWorkspace({ organizationId, branchId }: MarketplaceWo
               onChange={(inputEvent) => setSyncForm((current) => ({ ...current, conversion_rate: inputEvent.target.value }))}
             />
           </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Deal badge</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="30% off"
+              value={syncForm.deal_badge}
+              onChange={(inputEvent) => setSyncForm((current) => ({ ...current, deal_badge: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="flex h-11 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 text-xs font-bold text-emerald-800 xl:mt-auto">
+            <input
+              checked={syncForm.direct_deal_enabled}
+              className="h-4 w-4 rounded border-emerald-300 text-emerald-600"
+              type="checkbox"
+              onChange={(inputEvent) =>
+                setSyncForm((current) => ({ ...current, direct_deal_enabled: inputEvent.target.checked }))
+              }
+            />
+            Direct deal enabled
+          </label>
           <Button
             className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
             disabled={mutations.submitting || !organizationId}
@@ -278,6 +322,7 @@ export function MarketplaceWorkspace({ organizationId, branchId }: MarketplaceWo
                   <div>
                     <div className="text-sm font-black text-slate-950">{listing.title}</div>
                     <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{listing.source}</div>
+                    <div className="mt-1 text-xs font-semibold text-slate-500">{listing.slug}</div>
                   </div>
                   <StatePill state={listing.state} />
                 </div>
@@ -285,7 +330,12 @@ export function MarketplaceWorkspace({ organizationId, branchId }: MarketplaceWo
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                   {listing.sync}
                 </div>
-                <div className="mt-3 text-sm font-bold text-slate-800">{listing.metric}</div>
+                <div className="mt-3 flex flex-wrap gap-2 text-sm font-bold text-slate-800">
+                  <span>{listing.metric}</span>
+                  <span className="rounded-full bg-white px-2 py-1 text-[10px] uppercase tracking-widest text-emerald-700">
+                    {listing.dealBadge}
+                  </span>
+                </div>
               </div>
             ))}
             {listings.map((listing) => (

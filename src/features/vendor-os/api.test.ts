@@ -406,6 +406,61 @@ describe('Vendor OS record API', () => {
     });
   });
 
+  it('maps marketplace listing fields into sync metadata during generic creates', async () => {
+    const marketplaceOperation: VendorOSOperation = {
+      module: 'marketplace',
+      table: 'vendor_marketplace_syncs',
+      titleField: 'module',
+      statusField: 'sync_status',
+      createFields: [],
+    };
+    const row: VendorOSRecordRow = {
+      id: 'sync-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      module: 'pms',
+      sync_status: 'synced',
+    };
+    const single = vi.fn().mockResolvedValue({ data: row, error: null });
+    const select = vi.fn(() => ({ single }));
+    const insert = vi.fn(() => ({ select }));
+    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
+    const auditSelect = vi.fn(() => ({ single: auditSingle }));
+    const auditInsert = vi.fn(() => ({ select: auditSelect }));
+
+    vi.mocked(supabase.from)
+      .mockReturnValueOnce({ insert } as never)
+      .mockReturnValueOnce({ insert: auditInsert } as never);
+
+    await expect(
+      createVendorOSRecord(marketplaceOperation, 'org-1', 'branch-1', {
+        listing_title: 'Private Villa Goa',
+        public_slug: 'private-villa-goa',
+        module: 'pms',
+        sync_status: 'synced',
+        conversion_rate: 8.4,
+        direct_deal_enabled: true,
+        deal_badge: '30% off',
+      }),
+    ).resolves.toEqual(row);
+
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      module: 'pms',
+      sync_status: 'synced',
+      conversion_rate: 8.4,
+      last_synced_at: expect.any(String),
+      metadata: {
+        listing_title: 'Private Villa Goa',
+        public_slug: 'private-villa-goa',
+        direct_deal_enabled: true,
+        deal_badge: '30% off',
+        source: 'marketplace_workspace',
+      },
+    });
+  });
+
   it('uploads a vendor document file to storage and creates its document record', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(123456);
     const file = new File(['license'], 'Hotel Trade License.pdf', { type: 'application/pdf' });

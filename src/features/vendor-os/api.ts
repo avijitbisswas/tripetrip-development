@@ -138,6 +138,26 @@ async function buildTeamMemberPayload(input: Record<string, unknown>) {
   };
 }
 
+function buildMarketplaceSyncPayload(input: Record<string, unknown>) {
+  const metadata = {
+    ...(input.metadata && typeof input.metadata === 'object' ? (input.metadata as Record<string, unknown>) : {}),
+    listing_title: input.listing_title || null,
+    public_slug: input.public_slug || null,
+    direct_deal_enabled: Boolean(input.direct_deal_enabled),
+    deal_badge: input.deal_badge || null,
+    source: 'marketplace_workspace',
+  };
+
+  return {
+    module: input.module,
+    sync_status: input.sync_status || 'pending',
+    conversion_rate: input.conversion_rate ?? null,
+    ...(input.listing_id ? { listing_id: input.listing_id } : {}),
+    ...(input.sync_status === 'synced' ? { last_synced_at: new Date().toISOString() } : {}),
+    metadata,
+  };
+}
+
 export function buildVendorDocumentStoragePath(input: {
   organizationId: string;
   branchId?: string | null;
@@ -460,11 +480,12 @@ export async function createVendorOSRecord(
         }
       : {};
   const teamDefaults = operation.module === 'team' ? await buildTeamMemberPayload(input) : {};
+  const marketplacePayload = operation.module === 'marketplace' ? buildMarketplaceSyncPayload(input) : null;
   const payload: Record<string, unknown> = {
     organization_id: organizationId,
     ...(operation.branchScoped === false ? {} : { branch_id: branchId }),
     ...documentDefaults,
-    ...(operation.module === 'team' ? teamDefaults : input),
+    ...(operation.module === 'team' ? teamDefaults : marketplacePayload || input),
   };
 
   const { data, error } = await supabase.from(operation.table).insert(payload).select().single<VendorOSRecordRow>();
