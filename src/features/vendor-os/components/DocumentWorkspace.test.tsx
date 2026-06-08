@@ -5,6 +5,7 @@ import { DocumentWorkspace } from './DocumentWorkspace';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
+  updateRecord: vi.fn(),
   uploadDocument: vi.fn(),
   createDownloadUrl: vi.fn(),
   refresh: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock('../hooks', () => ({
   }),
   useVendorOSRecordMutations: () => ({
     createRecord: hookMocks.createRecord,
-    updateRecord: vi.fn(),
+    updateRecord: hookMocks.updateRecord,
     deleteRecord: vi.fn(),
     submitting: false,
     error: null,
@@ -40,6 +41,7 @@ vi.mock('../hooks', () => ({
 describe('DocumentWorkspace', () => {
   beforeEach(() => {
     hookMocks.createRecord.mockReset();
+    hookMocks.updateRecord.mockReset();
     hookMocks.uploadDocument.mockReset();
     hookMocks.createDownloadUrl.mockReset();
     hookMocks.refresh.mockReset();
@@ -145,5 +147,38 @@ describe('DocumentWorkspace', () => {
 
     expect(hookMocks.createDownloadUrl).toHaveBeenCalledWith('organizations/org-1/licenses/hotel-trade-license.pdf');
     expect(open).toHaveBeenCalledWith('https://storage.example.com/signed-license.pdf', '_blank', 'noopener,noreferrer');
+  });
+
+  it('reviews a live document and stores approval metadata', async () => {
+    hookMocks.records = [
+      {
+        id: 'doc-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        name: 'Goa Villa Insurance',
+        document_type: 'insurance',
+        storage_path: 'organizations/org-1/insurance/goa-villa.pdf',
+        status: 'draft',
+      },
+    ];
+    hookMocks.updateRecord.mockResolvedValueOnce({ id: 'doc-1' });
+    hookMocks.refresh.mockResolvedValueOnce(undefined);
+
+    render(<DocumentWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await userEvent.selectOptions(screen.getByLabelText('Review document *'), 'doc-1');
+    await userEvent.selectOptions(screen.getByLabelText('Review decision *'), 'active');
+    await userEvent.type(screen.getByLabelText('Review note'), 'Insurance verified for 2026 season');
+    await userEvent.click(screen.getByRole('button', { name: 'Save Document Review' }));
+
+    expect(hookMocks.updateRecord).toHaveBeenCalledWith('doc-1', {
+      status: 'active',
+      metadata: {
+        review_note: 'Insurance verified for 2026 season',
+        review_decision: 'active',
+        source: 'document_workspace',
+      },
+    });
+    expect(hookMocks.refresh).toHaveBeenCalled();
   });
 });

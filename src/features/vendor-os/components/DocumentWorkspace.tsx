@@ -113,6 +113,11 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
     status: 'active',
     file: null as File | null,
   });
+  const [reviewForm, setReviewForm] = useState({
+    document_id: '',
+    decision: 'active',
+    note: '',
+  });
   const [fileInputKey, setFileInputKey] = useState(0);
   const [formMessage, setFormMessage] = useState<string | null>(null);
 
@@ -125,7 +130,12 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
         owner: String(record.entity_type || record.module || 'Vendor OS'),
         expiry: record.expires_at ? `Expires ${record.expires_at}` : 'No expiry set',
         state: titleCase(String(record.status || 'active')),
+        rawStatus: String(record.status || 'active'),
         storagePath: String(record.storage_path || ''),
+        reviewNote:
+          record.metadata && typeof record.metadata === 'object' && 'review_note' in record.metadata
+            ? String((record.metadata as Record<string, unknown>).review_note || '')
+            : '',
       })),
     [records.records],
   );
@@ -164,6 +174,41 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
       setFormMessage(documentForm.file ? 'Document uploaded' : 'Document created');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to create document');
+    }
+  }
+
+  function handleReviewDocumentChange(documentId: string) {
+    const document = liveDocuments.find((item) => item.id === documentId);
+    setReviewForm((current) => ({
+      ...current,
+      document_id: documentId,
+      decision: document?.rawStatus || current.decision,
+      note: document?.reviewNote || current.note,
+    }));
+  }
+
+  async function handleDocumentReviewSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    if (!reviewForm.document_id) {
+      setFormMessage('Select a document before saving review');
+      return;
+    }
+
+    try {
+      await mutations.updateRecord(reviewForm.document_id, {
+        status: reviewForm.decision,
+        metadata: {
+          review_note: reviewForm.note,
+          review_decision: reviewForm.decision,
+          source: 'document_workspace',
+        },
+      });
+      await records.refresh();
+      setFormMessage('Document review saved');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to save document review');
     }
   }
 
@@ -288,6 +333,67 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
             {formMessage || mutations.error || uploads.error || downloads.error || records.error}
           </p>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Document Review</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Approve, expire, or archive live compliance records</p>
+          </div>
+          <span className="rounded-full bg-amber-50 px-3 py-1 text-[10px] font-bold uppercase text-amber-700">
+            Approval workflow
+          </span>
+        </div>
+        <form className="grid gap-3 lg:grid-cols-[1fr_0.6fr_1.3fr_auto]" onSubmit={handleDocumentReviewSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Review document *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={reviewForm.document_id}
+              onChange={(inputEvent) => handleReviewDocumentChange(inputEvent.target.value)}
+            >
+              <option value="">Select document</option>
+              {liveDocuments.map((document) => (
+                <option key={document.id} value={document.id}>
+                  {document.name} - {document.type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Review decision *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={reviewForm.decision}
+              onChange={(inputEvent) => setReviewForm((current) => ({ ...current, decision: inputEvent.target.value }))}
+            >
+              {documentStatusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {titleCase(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Review note</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Compliance review note"
+              value={reviewForm.note}
+              onChange={(inputEvent) => setReviewForm((current) => ({ ...current, note: inputEvent.target.value }))}
+            />
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId || !reviewForm.document_id}
+            type="submit"
+          >
+            Save Document Review
+          </Button>
+        </form>
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
