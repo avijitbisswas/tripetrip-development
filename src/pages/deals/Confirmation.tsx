@@ -1,6 +1,8 @@
 import { Button } from '@/components/ui/button';
-import { CalendarDays, Check, Download, Share2 } from 'lucide-react';
+import { CalendarDays, Check, Download, ScanBarcode, Share2, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+const barcodeBlocks = Array.from({ length: 84 }, (_, index) => index);
 
 export default function DealsConfirmation() {
   return (
@@ -10,8 +12,8 @@ export default function DealsConfirmation() {
           <Check className="h-12 w-12" />
         </div>
         <div className="mt-5 text-center">
-          <h1 className="text-4xl font-black">Booking Confirmed!</h1>
-          <p className="mt-2 text-sm font-bold text-white/85">You locked this amazing deal.</p>
+          <h1 className="text-4xl font-black">Deal Locked!</h1>
+          <p className="mt-2 text-sm font-bold text-white/85">Complete manual barcode payment. Admin will approve your booking after verification.</p>
         </div>
 
         <div className="mx-auto mt-6 max-w-xl rounded-2xl bg-white p-5 text-slate-950">
@@ -24,6 +26,32 @@ export default function DealsConfirmation() {
               <div className="mt-1 text-slate-500">24 May - 27 May</div>
               <div className="text-slate-500">2 Adults</div>
               <div className="mt-1 text-lg font-black">₹9,999</div>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 md:grid-cols-[180px_1fr]">
+            <div className="rounded-2xl bg-white p-3">
+              <div className="grid grid-cols-12 gap-1" aria-label="Manual payment barcode">
+                {barcodeBlocks.map((block) => (
+                  <span
+                    key={block}
+                    className={`h-5 rounded-sm ${block % 2 === 0 || block % 7 === 0 || [3, 9, 11, 28, 35, 51, 69, 75].includes(block) ? 'bg-slate-950' : 'bg-emerald-100'}`}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 text-sm font-black text-emerald-700">
+                <ScanBarcode className="h-4 w-4" />
+                Manual Barcode Payment
+              </div>
+              <div className="mt-2 text-xl font-black text-slate-950">Awaiting Admin Approval</div>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                Scan this barcode, pay ₹9,999, and use reference TRIP67845291-9999. Your voucher unlocks after Tripetrip admin verifies the payment.
+              </p>
+              <p className="mt-3 text-xs font-black uppercase tracking-widest text-emerald-700">
+                <ShieldCheck className="mr-1 inline h-4 w-4" />
+                Manual verification enabled
+              </p>
             </div>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-3">

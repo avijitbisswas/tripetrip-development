@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { Resend } from 'resend';
 import { buildVendorAIBriefPrompt, normalizeVendorAIBrief } from './src/features/vendor-os/aiProvider';
+import { buildManualPaymentIntent, updateManualPaymentStatus, type ManualPaymentIntent } from './src/features/payments/manualPayment';
 
 dotenv.config();
 
@@ -169,11 +170,48 @@ async function startServer() {
     }
   });
 
-  app.post('/api/payments/create-order', async (_req, res) => {
-    res.json({
-      message: 'Order creation endpoint ready',
-      order_id: 'pending_razorpay_integration',
+  const manualPayments = new Map<string, ManualPaymentIntent>();
+
+  app.post('/api/payments/create-order', async (req, res) => {
+    const { amount, bookingId, travelerName, purpose } = req.body as {
+      amount?: number;
+      bookingId?: string;
+      travelerName?: string;
+      purpose?: string;
+    };
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'A positive amount is required' });
+    }
+
+    const intent = buildManualPaymentIntent({
+      amount,
+      bookingId,
+      travelerName,
+      purpose,
+      upiId: process.env.MANUAL_PAYMENT_UPI_ID || process.env.TRIPETRIP_UPI_ID,
     });
+    manualPayments.set(intent.id, intent);
+
+    res.json(intent);
+  });
+
+  app.post('/api/admin/payments/:paymentId/approve', async (req, res) => {
+    const current = manualPayments.get(req.params.paymentId);
+    if (!current) return res.status(404).json({ error: 'Manual payment not found' });
+
+    const updated = updateManualPaymentStatus(current, 'approved');
+    manualPayments.set(updated.id, updated);
+    res.json(updated);
+  });
+
+  app.post('/api/admin/payments/:paymentId/reject', async (req, res) => {
+    const current = manualPayments.get(req.params.paymentId);
+    if (!current) return res.status(404).json({ error: 'Manual payment not found' });
+
+    const updated = updateManualPaymentStatus(current, 'rejected');
+    manualPayments.set(updated.id, updated);
+    res.json(updated);
   });
 
   if (process.env.NODE_ENV !== 'production') {

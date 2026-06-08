@@ -155,8 +155,11 @@ describe('Tripetrip premium marketplace screens', () => {
   it('renders the deal confirmation success page', () => {
     renderWithRoutes('/deals/confirmation');
 
-    expect(screen.getByRole('heading', { name: /Booking Confirmed/i })).toBeInTheDocument();
-    expect(screen.getByText(/TRIP67845291/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Deal Locked/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/TRIP67845291/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Manual Barcode Payment/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Awaiting Admin Approval/i)).toBeInTheDocument();
+    expect(screen.getByText(/Scan this barcode/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Download Voucher/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add To Calendar/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Share Trip/i })).toBeInTheDocument();
@@ -168,6 +171,10 @@ describe('Tripetrip premium marketplace screens', () => {
     expect(screen.getByRole('heading', { name: /Deal Command Center/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Create Deal/i })).toBeInTheDocument();
     expect(screen.getByText(/Conversion Rate/i)).toBeInTheDocument();
+    expect(screen.getByText(/Manual Payment Approvals/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/TRIP67845291/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /Approve Payment TRIP67845291/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reject Payment TRIP67845291/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Feature Deal/i }).length).toBeGreaterThan(0);
   });
 
