@@ -21,4 +21,12 @@ describe('Vendor OS database schema', () => {
     expect(schema).toContain('CREATE POLICY "Owners update vendor document objects"');
     expect(schema).toContain('CREATE POLICY "Owners delete vendor document objects"');
   });
+
+  it('supports first-class team invitations and manager-managed team access', () => {
+    expect(schema).toContain("CREATE TYPE vendor_team_member_status AS ENUM ('invited', 'active', 'suspended')");
+    expect(schema).toContain('display_name TEXT');
+    expect(schema).toContain("status vendor_team_member_status DEFAULT 'invited' NOT NULL");
+    expect(schema).toContain('CREATE INDEX IF NOT EXISTS idx_vendor_team_members_org_status');
+    expect(schema).toContain("role IN ('owner', 'admin', 'manager')");
+  });
 });

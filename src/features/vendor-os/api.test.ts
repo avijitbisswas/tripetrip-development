@@ -7,6 +7,7 @@ import {
   markVendorNotificationRead,
   subscribeVendorNotifications,
   uploadVendorDocumentFile,
+  upsertVendorTeamMember,
   VENDOR_DOCUMENTS_BUCKET,
   updateVendorOSRecord,
   type VendorOSRecordRow,
@@ -263,6 +264,100 @@ describe('Vendor OS record API', () => {
       document_type: 'insurance',
       storage_path: 'vendors/org-1/insurance/policy.pdf',
       status: 'active',
+    });
+  });
+
+  it('creates team invitations with inviter, display name, status, and branch scope', async () => {
+    const row = {
+      id: 'member-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      invited_by: 'user-1',
+      invited_email: 'ops@example.com',
+      display_name: 'Ops Manager',
+      role: 'manager',
+      status: 'invited',
+      is_active: true,
+    };
+    const single = vi.fn().mockResolvedValue({ data: row, error: null });
+    const select = vi.fn(() => ({ single }));
+    const insert = vi.fn(() => ({ select }));
+
+    vi.mocked(supabase.from).mockReturnValueOnce({ insert } as never);
+
+    await expect(
+      upsertVendorTeamMember({
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        invited_email: 'ops@example.com',
+        display_name: 'Ops Manager',
+        role: 'manager',
+        status: 'invited',
+      }),
+    ).resolves.toEqual(row);
+
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      invited_by: 'user-1',
+      invited_email: 'ops@example.com',
+      display_name: 'Ops Manager',
+      role: 'manager',
+      status: 'invited',
+      is_active: true,
+      accepted_at: null,
+    });
+  });
+
+  it('adds inviter and normalized invitation state for generic team creates', async () => {
+    const teamOperation: VendorOSOperation = {
+      module: 'team',
+      table: 'vendor_team_members',
+      titleField: 'title',
+      statusField: 'role',
+      createFields: [],
+    };
+    const row: VendorOSRecordRow = {
+      id: 'member-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      invited_by: 'user-1',
+      invited_email: 'ops@example.com',
+      display_name: 'Ops Manager',
+      role: 'manager',
+      status: 'invited',
+      is_active: true,
+    };
+    const single = vi.fn().mockResolvedValue({ data: row, error: null });
+    const select = vi.fn(() => ({ single }));
+    const insert = vi.fn(() => ({ select }));
+    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
+    const auditSelect = vi.fn(() => ({ single: auditSingle }));
+    const auditInsert = vi.fn(() => ({ select: auditSelect }));
+
+    vi.mocked(supabase.from)
+      .mockReturnValueOnce({ insert } as never)
+      .mockReturnValueOnce({ insert: auditInsert } as never);
+
+    await expect(
+      createVendorOSRecord(teamOperation, 'org-1', 'branch-1', {
+        invited_email: 'ops@example.com',
+        role: 'manager',
+        status: 'invited',
+        display_name: 'Ops Manager',
+      }),
+    ).resolves.toEqual(row);
+
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      invited_by: 'user-1',
+      invited_email: 'ops@example.com',
+      role: 'manager',
+      status: 'invited',
+      display_name: 'Ops Manager',
+      is_active: true,
+      accepted_at: null,
     });
   });
 

@@ -196,6 +196,12 @@ EXCEPTION
 END $$;
 
 DO $$ BEGIN
+  CREATE TYPE vendor_team_member_status AS ENUM ('invited', 'active', 'suspended');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
   CREATE TYPE vendor_os_module AS ENUM (
     'dashboard',
     'crm',
@@ -291,9 +297,11 @@ CREATE TABLE IF NOT EXISTS vendor_team_members (
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
   role vendor_os_role NOT NULL,
   title TEXT,
+  display_name TEXT,
   invited_email TEXT,
   invited_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
   accepted_at TIMESTAMPTZ,
+  status vendor_team_member_status DEFAULT 'invited' NOT NULL,
   is_active BOOLEAN DEFAULT TRUE NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   UNIQUE(organization_id, branch_id, user_id)
@@ -372,6 +380,7 @@ CREATE INDEX IF NOT EXISTS idx_vendor_organizations_owner ON vendor_organization
 CREATE INDEX IF NOT EXISTS idx_vendor_branches_organization ON vendor_branches(organization_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_team_members_user ON vendor_team_members(user_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_vendor_team_members_org ON vendor_team_members(organization_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_team_members_org_status ON vendor_team_members(organization_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_vendor_audit_logs_org_created ON vendor_audit_logs(organization_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_vendor_notifications_recipient_status ON vendor_notifications(recipient_user_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_vendor_documents_org_module ON vendor_documents(organization_id, module, created_at DESC);
@@ -566,7 +575,7 @@ CREATE POLICY "Owners and admins manage team"
     OR organization_id IN (
       SELECT organization_id
       FROM vendor_team_members
-      WHERE user_id = auth.uid() AND role IN ('owner', 'admin') AND is_active = true
+      WHERE user_id = auth.uid() AND role IN ('owner', 'admin', 'manager') AND is_active = true
     )
   )
   WITH CHECK (
@@ -574,7 +583,7 @@ CREATE POLICY "Owners and admins manage team"
     OR organization_id IN (
       SELECT organization_id
       FROM vendor_team_members
-      WHERE user_id = auth.uid() AND role IN ('owner', 'admin') AND is_active = true
+      WHERE user_id = auth.uid() AND role IN ('owner', 'admin', 'manager') AND is_active = true
     )
   );
 

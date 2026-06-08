@@ -85,9 +85,11 @@ const member: VendorTeamMember = {
   user_id: 'user-2',
   role: 'staff',
   title: 'Front Desk',
+  display_name: 'Front Desk Agent',
   invited_email: null,
   invited_by: null,
   accepted_at: '2026-06-03T00:00:00.000Z',
+  status: 'active',
   is_active: true,
   created_at: '2026-06-03T00:00:00.000Z',
 };

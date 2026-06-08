@@ -36,6 +36,7 @@ export type PermissionAction = 'view' | 'create' | 'update' | 'delete' | 'approv
 export type AuditEventSeverity = 'info' | 'warning' | 'critical';
 export type NotificationStatus = 'unread' | 'read' | 'archived';
 export type DocumentStatus = 'draft' | 'active' | 'expired' | 'archived';
+export type VendorTeamMemberStatus = 'invited' | 'active' | 'suspended';
 
 export interface VendorOrganization {
   id: string;
@@ -85,9 +86,11 @@ export interface VendorTeamMember {
   user_id: string | null;
   role: VendorOSRole;
   title: string | null;
+  display_name: string | null;
   invited_email: string | null;
   invited_by: string | null;
   accepted_at: string | null;
+  status: VendorTeamMemberStatus;
   is_active: boolean;
   created_at: string;
 }

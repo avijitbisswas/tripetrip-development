@@ -10,6 +10,7 @@ import type {
   VendorOSModule,
   VendorRolePermission,
   VendorTeamMember,
+  VendorTeamMemberStatus,
 } from './types';
 import type { VendorOSOperation } from './operations';
 
@@ -50,7 +51,12 @@ type BranchInput = Pick<VendorBranch, 'organization_id' | 'name'> &
   >;
 
 type TeamMemberInput = Pick<VendorTeamMember, 'organization_id' | 'role'> &
-  Partial<Pick<VendorTeamMember, 'branch_id' | 'user_id' | 'title' | 'invited_email' | 'invited_by' | 'accepted_at'>>;
+  Partial<
+    Pick<
+      VendorTeamMember,
+      'branch_id' | 'user_id' | 'title' | 'display_name' | 'invited_email' | 'invited_by' | 'accepted_at' | 'status' | 'is_active'
+    >
+  >;
 
 type AuditLogInput = Pick<VendorAuditLog, 'organization_id' | 'module' | 'action'> &
   Partial<
@@ -113,6 +119,22 @@ function getFileMetadata(file: File | Blob, fallbackName: string) {
     fileName: candidate,
     mimeType: file.type || null,
     size: typeof file.size === 'number' ? file.size : null,
+  };
+}
+
+function normalizeTeamMemberStatus(status?: unknown): VendorTeamMemberStatus {
+  if (status === 'active' || status === 'suspended' || status === 'invited') return status;
+  return 'invited';
+}
+
+async function buildTeamMemberPayload(input: Record<string, unknown>) {
+  const status = normalizeTeamMemberStatus(input.status);
+  return {
+    ...input,
+    invited_by: input.invited_by || (await getRequiredCurrentUserId()),
+    status,
+    is_active: input.is_active ?? status !== 'suspended',
+    accepted_at: input.accepted_at ?? (status === 'active' ? new Date().toISOString() : null),
   };
 }
 
@@ -233,7 +255,8 @@ export async function listVendorTeamMembers(organizationId?: string) {
 }
 
 export async function upsertVendorTeamMember(input: TeamMemberInput) {
-  const { data, error } = await supabase.from('vendor_team_members').insert(input).select().single<VendorTeamMember>();
+  const payload = await buildTeamMemberPayload(input);
+  const { data, error } = await supabase.from('vendor_team_members').insert(payload).select().single<VendorTeamMember>();
 
   if (error) throw toServiceError(error, 'VENDOR_OS_TEAM_WRITE_FAILED');
   return data;
@@ -407,11 +430,12 @@ export async function createVendorOSRecord(
           uploaded_by: await getRequiredCurrentUserId(),
         }
       : {};
+  const teamDefaults = operation.module === 'team' ? await buildTeamMemberPayload(input) : {};
   const payload: Record<string, unknown> = {
     organization_id: organizationId,
     ...(operation.branchScoped === false ? {} : { branch_id: branchId }),
     ...documentDefaults,
-    ...input,
+    ...(operation.module === 'team' ? teamDefaults : input),
   };
 
   const { data, error } = await supabase.from(operation.table).insert(payload).select().single<VendorOSRecordRow>();
