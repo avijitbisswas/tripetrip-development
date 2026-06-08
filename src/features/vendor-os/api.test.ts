@@ -6,6 +6,7 @@ import {
   createVendorOSRecord,
   deleteVendorOSRecord,
   markVendorNotificationRead,
+  subscribeVendorOSRecords,
   subscribeVendorNotifications,
   uploadVendorDocumentFile,
   upsertVendorTeamMember,
@@ -548,6 +549,33 @@ describe('Vendor OS record API', () => {
         schema: 'public',
         table: 'vendor_notifications',
         filter: 'recipient_user_id=eq.user-1',
+      },
+      onChange,
+    );
+    expect(subscribe).toHaveBeenCalled();
+
+    unsubscribe();
+    expect(supabase.removeChannel).toHaveBeenCalledWith(channel);
+  });
+
+  it('subscribes to realtime module record changes for an organization and cleans up the channel', () => {
+    const onChange = vi.fn();
+    const subscribe = vi.fn();
+    const on = vi.fn(() => ({ subscribe }));
+    const channel = { on, subscribe };
+
+    vi.mocked(supabase.channel).mockReturnValue(channel as never);
+
+    const unsubscribe = subscribeVendorOSRecords(operation, 'org-1', onChange);
+
+    expect(supabase.channel).toHaveBeenCalledWith('vendor-os-records:vendor_leads:org-1');
+    expect(on).toHaveBeenCalledWith(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'vendor_leads',
+        filter: 'organization_id=eq.org-1',
       },
       onChange,
     );

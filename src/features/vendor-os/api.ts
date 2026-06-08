@@ -314,6 +314,26 @@ export function subscribeVendorNotifications(userId: string, onChange: () => voi
   };
 }
 
+export function subscribeVendorOSRecords(operation: VendorOSOperation, organizationId: string, onChange: () => void) {
+  const channel = supabase.channel(`vendor-os-records:${operation.table}:${organizationId}`);
+  channel
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: operation.table,
+        filter: `organization_id=eq.${organizationId}`,
+      },
+      onChange,
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 export async function createVendorAuditLog(input: AuditLogInput) {
   const { data, error } = await supabase.from('vendor_audit_logs').insert(input).select().single<VendorAuditLog>();
 

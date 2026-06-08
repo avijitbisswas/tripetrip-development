@@ -11,6 +11,7 @@ import {
   listVendorOrganizations,
   listVendorTeamMembers,
   markVendorNotificationRead,
+  subscribeVendorOSRecords,
   subscribeVendorNotifications,
   updateVendorOSRecord,
   uploadVendorDocumentFile,
@@ -245,6 +246,13 @@ export function useVendorOSRecords(module: VendorOSModule, organizationId?: stri
       mounted = false;
     };
   }, [operation, organizationId]);
+
+  useEffect(() => {
+    if (!organizationId) return undefined;
+    return subscribeVendorOSRecords(operation, organizationId, () => {
+      loadRecords();
+    });
+  }, [loadRecords, operation, organizationId]);
 
   return {
     records,

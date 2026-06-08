@@ -21,6 +21,7 @@ vi.mock('./api', () => ({
   deleteVendorOSRecord: vi.fn(),
   markVendorNotificationRead: vi.fn(),
   subscribeVendorNotifications: vi.fn(),
+  subscribeVendorOSRecords: vi.fn(),
   uploadVendorDocumentFile: vi.fn(),
   createVendorDocumentSignedUrl: vi.fn(),
 }));
@@ -36,6 +37,7 @@ import {
   listVendorTeamMembers,
   markVendorNotificationRead,
   subscribeVendorNotifications,
+  subscribeVendorOSRecords,
   uploadVendorDocumentFile,
   updateVendorOSRecord,
 } from './api';
@@ -137,6 +139,7 @@ describe('Vendor OS hooks', () => {
     vi.mocked(deleteVendorOSRecord).mockResolvedValue({ id: 'lead-1' });
     vi.mocked(markVendorNotificationRead).mockResolvedValue({ ...unread, status: 'read' });
     vi.mocked(subscribeVendorNotifications).mockReturnValue(vi.fn());
+    vi.mocked(subscribeVendorOSRecords).mockReturnValue(vi.fn());
     vi.mocked(createVendorDocumentSignedUrl).mockResolvedValue('https://storage.example.com/license.pdf');
     vi.mocked(uploadVendorDocumentFile).mockResolvedValue({
       id: 'doc-1',
@@ -248,6 +251,43 @@ describe('Vendor OS hooks', () => {
 
     expect(result.current.records).toHaveLength(1);
     expect(result.current.records[0].title).toBe('Goa group trip');
+  });
+
+  it('subscribes module records to realtime updates and cleans up on unmount', async () => {
+    const unsubscribe = vi.fn();
+    let realtimeHandler: (() => void) | undefined;
+    vi.mocked(subscribeVendorOSRecords).mockImplementation((_operation, _organizationId, handler) => {
+      realtimeHandler = handler;
+      return unsubscribe;
+    });
+    vi.mocked(listVendorOSRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'lead-1',
+          organization_id: 'org-1',
+          title: 'Goa group trip',
+          stage: 'new',
+        },
+      ]);
+
+    const { result, unmount } = renderHook(() => useVendorOSRecords('crm', 'org-1'));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(subscribeVendorOSRecords).toHaveBeenCalledWith(
+      expect.objectContaining({ table: 'vendor_leads' }),
+      'org-1',
+      expect.any(Function),
+    );
+
+    await act(async () => {
+      realtimeHandler?.();
+    });
+
+    expect(result.current.records[0].title).toBe('Goa group trip');
+
+    unmount();
+    expect(unsubscribe).toHaveBeenCalled();
   });
 
   it('creates, updates, and deletes records through module mutations', async () => {
