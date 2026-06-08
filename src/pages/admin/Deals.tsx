@@ -2,19 +2,91 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { dealModels } from '@/src/features/deals/data';
 import { BarChart3, CheckCircle2, Pause, Plus, ScanBarcode, Star, Trash2, XCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
-const manualPaymentApprovals = [
+type AdminManualPayment = {
+  id: string;
+  bookingId: string;
+  travelerName?: string;
+  purpose?: string;
+  reference: string;
+  amount: number;
+  status: string;
+  adminApprovalStatus?: string;
+};
+
+const fallbackManualPayments: AdminManualPayment[] = [
   {
+    id: 'manual_1780912345678',
     bookingId: 'TRIP67845291',
-    traveler: 'Rohit Sharma',
-    deal: 'Goa Beach Escape',
+    travelerName: 'Rohit Sharma',
+    purpose: 'Goa Beach Escape',
     reference: 'TRIP67845291-9999',
-    amount: '₹9,999',
-    status: 'Awaiting Admin Approval',
+    amount: 9999,
+    status: 'awaiting_admin_approval',
+    adminApprovalStatus: 'pending',
   },
 ];
 
+function formatPaymentAmount(amount: number) {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+}
+
+function formatPaymentStatus(payment: AdminManualPayment) {
+  if (payment.adminApprovalStatus === 'approved' || payment.status === 'approved') return 'Approved';
+  if (payment.adminApprovalStatus === 'rejected' || payment.status === 'rejected') return 'Rejected';
+  return 'Awaiting Admin Approval';
+}
+
 export default function AdminDeals() {
+  const [payments, setPayments] = useState<AdminManualPayment[]>(fallbackManualPayments);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPayments() {
+      try {
+        const response = await fetch('/api/admin/payments/manual');
+        if (!response.ok) return;
+
+        const payload = (await response.json()) as { payments?: AdminManualPayment[] };
+        if (isMounted && Array.isArray(payload.payments) && payload.payments.length > 0) {
+          setPayments(payload.payments);
+        }
+      } catch {
+        // Keep fallback approvals visible for local demos and offline development.
+      }
+    }
+
+    void loadPayments();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  async function updatePayment(paymentId: string, action: 'approve' | 'reject') {
+    const optimisticStatus = action === 'approve' ? 'approved' : 'rejected';
+    setPayments((current) =>
+      current.map((payment) =>
+        payment.id === paymentId ? { ...payment, status: optimisticStatus, adminApprovalStatus: optimisticStatus } : payment,
+      ),
+    );
+
+    try {
+      const response = await fetch(`/api/admin/payments/${paymentId}/${action}`, { method: 'POST' });
+      if (!response.ok) throw new Error('Manual payment update failed');
+      const updated = (await response.json()) as AdminManualPayment;
+      setPayments((current) => current.map((payment) => (payment.id === paymentId ? { ...payment, ...updated } : payment)));
+    } catch {
+      setPayments((current) =>
+        current.map((payment) =>
+          payment.id === paymentId ? { ...payment, status: 'awaiting_admin_approval', adminApprovalStatus: 'pending' } : payment,
+        ),
+      );
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-950 sm:px-6 lg:px-8">
       <section className="mx-auto max-w-[1400px]">
@@ -23,10 +95,13 @@ export default function AdminDeals() {
             <h1 className="text-4xl font-black tracking-tight">Deal Command Center</h1>
             <p className="mt-2 text-sm font-bold text-slate-500">Create, pause, feature, and analyze Tripetrip flash-sale campaigns.</p>
           </div>
-          <Button className="rounded-xl bg-[#16A34A] font-black text-white hover:bg-emerald-700"><Plus className="mr-2 h-4 w-4" />Create Deal</Button>
+          <Button className="rounded-xl bg-[#16A34A] font-black text-white hover:bg-emerald-700">
+            <Plus className="mr-2 h-4 w-4" />
+            Create Deal
+          </Button>
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-4">
-          {['CTR 18.4%', 'Conversion Rate 7.9%', 'Revenue ₹18.6L', 'Inventory Sold 72%'].map((metric) => (
+          {['CTR 18.4%', 'Conversion Rate 7.9%', 'Revenue INR 18.6L', 'Inventory Sold 72%'].map((metric) => (
             <div key={metric} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <BarChart3 className="h-5 w-5 text-[#16A34A]" />
               <div className="mt-3 text-lg font-black">{metric}</div>
@@ -45,24 +120,34 @@ export default function AdminDeals() {
             <Badge className="rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-50">Admin verification required</Badge>
           </div>
           <div className="mt-4 space-y-3">
-            {manualPaymentApprovals.map((payment) => (
-              <div key={payment.bookingId} className="grid gap-4 rounded-xl bg-slate-50 p-4 md:grid-cols-[1fr_auto] md:items-center">
+            {payments.map((payment) => (
+              <div key={payment.id} className="grid gap-4 rounded-xl bg-slate-50 p-4 md:grid-cols-[1fr_auto] md:items-center">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="text-sm font-black text-slate-950">{payment.bookingId}</div>
-                    <Badge className="rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-50">{payment.status}</Badge>
+                    <Badge className="rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-50">{formatPaymentStatus(payment)}</Badge>
                   </div>
                   <p className="mt-1 text-sm font-bold text-slate-600">
-                    {payment.traveler} - {payment.deal} - {payment.amount}
+                    {payment.travelerName || 'Guest'} - {payment.purpose || 'Tripetrip Booking'} - {formatPaymentAmount(payment.amount)}
                   </p>
                   <p className="mt-1 text-xs font-black uppercase tracking-widest text-slate-400">Reference {payment.reference}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" className="rounded-xl font-black text-emerald-700" aria-label={`Approve Payment ${payment.bookingId}`}>
+                  <Button
+                    variant="outline"
+                    className="rounded-xl font-black text-emerald-700"
+                    aria-label={`Approve Payment ${payment.bookingId}`}
+                    onClick={() => void updatePayment(payment.id, 'approve')}
+                  >
                     <CheckCircle2 className="mr-2 h-4 w-4" />
                     Approve
                   </Button>
-                  <Button variant="outline" className="rounded-xl font-black text-rose-600" aria-label={`Reject Payment ${payment.bookingId}`}>
+                  <Button
+                    variant="outline"
+                    className="rounded-xl font-black text-rose-600"
+                    aria-label={`Reject Payment ${payment.bookingId}`}
+                    onClick={() => void updatePayment(payment.id, 'reject')}
+                  >
                     <XCircle className="mr-2 h-4 w-4" />
                     Reject
                   </Button>
@@ -80,12 +165,23 @@ export default function AdminDeals() {
                   <Badge className="rounded-lg bg-emerald-50 text-[#16A34A] hover:bg-emerald-50">{deal.dealType}</Badge>
                   {deal.featured && <Badge className="rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-50">Featured</Badge>}
                 </div>
-                <p className="mt-1 text-sm font-bold text-slate-500">{deal.destination} - {deal.remainingInventory} inventory left - {deal.bookingCount} bookings</p>
+                <p className="mt-1 text-sm font-bold text-slate-500">
+                  {deal.destination} - {deal.remainingInventory} inventory left - {deal.bookingCount} bookings
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" className="rounded-xl font-black"><Star className="mr-2 h-4 w-4" />Feature Deal</Button>
-                <Button variant="outline" className="rounded-xl font-black"><Pause className="mr-2 h-4 w-4" />Pause Deal</Button>
-                <Button variant="outline" className="rounded-xl font-black text-rose-600"><Trash2 className="mr-2 h-4 w-4" />Delete</Button>
+                <Button variant="outline" className="rounded-xl font-black">
+                  <Star className="mr-2 h-4 w-4" />
+                  Feature Deal
+                </Button>
+                <Button variant="outline" className="rounded-xl font-black">
+                  <Pause className="mr-2 h-4 w-4" />
+                  Pause Deal
+                </Button>
+                <Button variant="outline" className="rounded-xl font-black text-rose-600">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </Button>
               </div>
             </div>
           ))}

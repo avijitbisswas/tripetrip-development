@@ -163,6 +163,38 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
+DO $$ BEGIN
+  CREATE TYPE manual_payment_status AS ENUM ('awaiting_admin_approval', 'approved', 'rejected');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE manual_admin_approval_status AS ENUM ('pending', 'approved', 'rejected');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+CREATE TABLE IF NOT EXISTS manual_payment_intents (
+  id TEXT PRIMARY KEY,
+  booking_id TEXT NOT NULL,
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+  currency TEXT DEFAULT 'INR' NOT NULL CHECK (currency = 'INR'),
+  method TEXT DEFAULT 'barcode_manual' NOT NULL CHECK (method = 'barcode_manual'),
+  status manual_payment_status DEFAULT 'awaiting_admin_approval' NOT NULL,
+  admin_approval_status manual_admin_approval_status DEFAULT 'pending' NOT NULL,
+  reference TEXT NOT NULL UNIQUE,
+  barcode_payload TEXT NOT NULL,
+  instructions TEXT NOT NULL,
+  traveler_name TEXT,
+  purpose TEXT,
+  approved_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  approved_at TIMESTAMPTZ,
+  rejected_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ
+);
+
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
 CREATE INDEX IF NOT EXISTS idx_vendor_profiles_user_id ON vendor_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_profiles_slug ON vendor_profiles(slug);
@@ -171,6 +203,7 @@ CREATE INDEX IF NOT EXISTS idx_listings_vendor_id ON listings(vendor_id);
 CREATE INDEX IF NOT EXISTS idx_availability_listing_date ON availability(listing_id, date);
 CREATE INDEX IF NOT EXISTS idx_bookings_traveler_created ON bookings(traveler_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bookings_vendor_created ON bookings(vendor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_manual_payment_intents_status_created ON manual_payment_intents(status, created_at DESC);
 
 DO $$ BEGIN
   CREATE TYPE vendor_business_category AS ENUM (
@@ -407,6 +440,7 @@ ALTER TABLE availability ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE manual_payment_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_branches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_team_members ENABLE ROW LEVEL SECURITY;
@@ -497,6 +531,15 @@ CREATE POLICY "Users read own messages"
 DROP POLICY IF EXISTS "Users send own messages" ON messages;
 CREATE POLICY "Users send own messages"
   ON messages FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id);
+
+DROP POLICY IF EXISTS "Admins manage manual payment intents" ON manual_payment_intents;
+CREATE POLICY "Admins manage manual payment intents"
+  ON manual_payment_intents FOR ALL TO authenticated USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  );
 
 DROP POLICY IF EXISTS "Members read own organizations" ON vendor_organizations;
 CREATE POLICY "Members read own organizations"

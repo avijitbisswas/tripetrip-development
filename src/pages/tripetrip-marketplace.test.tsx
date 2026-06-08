@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import StaySearch from '@/src/pages/stays/Search';
 import StayListingDetail from '@/src/pages/stays/ListingDetail';
 import StayBookingConfirmation from '@/src/pages/stays/BookingConfirmation';
@@ -176,6 +177,55 @@ describe('Tripetrip premium marketplace screens', () => {
     expect(screen.getByRole('button', { name: /Approve Payment TRIP67845291/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Reject Payment TRIP67845291/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Feature Deal/i }).length).toBeGreaterThan(0);
+  });
+
+  it('loads live manual payment approvals and posts admin approval actions', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            payments: [
+              {
+                id: 'manual_live_1',
+                bookingId: 'TRIPLIVE123',
+                travelerName: 'Live Traveler',
+                purpose: 'Kerala Houseboat',
+                reference: 'TRIPLIVE123-8999',
+                amount: 8999,
+                status: 'awaiting_admin_approval',
+                adminApprovalStatus: 'pending',
+              },
+            ],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'manual_live_1',
+            bookingId: 'TRIPLIVE123',
+            status: 'approved',
+            adminApprovalStatus: 'approved',
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+    try {
+      renderWithRoutes('/admin/deals');
+
+      expect(await screen.findByText(/Live Traveler/i)).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /Approve Payment TRIPLIVE123/i }));
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenLastCalledWith('/api/admin/payments/manual_live_1/approve', { method: 'POST' }),
+      );
+      expect(screen.getByText(/approved/i)).toBeInTheDocument();
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it('renders provider deal campaign controls', () => {

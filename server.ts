@@ -5,8 +5,10 @@ import path from 'path';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { Resend } from 'resend';
+import { createClient } from '@supabase/supabase-js';
 import { buildVendorAIBriefPrompt, normalizeVendorAIBrief } from './src/features/vendor-os/aiProvider';
-import { buildManualPaymentIntent, updateManualPaymentStatus, type ManualPaymentIntent } from './src/features/payments/manualPayment';
+import { buildManualPaymentIntent } from './src/features/payments/manualPayment';
+import { createManualPaymentRepository, type ManualPaymentSupabaseClient } from './src/features/payments/manualPaymentRepository';
 
 dotenv.config();
 
@@ -41,6 +43,25 @@ async function startServer() {
   }
 
   app.use(express.json());
+
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  const createManualPaymentSupabaseClient = createClient as unknown as (
+    url: string,
+    key: string,
+    options: { auth: { persistSession: boolean; autoRefreshToken: boolean } },
+  ) => ManualPaymentSupabaseClient;
+  const paymentRepository = createManualPaymentRepository({
+    supabase:
+      supabaseUrl && supabaseServiceKey
+        ? createManualPaymentSupabaseClient(supabaseUrl, supabaseServiceKey, {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          })
+        : null,
+  });
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -170,8 +191,6 @@ async function startServer() {
     }
   });
 
-  const manualPayments = new Map<string, ManualPaymentIntent>();
-
   app.post('/api/payments/create-order', async (req, res) => {
     const { amount, bookingId, travelerName, purpose } = req.body as {
       amount?: number;
@@ -191,26 +210,25 @@ async function startServer() {
       purpose,
       upiId: process.env.MANUAL_PAYMENT_UPI_ID || process.env.TRIPETRIP_UPI_ID,
     });
-    manualPayments.set(intent.id, intent);
+    const savedIntent = await paymentRepository.create(intent, { travelerName, purpose });
 
-    res.json(intent);
+    res.json(savedIntent);
+  });
+
+  app.get('/api/admin/payments/manual', async (_req, res) => {
+    const intents = await paymentRepository.list();
+    res.json({ payments: intents });
   });
 
   app.post('/api/admin/payments/:paymentId/approve', async (req, res) => {
-    const current = manualPayments.get(req.params.paymentId);
-    if (!current) return res.status(404).json({ error: 'Manual payment not found' });
-
-    const updated = updateManualPaymentStatus(current, 'approved');
-    manualPayments.set(updated.id, updated);
+    const updated = await paymentRepository.updateStatus(req.params.paymentId, 'approved');
+    if (!updated) return res.status(404).json({ error: 'Manual payment not found' });
     res.json(updated);
   });
 
   app.post('/api/admin/payments/:paymentId/reject', async (req, res) => {
-    const current = manualPayments.get(req.params.paymentId);
-    if (!current) return res.status(404).json({ error: 'Manual payment not found' });
-
-    const updated = updateManualPaymentStatus(current, 'rejected');
-    manualPayments.set(updated.id, updated);
+    const updated = await paymentRepository.updateStatus(req.params.paymentId, 'rejected');
+    if (!updated) return res.status(404).json({ error: 'Manual payment not found' });
     res.json(updated);
   });
 

@@ -29,4 +29,17 @@ describe('Vendor OS database schema', () => {
     expect(schema).toContain('CREATE INDEX IF NOT EXISTS idx_vendor_team_members_org_status');
     expect(schema).toContain("role IN ('owner', 'admin', 'manager')");
   });
+
+  it('persists manual barcode payments for admin approval', () => {
+    expect(schema).toContain(
+      "CREATE TYPE manual_payment_status AS ENUM ('awaiting_admin_approval', 'approved', 'rejected')",
+    );
+    expect(schema).toContain("CREATE TYPE manual_admin_approval_status AS ENUM ('pending', 'approved', 'rejected')");
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS manual_payment_intents');
+    expect(schema).toContain("method TEXT DEFAULT 'barcode_manual' NOT NULL");
+    expect(schema).toContain('barcode_payload TEXT NOT NULL');
+    expect(schema).toContain('CREATE INDEX IF NOT EXISTS idx_manual_payment_intents_status_created');
+    expect(schema).toContain('ALTER TABLE manual_payment_intents ENABLE ROW LEVEL SECURITY');
+    expect(schema).toContain('CREATE POLICY "Admins manage manual payment intents"');
+  });
 });
