@@ -362,6 +362,49 @@ describe('Vendor OS record API', () => {
     });
   });
 
+  it('creates branch-scoped module settings through generic record creation', async () => {
+    const settingsOperation: VendorOSOperation = {
+      module: 'settings',
+      table: 'vendor_os_module_settings',
+      titleField: 'module',
+      statusField: 'is_enabled',
+      createFields: [],
+    };
+    const row: VendorOSRecordRow = {
+      id: 'setting-1',
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      module: 'pms',
+      is_enabled: false,
+    };
+    const single = vi.fn().mockResolvedValue({ data: row, error: null });
+    const select = vi.fn(() => ({ single }));
+    const insert = vi.fn(() => ({ select }));
+    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
+    const auditSelect = vi.fn(() => ({ single: auditSingle }));
+    const auditInsert = vi.fn(() => ({ select: auditSelect }));
+
+    vi.mocked(supabase.from)
+      .mockReturnValueOnce({ insert } as never)
+      .mockReturnValueOnce({ insert: auditInsert } as never);
+
+    await expect(
+      createVendorOSRecord(settingsOperation, 'org-1', 'branch-1', {
+        module: 'pms',
+        is_enabled: false,
+        settings: { policy_note: 'Disable PMS during renovation' },
+      }),
+    ).resolves.toEqual(row);
+
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: 'org-1',
+      branch_id: 'branch-1',
+      module: 'pms',
+      is_enabled: false,
+      settings: { policy_note: 'Disable PMS during renovation' },
+    });
+  });
+
   it('uploads a vendor document file to storage and creates its document record', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(123456);
     const file = new File(['license'], 'Hotel Trade License.pdf', { type: 'application/pdf' });

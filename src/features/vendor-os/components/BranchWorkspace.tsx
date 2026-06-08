@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import type { VendorOSModule } from '../types';
 
 interface BranchWorkspaceProps {
   organizationId?: string;
@@ -40,6 +41,8 @@ const operatingPolicies = [
   { title: 'Branch scoped inventory', detail: 'Calendar, PMS, tours, activities, and fleet records stay scoped to the active branch.' },
   { title: 'HQ audit trail', detail: 'Every branch action can flow into audit logs, notifications, and reporting.' },
 ];
+
+const branchModuleOptions: VendorOSModule[] = ['crm', 'calendar', 'pms', 'tours', 'activities', 'fleet', 'marketplace', 'documents'];
 
 const branchSignals: Array<{ title: string; detail: string; icon: LucideIcon }> = [
   {
@@ -94,12 +97,20 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 
 export function BranchWorkspace({ organizationId }: BranchWorkspaceProps) {
   const records = useVendorOSRecords('branches', organizationId);
+  const settings = useVendorOSRecords('settings', organizationId);
   const mutations = useVendorOSRecordMutations('branches', organizationId, null);
+  const [selectedControlBranchId, setSelectedControlBranchId] = useState('');
+  const settingsMutations = useVendorOSRecordMutations('settings', organizationId, selectedControlBranchId || null);
   const [branchForm, setBranchForm] = useState({
     name: '',
     city: '',
     country: '',
     status: 'active',
+  });
+  const [controlForm, setControlForm] = useState({
+    module: 'pms',
+    enabled: 'true',
+    policy_note: '',
   });
   const [formMessage, setFormMessage] = useState<string | null>(null);
 
@@ -119,6 +130,27 @@ export function BranchWorkspace({ organizationId }: BranchWorkspaceProps) {
     [records.records],
   );
   const displayedBranches = liveBranches.length ? liveBranches : branchRegistry;
+  const branchOptions = liveBranches.map((branch) => ({ id: branch.id, name: branch.name }));
+  const liveBranchControls = useMemo(
+    () =>
+      settings.records
+        .filter((record) => record.branch_id)
+        .map((record) => {
+          const note =
+            record.settings && typeof record.settings === 'object' && !Array.isArray(record.settings)
+              ? String((record.settings as Record<string, unknown>).policy_note || 'No branch policy note')
+              : 'No branch policy note';
+          const branchName = branchOptions.find((branch) => branch.id === String(record.branch_id))?.name || 'Branch scoped';
+          return {
+            id: String(record.id),
+            branchName,
+            module: titleCase(String(record.module || 'settings')),
+            state: record.is_enabled === false ? 'Disabled' : 'Enabled',
+            note,
+          };
+        }),
+    [branchOptions, settings.records],
+  );
 
   async function handleBranchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -141,6 +173,29 @@ export function BranchWorkspace({ organizationId }: BranchWorkspaceProps) {
       setFormMessage('Branch created');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to create branch');
+    }
+  }
+
+  async function handleControlSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await settingsMutations.createRecord({
+        branch_id: selectedControlBranchId,
+        module: controlForm.module,
+        is_enabled: controlForm.enabled === 'true',
+        settings: { policy_note: controlForm.policy_note, source: 'branch_workspace' },
+      });
+      setControlForm({
+        module: 'pms',
+        enabled: 'true',
+        policy_note: '',
+      });
+      await settings.refresh();
+      setFormMessage('Branch control saved');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to save branch control');
     }
   }
 
@@ -229,8 +284,99 @@ export function BranchWorkspace({ organizationId }: BranchWorkspaceProps) {
             Create Branch
           </Button>
         </form>
-        {(formMessage || mutations.error || records.error) && (
-          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        {(formMessage || mutations.error || settingsMutations.error || records.error || settings.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">
+            {formMessage || mutations.error || settingsMutations.error || records.error || settings.error}
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Branch Module Controls</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Backed by vendor_os_module_settings</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Branch Scoped
+          </span>
+        </div>
+        <form className="grid gap-3 lg:grid-cols-[0.8fr_0.7fr_0.6fr_1fr_auto]" onSubmit={handleControlSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Control branch *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={selectedControlBranchId}
+              onChange={(inputEvent) => setSelectedControlBranchId(inputEvent.target.value)}
+            >
+              <option value="">Select branch</option>
+              {branchOptions.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Control module *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={controlForm.module}
+              onChange={(inputEvent) => setControlForm((current) => ({ ...current, module: inputEvent.target.value }))}
+            >
+              {branchModuleOptions.map((module) => (
+                <option key={module} value={module}>
+                  {titleCase(module)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Module enabled *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={controlForm.enabled}
+              onChange={(inputEvent) => setControlForm((current) => ({ ...current, enabled: inputEvent.target.value }))}
+            >
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Branch policy note</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Local module rule"
+              value={controlForm.policy_note}
+              onChange={(inputEvent) => setControlForm((current) => ({ ...current, policy_note: inputEvent.target.value }))}
+            />
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={settingsMutations.submitting || !organizationId || !selectedControlBranchId}
+            type="submit"
+          >
+            Save Branch Control
+          </Button>
+        </form>
+        {liveBranchControls.length > 0 && (
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {liveBranchControls.map((control) => (
+              <div key={control.id} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{control.branchName}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{control.module}</div>
+                  </div>
+                  <StatePill state={control.state} />
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-500">{control.note}</p>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 
