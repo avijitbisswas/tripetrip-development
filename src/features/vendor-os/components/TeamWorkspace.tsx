@@ -106,6 +106,12 @@ export function TeamWorkspace({ organizationId, branchId }: TeamWorkspaceProps) 
     status: 'invited',
     display_name: '',
   });
+  const [reviewForm, setReviewForm] = useState({
+    member_id: '',
+    role: 'manager',
+    status: 'active',
+    note: '',
+  });
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const liveMembers = useMemo(
     () =>
@@ -113,8 +119,11 @@ export function TeamWorkspace({ organizationId, branchId }: TeamWorkspaceProps) 
         id: String(record.id),
         name: String(record.display_name || record.full_name || record.invited_email || 'Pending member'),
         email: String(record.invited_email || record.email || 'Email pending'),
+        rawRole: String(record.role || 'staff'),
+        rawStatus: String(record.status || 'invited'),
         role: titleCase(String(record.role || 'staff')),
         state: titleCase(String(record.status || 'invited')),
+        title: String(record.title || ''),
       })),
     [records.records],
   );
@@ -140,6 +149,40 @@ export function TeamWorkspace({ organizationId, branchId }: TeamWorkspaceProps) 
       setFormMessage('Team member invited');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to invite team member');
+    }
+  }
+
+  function handleReviewMemberChange(memberId: string) {
+    const member = liveMembers.find((item) => item.id === memberId);
+    setReviewForm((current) => ({
+      ...current,
+      member_id: memberId,
+      role: member?.rawRole || current.role,
+      status: member?.rawStatus || current.status,
+      note: member?.title || current.note,
+    }));
+  }
+
+  async function handleAccessReviewSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    if (!reviewForm.member_id) {
+      setFormMessage('Select a team member before saving access review');
+      return;
+    }
+
+    try {
+      await mutations.updateRecord(reviewForm.member_id, {
+        role: reviewForm.role,
+        status: reviewForm.status,
+        is_active: reviewForm.status !== 'suspended',
+        title: reviewForm.note,
+      });
+      await records.refresh();
+      setFormMessage('Access review saved');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to save access review');
     }
   }
 
@@ -241,6 +284,82 @@ export function TeamWorkspace({ organizationId, branchId }: TeamWorkspaceProps) 
         {(formMessage || mutations.error || records.error) && (
           <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Access Review</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Update live roles, statuses, and branch accountability notes</p>
+          </div>
+          <span className="rounded-full bg-amber-50 px-3 py-1 text-[10px] font-bold uppercase text-amber-700">
+            Owner approval path
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[1fr_0.7fr_0.7fr_1.2fr_auto]" onSubmit={handleAccessReviewSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Review member *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={reviewForm.member_id}
+              onChange={(inputEvent) => handleReviewMemberChange(inputEvent.target.value)}
+            >
+              <option value="">Select member</option>
+              {liveMembers.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name} - {member.email}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Reviewed role *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={reviewForm.role}
+              onChange={(inputEvent) => setReviewForm((current) => ({ ...current, role: inputEvent.target.value }))}
+            >
+              {roleOptions.map((role) => (
+                <option key={role} value={role}>
+                  {titleCase(role)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Reviewed status *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={reviewForm.status}
+              onChange={(inputEvent) => setReviewForm((current) => ({ ...current, status: inputEvent.target.value }))}
+            >
+              {statusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {titleCase(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Access review note</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Review note"
+              value={reviewForm.note}
+              onChange={(inputEvent) => setReviewForm((current) => ({ ...current, note: inputEvent.target.value }))}
+            />
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId || !reviewForm.member_id}
+            type="submit"
+          >
+            Save Access Review
+          </Button>
+        </form>
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
