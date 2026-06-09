@@ -2,7 +2,6 @@ import type { Session, User } from '@supabase/supabase-js';
 import { supabase, supabaseConfig } from '@/src/lib/supabase';
 import type { UserRole } from '@/src/types/domain';
 import { ServiceError } from './errors';
-import { upsertProfile } from './profiles';
 
 export interface AuthState {
   session: Session | null;
@@ -64,27 +63,36 @@ export async function registerWithEmail(input: {
   fullName: string;
   role: UserRole;
 }) {
-  const { data, error } = await supabase.auth.signUp({
-    email: input.email,
-    password: input.password,
-    options: {
-      data: {
-        full_name: input.fullName,
-        role: input.role,
-      },
-    },
+  const response = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
   });
 
-  if (error) {
-    throw new ServiceError(error.message, 'SIGN_UP_FAILED', 400);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new ServiceError(payload.error || 'Registration failed', 'SIGN_UP_FAILED', response.status);
   }
 
-  if (data.user) {
-    await upsertProfile({
-      id: data.user.id,
-      role: input.role,
-      full_name: input.fullName,
-    });
+  const payload = (await response.json()) as {
+    user?: {
+      id?: string;
+      role?: UserRole;
+      fullName?: string;
+    };
+  };
+
+  if (!payload.user?.id) {
+    throw new ServiceError('Registration failed', 'SIGN_UP_FAILED', 500);
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: input.email,
+    password: input.password,
+  });
+
+  if (error || !data.user) {
+    throw new ServiceError(error?.message || 'Registration succeeded, but sign in failed', 'SIGN_IN_FAILED', 401);
   }
 
   return data.user;

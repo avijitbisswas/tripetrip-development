@@ -7,7 +7,6 @@ import { Plane, Mail, Lock, Loader2, User, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getDashboardPathForRole, registerWithEmail } from '@/src/services/auth';
-import { upsertVendorProfile } from '@/src/services/vendors';
 
 export default function Register() {
   const [searchParams] = useSearchParams();
@@ -23,23 +22,12 @@ export default function Register() {
     setLoading(true);
 
     try {
-      const user = await registerWithEmail({
+      await registerWithEmail({
         email,
         password,
         fullName,
         role,
       });
-
-      if (user && role === 'vendor') {
-        const { generateSlug } = await import('@/src/lib/utils');
-        const businessName = `${fullName}'s Travel Services`;
-        await upsertVendorProfile({
-          user_id: user.id,
-          business_name: businessName,
-          business_type: 'stays',
-          slug: `${generateSlug(businessName)}-${user.id.slice(0, 4)}`,
-        });
-      }
 
       toast.success('Registration successful. Welcome to Tripetrip!');
       navigate(getDashboardPathForRole(role));

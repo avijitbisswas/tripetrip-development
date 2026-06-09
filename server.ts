@@ -12,6 +12,7 @@ import { createManualPaymentRepository, type ManualPaymentSupabaseClient } from 
 import { createDealBookingRepository, type DealBookingSupabaseClient } from './src/features/deals/dealBookingRepository';
 import { handleCreateDealBooking } from './src/features/deals/dealBookingRoute';
 import { createDealInventoryRepository, type DealInventorySupabaseClient } from './src/features/deals/dealInventory';
+import { handleRegisterUser } from './src/features/auth/registerRoute';
 
 dotenv.config();
 
@@ -53,7 +54,13 @@ async function startServer() {
     url: string,
     key: string,
     options: { auth: { persistSession: boolean; autoRefreshToken: boolean } },
-  ) => ManualPaymentSupabaseClient & DealBookingSupabaseClient & DealInventorySupabaseClient;
+  ) => ManualPaymentSupabaseClient &
+    DealBookingSupabaseClient &
+    DealInventorySupabaseClient & {
+      auth: {
+        admin: Parameters<typeof handleRegisterUser>[1]['adminAuth'];
+      };
+    };
   const serverSupabaseClient =
     supabaseUrl && supabaseServiceKey
       ? createManualPaymentSupabaseClient(supabaseUrl, supabaseServiceKey, {
@@ -199,6 +206,27 @@ async function startServer() {
       const message = error instanceof Error ? error.message : 'AI brief generation failed';
       res.status(500).json({ error: message });
     }
+  });
+
+  app.post('/api/auth/register', async (req, res) => {
+    if (!serverSupabaseClient) {
+      return res.status(503).json({ error: 'Registration service is not configured' });
+    }
+
+    const result = await handleRegisterUser(
+      req.body as {
+        email?: string;
+        password?: string;
+        fullName?: string;
+        role?: string;
+      },
+      {
+        adminAuth: serverSupabaseClient.auth.admin,
+        supabase: serverSupabaseClient as unknown as Parameters<typeof handleRegisterUser>[1]['supabase'],
+      },
+    );
+
+    res.status(result.status).json(result.body);
   });
 
   app.post('/api/payments/create-order', async (req, res) => {
