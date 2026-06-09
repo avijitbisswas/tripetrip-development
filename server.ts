@@ -9,8 +9,8 @@ import { createClient } from '@supabase/supabase-js';
 import { buildVendorAIBriefPrompt, normalizeVendorAIBrief } from './src/features/vendor-os/aiProvider';
 import { buildManualPaymentIntent } from './src/features/payments/manualPayment';
 import { createManualPaymentRepository, type ManualPaymentSupabaseClient } from './src/features/payments/manualPaymentRepository';
-import { createDealBookingPayment } from './src/features/deals/dealBookingWorkflow';
 import { createDealBookingRepository, type DealBookingSupabaseClient } from './src/features/deals/dealBookingRepository';
+import { handleCreateDealBooking } from './src/features/deals/dealBookingRoute';
 
 dotenv.config();
 
@@ -222,7 +222,8 @@ async function startServer() {
   });
 
   app.post('/api/deals/bookings', async (req, res) => {
-    const { dealId, dealTitle, amount, travelerName, travelerEmail, travelDate, participants } = req.body as {
+    const result = await handleCreateDealBooking(
+      req.body as {
       dealId?: string;
       dealTitle?: string;
       amount?: number;
@@ -230,29 +231,12 @@ async function startServer() {
       travelerEmail?: string;
       travelDate?: string;
       participants?: number;
-    };
+      },
+      { paymentRepository, bookingRepository: dealBookingRepository },
+      { upiId: process.env.MANUAL_PAYMENT_UPI_ID || process.env.TRIPETRIP_UPI_ID },
+    );
 
-    if (!dealId || !dealTitle || !amount || amount <= 0) {
-      return res.status(400).json({ error: 'Missing dealId, dealTitle, or positive amount' });
-    }
-
-    const workflow = createDealBookingPayment({
-      dealId,
-      dealTitle,
-      amount,
-      travelerName,
-      travelerEmail,
-      travelDate,
-      participants,
-      upiId: process.env.MANUAL_PAYMENT_UPI_ID || process.env.TRIPETRIP_UPI_ID,
-    });
-    const payment = await paymentRepository.create(workflow.payment, { travelerName, purpose: dealTitle });
-    const booking = await dealBookingRepository.create({
-      ...workflow.booking,
-      paymentIntentId: payment.id,
-    });
-
-    res.json({ booking, payment });
+    res.status(result.status).json(result.body);
   });
 
   app.get('/api/deals/bookings/:bookingId', async (req, res) => {
