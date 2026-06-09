@@ -11,6 +11,7 @@ import { buildManualPaymentIntent } from './src/features/payments/manualPayment'
 import { createManualPaymentRepository, type ManualPaymentSupabaseClient } from './src/features/payments/manualPaymentRepository';
 import { createDealBookingRepository, type DealBookingSupabaseClient } from './src/features/deals/dealBookingRepository';
 import { handleCreateDealBooking } from './src/features/deals/dealBookingRoute';
+import { createDealInventoryRepository, type DealInventorySupabaseClient } from './src/features/deals/dealInventory';
 
 dotenv.config();
 
@@ -52,7 +53,7 @@ async function startServer() {
     url: string,
     key: string,
     options: { auth: { persistSession: boolean; autoRefreshToken: boolean } },
-  ) => ManualPaymentSupabaseClient & DealBookingSupabaseClient;
+  ) => ManualPaymentSupabaseClient & DealBookingSupabaseClient & DealInventorySupabaseClient;
   const serverSupabaseClient =
     supabaseUrl && supabaseServiceKey
       ? createManualPaymentSupabaseClient(supabaseUrl, supabaseServiceKey, {
@@ -66,6 +67,9 @@ async function startServer() {
     supabase: serverSupabaseClient,
   });
   const dealBookingRepository = createDealBookingRepository({
+    supabase: serverSupabaseClient,
+  });
+  const dealInventoryRepository = createDealInventoryRepository({
     supabase: serverSupabaseClient,
   });
 
@@ -232,7 +236,7 @@ async function startServer() {
       travelDate?: string;
       participants?: number;
       },
-      { paymentRepository, bookingRepository: dealBookingRepository },
+      { paymentRepository, bookingRepository: dealBookingRepository, inventoryRepository: dealInventoryRepository },
       { upiId: process.env.MANUAL_PAYMENT_UPI_ID || process.env.TRIPETRIP_UPI_ID },
     );
 

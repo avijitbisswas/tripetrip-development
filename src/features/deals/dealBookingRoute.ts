@@ -1,5 +1,6 @@
 import { createDealBookingPayment, type DealBookingRecord } from './dealBookingWorkflow';
 import type { ManualPaymentIntent } from '@/src/features/payments/manualPayment';
+import type { DealInventoryRecord } from './dealInventory';
 
 type PaymentRepository = {
   create: (
@@ -10,6 +11,11 @@ type PaymentRepository = {
 
 type BookingRepository = {
   create: (booking: DealBookingRecord) => Promise<DealBookingRecord>;
+};
+
+type InventoryRepository = {
+  reserve: (dealId: string) => Promise<Pick<DealInventoryRecord, 'dealId' | 'remainingInventory'> | null>;
+  release: (dealId: string) => Promise<Pick<DealInventoryRecord, 'dealId' | 'remainingInventory'> | null>;
 };
 
 type DealBookingRequest = {
@@ -24,11 +30,11 @@ type DealBookingRequest = {
 
 export type DealBookingRouteResult =
   | { status: 200; body: { booking: DealBookingRecord; payment: ManualPaymentIntent } }
-  | { status: 400 | 502; body: { error: string } };
+  | { status: 400 | 409 | 502; body: { error: string } };
 
 export async function handleCreateDealBooking(
   input: DealBookingRequest,
-  dependencies: { paymentRepository: PaymentRepository; bookingRepository: BookingRepository },
+  dependencies: { paymentRepository: PaymentRepository; bookingRepository: BookingRepository; inventoryRepository?: InventoryRepository },
   options: { upiId?: string } = {},
 ): Promise<DealBookingRouteResult> {
   const { dealId, dealTitle, amount, travelerName, travelerEmail, travelDate, participants } = input;
@@ -40,7 +46,18 @@ export async function handleCreateDealBooking(
     };
   }
 
+  let didReserveInventory = false;
+
   try {
+    const reservedInventory = dependencies.inventoryRepository ? await dependencies.inventoryRepository.reserve(dealId) : { dealId, remainingInventory: 0 };
+    if (!reservedInventory) {
+      return {
+        status: 409,
+        body: { error: 'Deal is sold out' },
+      };
+    }
+    didReserveInventory = Boolean(dependencies.inventoryRepository);
+
     const workflow = createDealBookingPayment({
       dealId,
       dealTitle,
@@ -59,6 +76,13 @@ export async function handleCreateDealBooking(
 
     return { status: 200, body: { booking, payment } };
   } catch {
+    if (didReserveInventory) {
+      try {
+        await dependencies.inventoryRepository?.release(dealId);
+      } catch {
+        // Preserve the API error response even when compensating inventory cleanup fails.
+      }
+    }
     return {
       status: 502,
       body: { error: 'Deal booking persistence failed' },

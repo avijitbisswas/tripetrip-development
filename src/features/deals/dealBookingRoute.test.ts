@@ -12,6 +12,7 @@ describe('deal booking route handler', () => {
       {
         paymentRepository: { create: vi.fn() },
         bookingRepository: { create: vi.fn() },
+        inventoryRepository: { reserve: vi.fn(), release: vi.fn() },
       },
     );
 
@@ -28,6 +29,10 @@ describe('deal booking route handler', () => {
     const bookingRepository = {
       create: vi.fn(async (booking) => booking),
     };
+    const inventoryRepository = {
+      reserve: vi.fn(async () => ({ dealId: 'goa-beach-escape', remainingInventory: 7 })),
+      release: vi.fn(),
+    };
 
     const result = await handleCreateDealBooking(
       {
@@ -38,7 +43,7 @@ describe('deal booking route handler', () => {
         travelDate: '2026-06-24',
         participants: 2,
       },
-      { paymentRepository, bookingRepository },
+      { paymentRepository, bookingRepository, inventoryRepository },
     );
 
     expect(result.status).toBe(200);
@@ -52,6 +57,31 @@ describe('deal booking route handler', () => {
       bookingId: 'TRIP00000000',
       reference: 'TRIP00000000-9999',
     });
+    expect(inventoryRepository.reserve).toHaveBeenCalledWith('goa-beach-escape');
+    expect(inventoryRepository.release).not.toHaveBeenCalled();
+  });
+
+  it('returns a sold-out response when no inventory can be reserved', async () => {
+    const result = await handleCreateDealBooking(
+      {
+        dealId: 'goa-beach-escape',
+        dealTitle: 'Goa Beach Escape',
+        amount: 9999,
+      },
+      {
+        paymentRepository: { create: vi.fn() },
+        bookingRepository: { create: vi.fn() },
+        inventoryRepository: {
+          reserve: vi.fn(async () => null),
+          release: vi.fn(),
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      status: 409,
+      body: { error: 'Deal is sold out' },
+    });
   });
 
   it('returns a clean API error when persistence fails instead of crashing the server', async () => {
@@ -64,6 +94,10 @@ describe('deal booking route handler', () => {
       {
         paymentRepository: { create: vi.fn(async () => Promise.reject(new Error('Invalid API key'))) },
         bookingRepository: { create: vi.fn() },
+        inventoryRepository: {
+          reserve: vi.fn(async () => ({ dealId: 'goa-beach-escape', remainingInventory: 7 })),
+          release: vi.fn(async () => ({ dealId: 'goa-beach-escape', remainingInventory: 8 })),
+        },
       },
     );
 
@@ -71,5 +105,79 @@ describe('deal booking route handler', () => {
       status: 502,
       body: { error: 'Deal booking persistence failed' },
     });
+  });
+
+  it('releases reserved inventory when persistence fails', async () => {
+    const inventoryRepository = {
+      reserve: vi.fn(async () => ({ dealId: 'goa-beach-escape', remainingInventory: 7 })),
+      release: vi.fn(async () => ({ dealId: 'goa-beach-escape', remainingInventory: 8 })),
+    };
+
+    await handleCreateDealBooking(
+      {
+        dealId: 'goa-beach-escape',
+        dealTitle: 'Goa Beach Escape',
+        amount: 9999,
+      },
+      {
+        paymentRepository: { create: vi.fn(async () => Promise.reject(new Error('Invalid API key'))) },
+        bookingRepository: { create: vi.fn() },
+        inventoryRepository,
+      },
+    );
+
+    expect(inventoryRepository.release).toHaveBeenCalledWith('goa-beach-escape');
+  });
+
+  it('returns a clean API error when inventory reservation fails', async () => {
+    const inventoryRepository = {
+      reserve: vi.fn(async () => Promise.reject(new Error('Invalid API key'))),
+      release: vi.fn(),
+    };
+
+    const result = await handleCreateDealBooking(
+      {
+        dealId: 'goa-beach-escape',
+        dealTitle: 'Goa Beach Escape',
+        amount: 9999,
+      },
+      {
+        paymentRepository: { create: vi.fn() },
+        bookingRepository: { create: vi.fn() },
+        inventoryRepository,
+      },
+    );
+
+    expect(result).toEqual({
+      status: 502,
+      body: { error: 'Deal booking persistence failed' },
+    });
+    expect(inventoryRepository.release).not.toHaveBeenCalled();
+  });
+
+  it('still returns a clean API error when reserved inventory cannot be released', async () => {
+    const inventoryRepository = {
+      reserve: vi.fn(async () => ({ dealId: 'goa-beach-escape', remainingInventory: 7 })),
+      release: vi.fn(async () => Promise.reject(new Error('Invalid API key'))),
+    };
+
+    const result = await handleCreateDealBooking(
+      {
+        dealId: 'goa-beach-escape',
+        dealTitle: 'Goa Beach Escape',
+        amount: 9999,
+      },
+      {
+        paymentRepository: { create: vi.fn(async () => Promise.reject(new Error('Invalid API key'))) },
+        bookingRepository: { create: vi.fn() },
+        inventoryRepository,
+      },
+    );
+
+    expect(result).toEqual({
+      status: 502,
+      body: { error: 'Deal booking persistence failed' },
+    });
+    expect(inventoryRepository.release).toHaveBeenCalledWith('goa-beach-escape');
   });
 });

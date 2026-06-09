@@ -366,13 +366,16 @@ function DealDetail({ deal }: { deal: Deal }) {
         }),
       });
 
-      if (!response.ok) throw new Error('Unable to create booking');
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error || 'Unable to lock this deal. Please try again.');
+      }
       const payload = (await response.json()) as { booking?: { id?: string } };
       const bookingId = payload.booking?.id;
       if (!bookingId) throw new Error('Booking ID missing');
       navigate(`/deals/confirmation?bookingId=${encodeURIComponent(bookingId)}`);
-    } catch {
-      setBookingMessage('Unable to lock this deal. Please try again.');
+    } catch (error) {
+      setBookingMessage(error instanceof Error ? error.message : 'Unable to lock this deal. Please try again.');
     } finally {
       setIsBooking(false);
     }

@@ -55,4 +55,15 @@ describe('Vendor OS database schema', () => {
     expect(schema).toContain('ALTER TABLE deal_booking_confirmations ENABLE ROW LEVEL SECURITY');
     expect(schema).toContain('CREATE POLICY "Admins manage deal booking confirmations"');
   });
+
+  it('persists deal inventory counts for booking locks', () => {
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS deal_inventory');
+    expect(schema).toContain('deal_id TEXT PRIMARY KEY');
+    expect(schema).toContain('remaining_inventory INTEGER NOT NULL CHECK (remaining_inventory >= 0)');
+    expect(schema).toContain('reserved_count INTEGER DEFAULT 0 NOT NULL CHECK (reserved_count >= 0)');
+    expect(schema).toContain('CREATE INDEX IF NOT EXISTS idx_deal_inventory_remaining');
+    expect(schema).toContain('ALTER TABLE deal_inventory ENABLE ROW LEVEL SECURITY');
+    expect(schema).toContain('CREATE POLICY "Admins manage deal inventory"');
+    expect(schema).toContain("('goa-beach-escape', 40, 8, 0, 342)");
+  });
 });

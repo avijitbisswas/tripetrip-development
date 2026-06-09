@@ -222,6 +222,25 @@ describe('Tripetrip premium marketplace screens', () => {
     }
   });
 
+  it('shows a sold-out message when deal inventory cannot be reserved', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Deal is sold out' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    try {
+      renderWithRoutes('/deals/goa-beach-escape');
+
+      await userEvent.click(screen.getByRole('button', { name: /^Book Now$/i }));
+
+      expect(await screen.findByText(/Deal is sold out/i)).toBeInTheDocument();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('renders the deal confirmation success page', () => {
     renderWithRoutes('/deals/confirmation');
 

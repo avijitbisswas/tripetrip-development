@@ -225,6 +225,15 @@ CREATE TABLE IF NOT EXISTS deal_booking_confirmations (
   updated_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS deal_inventory (
+  deal_id TEXT PRIMARY KEY,
+  total_inventory INTEGER NOT NULL CHECK (total_inventory >= 0),
+  remaining_inventory INTEGER NOT NULL CHECK (remaining_inventory >= 0),
+  reserved_count INTEGER DEFAULT 0 NOT NULL CHECK (reserved_count >= 0),
+  sold_count INTEGER DEFAULT 0 NOT NULL CHECK (sold_count >= 0),
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
 CREATE INDEX IF NOT EXISTS idx_vendor_profiles_user_id ON vendor_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_profiles_slug ON vendor_profiles(slug);
@@ -236,6 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_bookings_vendor_created ON bookings(vendor_id, cr
 CREATE INDEX IF NOT EXISTS idx_manual_payment_intents_status_created ON manual_payment_intents(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_deal_booking_confirmations_payment_intent ON deal_booking_confirmations(payment_intent_id);
 CREATE INDEX IF NOT EXISTS idx_deal_booking_confirmations_status_created ON deal_booking_confirmations(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deal_inventory_remaining ON deal_inventory(remaining_inventory, updated_at DESC);
 
 DO $$ BEGIN
   CREATE TYPE vendor_business_category AS ENUM (
@@ -474,6 +484,7 @@ ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_payment_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deal_booking_confirmations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deal_inventory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_branches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_team_members ENABLE ROW LEVEL SECURITY;
@@ -577,6 +588,15 @@ CREATE POLICY "Admins manage manual payment intents"
 DROP POLICY IF EXISTS "Admins manage deal booking confirmations" ON deal_booking_confirmations;
 CREATE POLICY "Admins manage deal booking confirmations"
   ON deal_booking_confirmations FOR ALL TO authenticated USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+
+DROP POLICY IF EXISTS "Admins manage deal inventory" ON deal_inventory;
+CREATE POLICY "Admins manage deal inventory"
+  ON deal_inventory FOR ALL TO authenticated USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   )
   WITH CHECK (
@@ -791,6 +811,13 @@ VALUES
   ('owner', 'documents', ARRAY['view','create','update','delete','approve','export','manage']::permission_action[]),
   ('owner', 'settings', ARRAY['view','create','update','delete','approve','export','manage']::permission_action[])
 ON CONFLICT (role, module) DO NOTHING;
+
+INSERT INTO deal_inventory (deal_id, total_inventory, remaining_inventory, reserved_count, sold_count)
+VALUES
+  ('goa-beach-escape', 40, 8, 0, 342),
+  ('manali-snow-retreat', 24, 9, 0, 117),
+  ('scuba-diving-adventure', 24, 8, 0, 206)
+ON CONFLICT (deal_id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS vendor_customers (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
