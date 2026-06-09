@@ -62,8 +62,18 @@ Use these hosting targets:
 2. Use the Supabase project URL and anon key in Cloudflare Pages.
 3. Keep `SUPABASE_SERVICE_ROLE_KEY` and database credentials private on the server side only.
 
-### Environment files
-
-- Keep local secrets in `.env.local`.
-- Keep `.env.example` empty of real credentials and use it only as a template.
-- Do not commit production secrets to GitHub.
+ ### GitHub Actions deploy
+ 
+ 1. Create a Cloudflare Pages project for this repository.
+ 2. In GitHub repo Settings > Secrets > Actions, add:
+    - `CLOUDFLARE_API_TOKEN`
+    - `CLOUDFLARE_ACCOUNT_ID`
+    - `CLOUDFLARE_PROJECT_NAME`
+    - `VITE_SUPABASE_URL`
+    - `VITE_SUPABASE_ANON_KEY`
+    - `APP_URL`
+ 3. Push to `main`.
+ 4. GitHub Actions will build the app and deploy `dist` to Cloudflare Pages.
+ 
+ > Note: this workflow deploys the frontend build. The `server.ts` Express backend must be hosted separately if you need the current Node API endpoints.
+ 
