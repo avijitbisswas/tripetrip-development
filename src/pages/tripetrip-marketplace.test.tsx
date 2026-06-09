@@ -153,6 +153,75 @@ describe('Tripetrip premium marketplace screens', () => {
     expect(screen.getByRole('heading', { name: /Similar Deals/i })).toBeInTheDocument();
   });
 
+  it('creates a manual-payment deal booking from the detail page', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            booking: {
+              id: 'TRIPLIVE123',
+              dealTitle: 'Goa Beach Escape',
+              travelDate: '2026-06-24',
+              participants: 2,
+              amount: 9999,
+              status: 'awaiting_payment_approval',
+              voucherStatus: 'locked',
+              voucherCode: 'VCH-TRIPLIVE123',
+            },
+            payment: {
+              id: 'manual_live_1',
+              bookingId: 'TRIPLIVE123',
+              reference: 'TRIPLIVE123-9999',
+            },
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            booking: {
+              id: 'TRIPLIVE123',
+              dealTitle: 'Goa Beach Escape',
+              travelDate: '2026-06-24',
+              participants: 2,
+              amount: 9999,
+              status: 'awaiting_payment_approval',
+              voucherStatus: 'locked',
+              voucherCode: 'VCH-TRIPLIVE123',
+            },
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+
+    try {
+      renderWithRoutes('/deals/goa-beach-escape');
+
+      await userEvent.click(screen.getByRole('button', { name: /^Book Now$/i }));
+
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith('/api/deals/bookings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dealId: 'goa-beach-escape',
+            dealTitle: 'Goa Beach Escape',
+            amount: 9999,
+            travelerName: 'Guest Traveler',
+            travelDate: '2026-06-24',
+            participants: 2,
+          }),
+        }),
+      );
+      expect((await screen.findAllByText(/TRIPLIVE123/i)).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Awaiting Admin Approval/i)).toBeInTheDocument();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('renders the deal confirmation success page', () => {
     renderWithRoutes('/deals/confirmation');
 
@@ -164,6 +233,38 @@ describe('Tripetrip premium marketplace screens', () => {
     expect(screen.getByRole('button', { name: /Download Voucher/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add To Calendar/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Share Trip/i })).toBeInTheDocument();
+  });
+
+  it('loads live deal booking confirmation state from the backend', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          booking: {
+            id: 'TRIPLIVE123',
+            dealTitle: 'Kerala Houseboat',
+            travelDate: '2026-06-24',
+            participants: 4,
+            amount: 18999,
+            status: 'confirmed',
+            voucherStatus: 'released',
+            voucherCode: 'VCH-TRIPLIVE123',
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    try {
+      renderWithRoutes('/deals/confirmation?bookingId=TRIPLIVE123');
+
+      expect((await screen.findAllByText(/TRIPLIVE123/i)).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Kerala Houseboat/i)).toBeInTheDocument();
+      expect(screen.getByText(/Voucher Released/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/VCH-TRIPLIVE123/i).length).toBeGreaterThan(0);
+      expect(fetchMock).toHaveBeenCalledWith('/api/deals/bookings/TRIPLIVE123');
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it('renders admin deal management controls', () => {

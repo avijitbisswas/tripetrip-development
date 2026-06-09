@@ -9,6 +9,8 @@ import { createClient } from '@supabase/supabase-js';
 import { buildVendorAIBriefPrompt, normalizeVendorAIBrief } from './src/features/vendor-os/aiProvider';
 import { buildManualPaymentIntent } from './src/features/payments/manualPayment';
 import { createManualPaymentRepository, type ManualPaymentSupabaseClient } from './src/features/payments/manualPaymentRepository';
+import { createDealBookingPayment } from './src/features/deals/dealBookingWorkflow';
+import { createDealBookingRepository, type DealBookingSupabaseClient } from './src/features/deals/dealBookingRepository';
 
 dotenv.config();
 
@@ -50,17 +52,21 @@ async function startServer() {
     url: string,
     key: string,
     options: { auth: { persistSession: boolean; autoRefreshToken: boolean } },
-  ) => ManualPaymentSupabaseClient;
+  ) => ManualPaymentSupabaseClient & DealBookingSupabaseClient;
+  const serverSupabaseClient =
+    supabaseUrl && supabaseServiceKey
+      ? createManualPaymentSupabaseClient(supabaseUrl, supabaseServiceKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+          },
+        })
+      : null;
   const paymentRepository = createManualPaymentRepository({
-    supabase:
-      supabaseUrl && supabaseServiceKey
-        ? createManualPaymentSupabaseClient(supabaseUrl, supabaseServiceKey, {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false,
-            },
-          })
-        : null,
+    supabase: serverSupabaseClient,
+  });
+  const dealBookingRepository = createDealBookingRepository({
+    supabase: serverSupabaseClient,
   });
 
   app.get('/api/health', (_req, res) => {
@@ -215,6 +221,46 @@ async function startServer() {
     res.json(savedIntent);
   });
 
+  app.post('/api/deals/bookings', async (req, res) => {
+    const { dealId, dealTitle, amount, travelerName, travelerEmail, travelDate, participants } = req.body as {
+      dealId?: string;
+      dealTitle?: string;
+      amount?: number;
+      travelerName?: string;
+      travelerEmail?: string;
+      travelDate?: string;
+      participants?: number;
+    };
+
+    if (!dealId || !dealTitle || !amount || amount <= 0) {
+      return res.status(400).json({ error: 'Missing dealId, dealTitle, or positive amount' });
+    }
+
+    const workflow = createDealBookingPayment({
+      dealId,
+      dealTitle,
+      amount,
+      travelerName,
+      travelerEmail,
+      travelDate,
+      participants,
+      upiId: process.env.MANUAL_PAYMENT_UPI_ID || process.env.TRIPETRIP_UPI_ID,
+    });
+    const payment = await paymentRepository.create(workflow.payment, { travelerName, purpose: dealTitle });
+    const booking = await dealBookingRepository.create({
+      ...workflow.booking,
+      paymentIntentId: payment.id,
+    });
+
+    res.json({ booking, payment });
+  });
+
+  app.get('/api/deals/bookings/:bookingId', async (req, res) => {
+    const booking = await dealBookingRepository.getByBookingId(req.params.bookingId);
+    if (!booking) return res.status(404).json({ error: 'Deal booking not found' });
+    res.json({ booking });
+  });
+
   app.get('/api/admin/payments/manual', async (_req, res) => {
     const intents = await paymentRepository.list();
     res.json({ payments: intents });
@@ -223,13 +269,15 @@ async function startServer() {
   app.post('/api/admin/payments/:paymentId/approve', async (req, res) => {
     const updated = await paymentRepository.updateStatus(req.params.paymentId, 'approved');
     if (!updated) return res.status(404).json({ error: 'Manual payment not found' });
-    res.json(updated);
+    const booking = await dealBookingRepository.updatePaymentDecision(req.params.paymentId, 'approved');
+    res.json({ payment: updated, booking });
   });
 
   app.post('/api/admin/payments/:paymentId/reject', async (req, res) => {
     const updated = await paymentRepository.updateStatus(req.params.paymentId, 'rejected');
     if (!updated) return res.status(404).json({ error: 'Manual payment not found' });
-    res.json(updated);
+    const booking = await dealBookingRepository.updatePaymentDecision(req.params.paymentId, 'rejected');
+    res.json({ payment: updated, booking });
   });
 
   if (process.env.NODE_ENV !== 'production') {

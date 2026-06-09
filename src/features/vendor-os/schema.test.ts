@@ -42,4 +42,17 @@ describe('Vendor OS database schema', () => {
     expect(schema).toContain('ALTER TABLE manual_payment_intents ENABLE ROW LEVEL SECURITY');
     expect(schema).toContain('CREATE POLICY "Admins manage manual payment intents"');
   });
+
+  it('persists deal booking confirmation and voucher release state', () => {
+    expect(schema).toContain(
+      "CREATE TYPE deal_booking_status AS ENUM ('awaiting_payment_approval', 'confirmed', 'payment_rejected')",
+    );
+    expect(schema).toContain("CREATE TYPE deal_voucher_status AS ENUM ('locked', 'released', 'blocked')");
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS deal_booking_confirmations');
+    expect(schema).toContain('payment_intent_id TEXT REFERENCES manual_payment_intents(id) ON DELETE SET NULL');
+    expect(schema).toContain('voucher_code TEXT NOT NULL UNIQUE');
+    expect(schema).toContain('CREATE INDEX IF NOT EXISTS idx_deal_booking_confirmations_payment_intent');
+    expect(schema).toContain('ALTER TABLE deal_booking_confirmations ENABLE ROW LEVEL SECURITY');
+    expect(schema).toContain('CREATE POLICY "Admins manage deal booking confirmations"');
+  });
 });

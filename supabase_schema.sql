@@ -195,6 +195,36 @@ CREATE TABLE IF NOT EXISTS manual_payment_intents (
   updated_at TIMESTAMPTZ
 );
 
+DO $$ BEGIN
+  CREATE TYPE deal_booking_status AS ENUM ('awaiting_payment_approval', 'confirmed', 'payment_rejected');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE deal_voucher_status AS ENUM ('locked', 'released', 'blocked');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+CREATE TABLE IF NOT EXISTS deal_booking_confirmations (
+  id TEXT PRIMARY KEY,
+  deal_id TEXT NOT NULL,
+  deal_title TEXT NOT NULL,
+  traveler_name TEXT,
+  traveler_email TEXT,
+  travel_date DATE,
+  participants INTEGER DEFAULT 1 NOT NULL CHECK (participants > 0),
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+  status deal_booking_status DEFAULT 'awaiting_payment_approval' NOT NULL,
+  payment_status manual_admin_approval_status DEFAULT 'pending' NOT NULL,
+  voucher_status deal_voucher_status DEFAULT 'locked' NOT NULL,
+  payment_intent_id TEXT REFERENCES manual_payment_intents(id) ON DELETE SET NULL,
+  voucher_code TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ
+);
+
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
 CREATE INDEX IF NOT EXISTS idx_vendor_profiles_user_id ON vendor_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_profiles_slug ON vendor_profiles(slug);
@@ -204,6 +234,8 @@ CREATE INDEX IF NOT EXISTS idx_availability_listing_date ON availability(listing
 CREATE INDEX IF NOT EXISTS idx_bookings_traveler_created ON bookings(traveler_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bookings_vendor_created ON bookings(vendor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_manual_payment_intents_status_created ON manual_payment_intents(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deal_booking_confirmations_payment_intent ON deal_booking_confirmations(payment_intent_id);
+CREATE INDEX IF NOT EXISTS idx_deal_booking_confirmations_status_created ON deal_booking_confirmations(status, created_at DESC);
 
 DO $$ BEGIN
   CREATE TYPE vendor_business_category AS ENUM (
@@ -441,6 +473,7 @@ ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_payment_intents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deal_booking_confirmations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_branches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE vendor_team_members ENABLE ROW LEVEL SECURITY;
@@ -535,6 +568,15 @@ CREATE POLICY "Users send own messages"
 DROP POLICY IF EXISTS "Admins manage manual payment intents" ON manual_payment_intents;
 CREATE POLICY "Admins manage manual payment intents"
   ON manual_payment_intents FOR ALL TO authenticated USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+  );
+
+DROP POLICY IF EXISTS "Admins manage deal booking confirmations" ON deal_booking_confirmations;
+CREATE POLICY "Admins manage deal booking confirmations"
+  ON deal_booking_confirmations FOR ALL TO authenticated USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   )
   WITH CHECK (

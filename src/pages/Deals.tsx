@@ -2,7 +2,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ArrowLeft, BadgeCheck, CalendarDays, Check, Clock, Flame, Heart, MapPin, Share2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tags, Users, X } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 type Deal = {
   id: string;
@@ -200,6 +201,10 @@ function getDeal(dealId?: string) {
   return deals.find((deal) => deal.id === dealId) ?? deals[0];
 }
 
+function parseDealAmount(value: string) {
+  return Number(value.replace(/[^\d]/g, '')) || 0;
+}
+
 function DealTimer({ value, compact = false }: { value: string; compact?: boolean }) {
   return (
     <div className={cn('flex items-center justify-between gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-rose-500 text-white shadow-lg shadow-rose-500/20', compact ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm')}>
@@ -337,8 +342,41 @@ function DealsListing() {
 }
 
 function DealDetail({ deal }: { deal: Deal }) {
+  const navigate = useNavigate();
+  const [bookingMessage, setBookingMessage] = useState('');
+  const [isBooking, setIsBooking] = useState(false);
   const gallery = deal.gallery.length > 0 ? deal.gallery : [deal.image, ...deals.slice(1, 4).map((item) => item.image)];
   const similar = deals.filter((item) => item.id !== deal.id).slice(0, 4);
+
+  async function createDealBooking() {
+    setIsBooking(true);
+    setBookingMessage('');
+
+    try {
+      const response = await fetch('/api/deals/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dealId: deal.id,
+          dealTitle: deal.title,
+          amount: parseDealAmount(deal.price),
+          travelerName: 'Guest Traveler',
+          travelDate: '2026-06-24',
+          participants: 2,
+        }),
+      });
+
+      if (!response.ok) throw new Error('Unable to create booking');
+      const payload = (await response.json()) as { booking?: { id?: string } };
+      const bookingId = payload.booking?.id;
+      if (!bookingId) throw new Error('Booking ID missing');
+      navigate(`/deals/confirmation?bookingId=${encodeURIComponent(bookingId)}`);
+    } catch {
+      setBookingMessage('Unable to lock this deal. Please try again.');
+    } finally {
+      setIsBooking(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-white text-slate-950">
@@ -478,12 +516,17 @@ function DealDetail({ deal }: { deal: Deal }) {
               <button className="mt-2 flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700">
                 2 Adults, 0 Child <Users className="h-4 w-4 text-slate-400" />
               </button>
-              <Button className="mt-5 h-14 w-full rounded-xl bg-[#16A34A] text-base font-black text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-700">
-                Book Now
+              <Button
+                className="mt-5 h-14 w-full rounded-xl bg-[#16A34A] text-base font-black text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-700"
+                onClick={() => void createDealBooking()}
+                disabled={isBooking}
+              >
+                {isBooking ? 'Locking Deal...' : 'Book Now'}
               </Button>
               <Button variant="outline" className="mt-3 h-12 w-full rounded-xl font-black">
                 Reserve This Deal
               </Button>
+              {bookingMessage && <p className="mt-3 text-xs font-black text-rose-600">{bookingMessage}</p>}
               <div className="mt-5 space-y-3 border-t border-slate-100 pt-5 text-xs font-bold text-slate-600">
                 {['Best Price Guaranteed', 'Free Cancellation', 'Secure Payment', 'No Hidden Charges'].map((item) => (
                   <div key={item} className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-[#16A34A]" />{item}</div>
