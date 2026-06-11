@@ -3,6 +3,7 @@ name: Build and deploy to Cloudflare Workers
 on:
   push:
     branches:
+      - supabase-migration
       - master
 
 jobs:
