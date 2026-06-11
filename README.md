@@ -39,41 +39,50 @@ The frontend is Vite and React. Supabase handles auth and data. Cloudinary handl
 
 Use these hosting targets:
 
-- GitHub: source control only.
-- Cloudflare Pages: the frontend build from Vite.
-- Supabase: database, auth, storage, and any Supabase server functions.
-- A Node host for `server.ts` if you need the current Express endpoints unchanged. Cloudflare Pages does not run that Node server directly.
+- GitHub: source control and CI/CD.
+- Cloudflare Workers: serves the Vite frontend assets and handles `/api/*` routes.
+- Supabase: database, auth, and storage.
 
-### Cloudflare Pages setup
+The production runtime is `worker/index.ts`. The local Node/Express server in `server.ts` remains useful for local development, but production deploys use Cloudflare Workers instead of Cloudflare Pages.
+
+### Cloudflare Workers setup
 
 1. Push the repo to GitHub if it is not already there.
-2. In Cloudflare, create a new Pages project and connect the GitHub repository.
-3. Set the build command to `npm run build`.
-4. Set the build output directory to `dist`.
-5. Add environment variables in Cloudflare Pages for the frontend values only:
+2. In Cloudflare, create or use the Worker named `tripetrip-development`.
+3. Configure Worker runtime variables/secrets in Cloudflare:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-6. Add any server-only secrets only to the runtime that executes `server.ts`, not to the browser build.
-7. Deploy the project.
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `CLOUDINARY_CLOUD_NAME`
+   - `CLOUDINARY_API_KEY`
+   - `CLOUDINARY_API_SECRET`
+   - `CLOUDINARY_UPLOAD_FOLDER`
+   - `RESEND_API_KEY`
+   - `RESEND_FROM_EMAIL`
+   - `GEMINI_API_KEY`
+   - `GEMINI_MODEL`
+   - `MANUAL_PAYMENT_UPI_ID`
+4. Deploy with:
+
+   ```bash
+   npm run cf:deploy
+   ```
 
 ### Supabase setup
 
 1. Keep your database, auth, and storage in Supabase.
-2. Use the Supabase project URL and anon key in Cloudflare Pages.
-3. Keep `SUPABASE_SERVICE_ROLE_KEY` and database credentials private on the server side only.
+2. Use the Supabase project URL and anon key for browser Supabase access.
+3. Keep `SUPABASE_SERVICE_ROLE_KEY` as a Cloudflare Worker secret only.
 
- ### GitHub Actions deploy
- 
- 1. Create a Cloudflare Pages project for this repository.
- 2. In GitHub repo Settings > Secrets > Actions, add:
-    - `CLOUDFLARE_API_TOKEN`
-    - `CLOUDFLARE_ACCOUNT_ID`
-    - `CLOUDFLARE_PROJECT_NAME`
-    - `VITE_SUPABASE_URL`
-    - `VITE_SUPABASE_ANON_KEY`
-    - `APP_URL`
- 3. Push to `main`.
- 4. GitHub Actions will build the app and deploy `dist` to Cloudflare Pages.
- 
- > Note: this workflow deploys the frontend build. The `server.ts` Express backend must be hosted separately if you need the current Node API endpoints.
- 
+### GitHub Actions deploy
+
+1. In GitHub repo Settings > Secrets > Actions, add:
+   - `CLOUDFLARE_API_TOKEN`
+   - `CLOUDFLARE_ACCOUNT_ID`
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `APP_URL`
+2. Push to `master`.
+3. GitHub Actions will build the app and run `wrangler deploy`.
+
+Server-only runtime secrets such as `SUPABASE_SERVICE_ROLE_KEY`, `CLOUDINARY_API_SECRET`, `RESEND_API_KEY`, and `GEMINI_API_KEY` should be stored as Worker secrets in Cloudflare, not as browser build variables.
