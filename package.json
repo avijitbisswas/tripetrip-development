@@ -5,9 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node -e \"process.env.NODE_ENV='production'; require('./dist/server.cjs')\"",
     "preview": "vite preview",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "npm run build:client && wrangler deploy",
+    "deploy": "npm run cf:deploy",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
@@ -64,6 +69,7 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "wrangler": "^4.53.0"
   }
 }
