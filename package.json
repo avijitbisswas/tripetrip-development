@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "npm run build:client && npm run build:server",
+    "build": "npm run build:client",
     "build:client": "vite build",
     "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build:node": "npm run build:client && npm run build:server",
     "start": "node -e \"process.env.NODE_ENV='production'; require('./dist/server.cjs')\"",
     "preview": "vite preview",
     "cf:dev": "wrangler dev",
