@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "tripetrip-development",
+  "name": "tripetrip-dev",
+  "account_id": "4c81ba7b2421ec1148d499f1e06f3cc8",
   "main": "worker/index.ts",
   "compatibility_date": "2026-06-11",
   "compatibility_flags": ["nodejs_compat"],
