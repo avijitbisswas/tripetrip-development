@@ -27,6 +27,7 @@ export type WorkerEnv = {
   ASSETS: AssetsBinding;
   SUPABASE_URL?: string;
   VITE_SUPABASE_URL?: string;
+  SUPABASE_PROJECT_REF?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_SERVICE_KEY?: string;
   CLOUDINARY_CLOUD_NAME?: string;
@@ -66,7 +67,11 @@ async function readJsonBody(request: Request) {
 }
 
 function createServerSupabaseClient(env: WorkerEnv) {
-  const supabaseUrl = env.SUPABASE_URL || env.VITE_SUPABASE_URL;
+  const projectRef = env.SUPABASE_PROJECT_REF?.trim();
+  const supabaseUrl =
+    env.SUPABASE_URL ||
+    env.VITE_SUPABASE_URL ||
+    (projectRef ? `https://${projectRef}.supabase.co` : undefined);
   const supabaseServiceKey =
     env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY;
 
