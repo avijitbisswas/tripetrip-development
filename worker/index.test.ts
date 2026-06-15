@@ -35,6 +35,50 @@ describe("cloudflare worker runtime", () => {
     expect(env.ASSETS.fetch).toHaveBeenCalledWith(request);
   });
 
+  it("reports configuration health without exposing secret values", async () => {
+    const env = createEnv({
+      SUPABASE_PROJECT_REF: "tripetrip-ref",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-secret",
+      CLOUDINARY_CLOUD_NAME: "tripetrip-cloud",
+      CLOUDINARY_API_KEY: "cloudinary-key",
+      CLOUDINARY_API_SECRET: "cloudinary-secret",
+      RESEND_API_KEY: "resend-key",
+      RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
+      GEMINI_API_KEY: "gemini-key",
+      MANUAL_PAYMENT_UPI_ID: "tripetrip@upi",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/config/health"),
+      env,
+    );
+    const bodyText = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(bodyText)).toEqual({
+      status: "ok",
+      version: "2026-06-15",
+      supabase: { configured: true, url: true, serviceKey: true },
+      cloudinary: {
+        configured: true,
+        cloudName: true,
+        apiKey: true,
+        apiSecret: true,
+      },
+      email: {
+        configured: true,
+        resendApiKey: true,
+        resendFromEmail: true,
+      },
+      ai: { configured: true, geminiApiKey: true },
+      payments: { configured: true, manualPaymentUpi: true },
+    });
+    expect(bodyText).not.toContain("service-role-secret");
+    expect(bodyText).not.toContain("cloudinary-secret");
+    expect(bodyText).not.toContain("resend-key");
+    expect(bodyText).not.toContain("gemini-key");
+  });
+
   it("signs Cloudinary uploads with Worker Web Crypto", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-11T00:00:00.000Z"));

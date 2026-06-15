@@ -51,6 +51,8 @@ type ServerSupabaseClient = ManualPaymentSupabaseClient &
     };
   };
 
+const CONFIG_HEALTH_VERSION = "2026-06-15";
+
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
     ...init,
@@ -98,6 +100,56 @@ function createRepositories(env: WorkerEnv) {
     paymentRepository: createManualPaymentRepository({ supabase }),
     bookingRepository: createDealBookingRepository({ supabase }),
     inventoryRepository: createDealInventoryRepository({ supabase }),
+  };
+}
+
+function getConfigHealth(env: WorkerEnv) {
+  const hasSupabaseUrl = Boolean(
+    env.SUPABASE_URL || env.VITE_SUPABASE_URL || env.SUPABASE_PROJECT_REF,
+  );
+  const hasSupabaseServiceKey = Boolean(
+    env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY,
+  );
+  const hasCloudinaryName = Boolean(
+    env.CLOUDINARY_CLOUD_NAME || env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+  );
+  const hasCloudinaryApiKey = Boolean(env.CLOUDINARY_API_KEY);
+  const hasCloudinaryApiSecret = Boolean(env.CLOUDINARY_API_SECRET);
+  const hasResendApiKey = Boolean(env.RESEND_API_KEY);
+  const hasResendFromEmail = Boolean(env.RESEND_FROM_EMAIL);
+  const hasGeminiApiKey = Boolean(env.GEMINI_API_KEY);
+  const hasManualPaymentUpi = Boolean(
+    env.MANUAL_PAYMENT_UPI_ID || env.TRIPETRIP_UPI_ID,
+  );
+
+  return {
+    status: "ok",
+    version: CONFIG_HEALTH_VERSION,
+    supabase: {
+      configured: hasSupabaseUrl && hasSupabaseServiceKey,
+      url: hasSupabaseUrl,
+      serviceKey: hasSupabaseServiceKey,
+    },
+    cloudinary: {
+      configured:
+        hasCloudinaryName && hasCloudinaryApiKey && hasCloudinaryApiSecret,
+      cloudName: hasCloudinaryName,
+      apiKey: hasCloudinaryApiKey,
+      apiSecret: hasCloudinaryApiSecret,
+    },
+    email: {
+      configured: hasResendApiKey && hasResendFromEmail,
+      resendApiKey: hasResendApiKey,
+      resendFromEmail: hasResendFromEmail,
+    },
+    ai: {
+      configured: hasGeminiApiKey,
+      geminiApiKey: hasGeminiApiKey,
+    },
+    payments: {
+      configured: hasManualPaymentUpi,
+      manualPaymentUpi: hasManualPaymentUpi,
+    },
   };
 }
 
@@ -383,6 +435,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
 
   if (request.method === "GET" && pathname === "/api/health")
     return json({ status: "ok" });
+  if (request.method === "GET" && pathname === "/api/config/health")
+    return json(getConfigHealth(env));
   if (request.method === "GET" && pathname === "/api/cloudinary/sign")
     return handleCloudinarySign(env);
   if (request.method === "POST" && pathname === "/api/email/send")
