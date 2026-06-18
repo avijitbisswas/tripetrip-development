@@ -78,7 +78,7 @@ export default function Login() {
               </div>
             </div>
 
-            <Button disabled={loading} className="w-full bg-indigo-600 text-white hover:bg-indigo-700 h-14 rounded-xl font-bold uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all">
+            <Button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white hover:bg-indigo-700 h-14 rounded-xl font-bold uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all">
               {loading ? <Loader2 className="animate-spin w-5 h-5" /> : 'Log In'}
             </Button>
           </form>
