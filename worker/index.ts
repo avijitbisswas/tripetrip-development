@@ -52,23 +52,6 @@ type ServerSupabaseClient = ManualPaymentSupabaseClient &
   };
 
 const CONFIG_HEALTH_VERSION = "2026-06-15";
-const DEMO_RESET_TOKEN = "tripetrip-demo-reset-2026-06-18";
-const DEMO_EMAIL_DOMAIN = "@tripetrip.test";
-
-type SupabaseAdminUser = {
-  id: string;
-  email?: string;
-};
-
-type SupabaseAdminAuth = Parameters<typeof handleRegisterUser>[1]["adminAuth"] & {
-  listUsers: (input: {
-    page: number;
-    perPage: number;
-  }) => Promise<{
-    data: { users: SupabaseAdminUser[] } | null;
-    error: { message?: string } | null;
-  }>;
-};
 
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -346,91 +329,6 @@ async function handleRegister(request: Request, env: WorkerEnv) {
   return json(result.body, { status: result.status });
 }
 
-async function handleDemoDataReset(request: Request, env: WorkerEnv) {
-  if (request.headers.get("x-demo-reset-token") !== DEMO_RESET_TOKEN) {
-    return json({ error: "Not found" }, { status: 404 });
-  }
-
-  const { supabase } = createRepositories(env);
-
-  if (!supabase) {
-    return json(
-      { error: "Registration service is not configured" },
-      { status: 503 },
-    );
-  }
-
-  const adminAuth = supabase.auth.admin as SupabaseAdminAuth;
-  let deletedUsers = 0;
-
-  for (let page = 1; page <= 20; page += 1) {
-    const { data, error } = await adminAuth.listUsers({
-      page,
-      perPage: 1000,
-    });
-
-    if (error) {
-      return json(
-        { error: error.message || "Unable to list demo users" },
-        { status: 502 },
-      );
-    }
-
-    const users = data?.users || [];
-    const demoUsers = users.filter((user) =>
-      user.email?.toLowerCase().endsWith(DEMO_EMAIL_DOMAIN),
-    );
-
-    for (const user of demoUsers) {
-      await adminAuth.deleteUser(user.id);
-      deletedUsers += 1;
-    }
-
-    if (users.length < 1000) break;
-  }
-
-  const accounts = [
-    {
-      email: "tester.vendor@tripetrip.test",
-      password: "VendorTester#2026!",
-      fullName: "Tripetrip Vendor Tester",
-      role: "vendor",
-    },
-    {
-      email: "tester.traveler@tripetrip.test",
-      password: "TravelerTester#2026!",
-      fullName: "Tripetrip Traveler Tester",
-      role: "traveler",
-    },
-  ];
-
-  const createdAccounts = [];
-
-  for (const account of accounts) {
-    const result = await handleRegisterUser(account, {
-      adminAuth,
-      supabase: supabase as unknown as Parameters<
-        typeof handleRegisterUser
-      >[1]["supabase"],
-    });
-
-    if (result.status !== 200) {
-      return json(result.body, { status: result.status });
-    }
-
-    createdAccounts.push({
-      email: account.email,
-      password: account.password,
-      role: account.role,
-    });
-  }
-
-  return json({
-    deletedUsers,
-    createdAccounts,
-  });
-}
-
 async function handleCreateOrder(request: Request, env: WorkerEnv) {
   const { paymentRepository } = createRepositories(env);
   const { amount, bookingId, travelerName, purpose } = (await readJsonBody(
@@ -547,8 +445,6 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleVendorAIBrief(request, env);
   if (request.method === "POST" && pathname === "/api/auth/register")
     return handleRegister(request, env);
-  if (request.method === "POST" && pathname === "/api/admin/demo-data/reset")
-    return handleDemoDataReset(request, env);
   if (request.method === "POST" && pathname === "/api/payments/create-order")
     return handleCreateOrder(request, env);
   if (request.method === "POST" && pathname === "/api/deals/bookings")
