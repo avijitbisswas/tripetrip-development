@@ -9,6 +9,7 @@ import { Toaster } from 'sonner';
 const Home = lazy(() => import('@/src/pages/Home'));
 const Search = lazy(() => import('@/src/pages/Search'));
 const Deals = lazy(() => import('@/src/pages/Deals'));
+const Community = lazy(() => import('@/src/pages/Community'));
 const DealsConfirmation = lazy(() => import('@/src/pages/deals/Confirmation'));
 const AdminDeals = lazy(() => import('@/src/pages/admin/Deals'));
 const ProviderDeals = lazy(() => import('@/src/pages/provider/Deals'));
@@ -87,8 +88,10 @@ export default function App() {
             <Route element={<Layout session={session} />}>
               <Route path="/" element={<Home />} />
               <Route path="/search" element={<Search />} />
-              <Route path="/more" element={<Deals />} />
-              <Route path="/more/:dealId" element={<Deals />} />
+              <Route path="/more" element={<Navigate to="/community" />} />
+              <Route path="/more/:dealId" element={<Navigate to="/community" />} />
+              <Route path="/community" element={<Community />} />
+              <Route path="/community/profile/:userId" element={<Community />} />
               <Route path="/deals" element={<Deals />} />
               <Route path="/deals/:dealId" element={<Deals />} />
               <Route path="/deals/confirmation" element={<DealsConfirmation />} />

@@ -4,21 +4,21 @@ import { cn } from '@/lib/utils';
 import { getProfile } from '@/src/services/profiles';
 import { signOut } from '@/src/services/auth';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
-import { ChevronDown, Globe2, Heart, LayoutDashboard, LogOut, Menu, Plane, User, X } from 'lucide-react';
+import { Globe2, Heart, LayoutDashboard, LogOut, Menu, Plane, User, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface LayoutProps {
   session: SupabaseUser | null;
 }
 
-const mainNav = ['Stays', 'Packages', 'Activities', 'Transport', 'Deals', 'More'];
+const mainNav = ['Stays', 'Packages', 'Activities', 'Transport', 'Deals', 'Community'];
 const navTargets: Record<string, string> = {
   Stays: '/stays',
   Packages: '/packages',
   Activities: '/activities',
   Transport: '/transport',
   Deals: '/deals',
-  More: '/search',
+  Community: '/community',
 };
 
 function isNavActive(pathname: string, name: string) {
@@ -26,8 +26,8 @@ function isNavActive(pathname: string, name: string) {
   if (name === 'Packages') return pathname.startsWith('/packages');
   if (name === 'Activities') return pathname.startsWith('/activities');
   if (name === 'Transport') return pathname.startsWith('/transport');
-  if (name === 'Deals') return pathname.startsWith('/deals') || pathname.startsWith('/more');
-  if (name === 'More') return pathname === '/search';
+  if (name === 'Deals') return pathname.startsWith('/deals');
+  if (name === 'Community') return pathname.startsWith('/community');
   return false;
 }
 
@@ -79,7 +79,6 @@ export default function Layout({ session }: LayoutProps) {
               >
                 <span className="inline-flex items-center gap-1">
                   {name}
-                  {name === 'More' && <ChevronDown className="h-3.5 w-3.5" />}
                 </span>
                 {isNavActive(location.pathname, name) && <span className="absolute -bottom-5 left-0 right-0 h-0.5 rounded-full bg-[#16A34A]" />}
               </Link>

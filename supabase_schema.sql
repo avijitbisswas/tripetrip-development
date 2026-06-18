@@ -163,6 +163,14 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS community_posts (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  author_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+  role user_role NOT NULL,
+  content TEXT NOT NULL CHECK (char_length(trim(content)) BETWEEN 2 AND 280),
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
 DO $$ BEGIN
   CREATE TYPE manual_payment_status AS ENUM ('awaiting_admin_approval', 'approved', 'rejected');
 EXCEPTION
@@ -237,6 +245,8 @@ CREATE TABLE IF NOT EXISTS deal_inventory (
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
 CREATE INDEX IF NOT EXISTS idx_vendor_profiles_user_id ON vendor_profiles(user_id);
 CREATE INDEX IF NOT EXISTS idx_vendor_profiles_slug ON vendor_profiles(slug);
+CREATE INDEX IF NOT EXISTS idx_community_posts_role_created ON community_posts(role, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_community_posts_author_created ON community_posts(author_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_listings_active_category_created ON listings(is_active, category, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_listings_vendor_id ON listings(vendor_id);
 CREATE INDEX IF NOT EXISTS idx_availability_listing_date ON availability(listing_id, date);
@@ -482,6 +492,7 @@ ALTER TABLE availability ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE community_posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE manual_payment_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deal_booking_confirmations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deal_inventory ENABLE ROW LEVEL SECURITY;
@@ -575,6 +586,19 @@ CREATE POLICY "Users read own messages"
 DROP POLICY IF EXISTS "Users send own messages" ON messages;
 CREATE POLICY "Users send own messages"
   ON messages FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id);
+
+DROP POLICY IF EXISTS "Users read same-role community posts" ON community_posts;
+CREATE POLICY "Users read same-role community posts"
+  ON community_posts FOR SELECT TO authenticated USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = community_posts.role)
+  );
+
+DROP POLICY IF EXISTS "Users create own same-role community posts" ON community_posts;
+CREATE POLICY "Users create own same-role community posts"
+  ON community_posts FOR INSERT TO authenticated WITH CHECK (
+    auth.uid() = author_id
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = community_posts.role)
+  );
 
 DROP POLICY IF EXISTS "Admins manage manual payment intents" ON manual_payment_intents;
 CREATE POLICY "Admins manage manual payment intents"

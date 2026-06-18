@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { type WorkerEnv } from "./index";
+
+const createClientMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: createClientMock,
+}));
 
 function createEnv(overrides: Partial<WorkerEnv> = {}): WorkerEnv {
   return {
@@ -10,7 +16,89 @@ function createEnv(overrides: Partial<WorkerEnv> = {}): WorkerEnv {
   };
 }
 
+function createSelectQuery(result: unknown) {
+  const query: Record<string, ReturnType<typeof vi.fn>> = {
+    select: vi.fn(() => query),
+    eq: vi.fn(() => query),
+    order: vi.fn(() => query),
+    limit: vi.fn(() => query),
+    single: vi.fn(async () => result),
+  };
+
+  query.then = vi.fn((resolve: (value: unknown) => unknown) => Promise.resolve(resolve(result)));
+  return query;
+}
+
+function createCommunitySupabaseMock() {
+  const auth = {
+    getUser: vi.fn(async () => ({
+      data: { user: { id: "user-1" } },
+      error: null,
+    })),
+    admin: {
+      createUser: vi.fn(),
+      deleteUser: vi.fn(),
+    },
+  };
+  const insertSingle = vi.fn(async () => ({
+    data: {
+      id: "post-2",
+      author_id: "user-1",
+      role: "traveler",
+      content: "Fresh road note",
+      created_at: "2026-06-18T09:00:00.000Z",
+      profiles: { id: "user-1", full_name: "Traveler One", role: "traveler", avatar_url: null },
+    },
+    error: null,
+  }));
+  const insertSelect = vi.fn(() => ({ single: insertSingle }));
+  const insert = vi.fn(() => ({ select: insertSelect }));
+  const from = vi.fn((table: string) => {
+    if (table === "profiles") {
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            single: vi.fn(async () => ({
+              data: { id: "user-1", full_name: "Traveler One", role: "traveler", avatar_url: null },
+              error: null,
+            })),
+          })),
+        })),
+      };
+    }
+
+    if (table === "community_posts") {
+      return {
+        select: vi.fn(() =>
+          createSelectQuery({
+            data: [
+              {
+                id: "post-1",
+                author_id: "user-1",
+                role: "traveler",
+                content: "Looking for monsoon trek tips.",
+                created_at: "2026-06-18T08:00:00.000Z",
+                profiles: { id: "user-1", full_name: "Traveler One", role: "traveler", avatar_url: null },
+              },
+            ],
+            error: null,
+          }),
+        ),
+        insert,
+      };
+    }
+
+    return {};
+  });
+
+  return { auth, from, insert };
+}
+
 describe("cloudflare worker runtime", () => {
+  beforeEach(() => {
+    createClientMock.mockReset();
+  });
+
   it("returns API health without serving static assets", async () => {
     const env = createEnv();
 
@@ -144,5 +232,84 @@ describe("cloudflare worker runtime", () => {
       }),
     });
     vi.unstubAllGlobals();
+  });
+
+  it("rejects community feed requests without a bearer token", async () => {
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/community/posts"),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Authentication required" });
+  });
+
+  it("lists community posts for the authenticated user's role", async () => {
+    const supabase = createCommunitySupabaseMock();
+    createClientMock.mockReturnValue(supabase);
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/community/posts", {
+        headers: { Authorization: "Bearer user-token" },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      viewer: { id: "user-1", role: "traveler" },
+      posts: [
+        {
+          id: "post-1",
+          role: "traveler",
+          content: "Looking for monsoon trek tips.",
+          author: { id: "user-1", fullName: "Traveler One", role: "traveler" },
+        },
+      ],
+    });
+  });
+
+  it("creates community posts with the authenticated user's role", async () => {
+    const supabase = createCommunitySupabaseMock();
+    createClientMock.mockReturnValue(supabase);
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/community/posts", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer user-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content: "Fresh road note" }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(supabase.insert).toHaveBeenCalledWith({
+      author_id: "user-1",
+      role: "traveler",
+      content: "Fresh road note",
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      post: {
+        id: "post-2",
+        role: "traveler",
+        content: "Fresh road note",
+      },
+    });
   });
 });

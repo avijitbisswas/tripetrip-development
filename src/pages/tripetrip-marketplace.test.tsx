@@ -24,8 +24,6 @@ function renderWithRoutes(initialPath: string) {
         <Route path="/activities" element={<Activities />} />
         <Route path="/transport" element={<Transport />} />
         <Route path="/transport/:id" element={<Transport />} />
-        <Route path="/more" element={<Deals />} />
-        <Route path="/more/:dealId" element={<Deals />} />
         <Route path="/deals" element={<Deals />} />
         <Route path="/deals/:dealId" element={<Deals />} />
         <Route path="/deals/confirmation" element={<DealsConfirmation />} />
@@ -129,7 +127,7 @@ describe('Tripetrip premium marketplace screens', () => {
   });
 
   it('renders limited-time direct deals on the deals page', () => {
-    renderWithRoutes('/more');
+    renderWithRoutes('/deals');
 
     expect(screen.getByRole('heading', { name: /Book Exclusive Offers Before They Disappear/i })).toBeInTheDocument();
     expect(screen.getByText(/Book exclusive offers before they disappear/i)).toBeInTheDocument();

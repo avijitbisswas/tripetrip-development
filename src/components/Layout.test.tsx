@@ -9,7 +9,7 @@ function renderLayoutAt(path: string) {
       <Routes>
         <Route element={<Layout session={null} />}>
           <Route path="/deals" element={<div>Deals page</div>} />
-          <Route path="/more" element={<div>More page</div>} />
+          <Route path="/community" element={<div>Community page</div>} />
           <Route path="/packages" element={<div>Packages page</div>} />
         </Route>
       </Routes>
@@ -18,11 +18,11 @@ function renderLayoutAt(path: string) {
 }
 
 describe('Layout navigation', () => {
-  it('shows Deals and More in the primary navigation', () => {
+  it('shows Deals and Community in the primary navigation', () => {
     renderLayoutAt('/deals');
 
     expect(screen.getByRole('link', { name: /^Deals$/i })).toHaveAttribute('href', '/deals');
-    expect(screen.getByRole('link', { name: /^More$/i })).toHaveAttribute('href', '/search');
+    expect(screen.getByRole('link', { name: /^Community$/i })).toHaveAttribute('href', '/community');
   });
 
   it('marks Deals active for the deals navigation page', () => {
@@ -36,6 +36,13 @@ describe('Layout navigation', () => {
     renderLayoutAt('/packages');
 
     expect(screen.getByRole('link', { name: /^Packages$/i })).toHaveClass('text-[#16A34A]');
+    expect(screen.getByRole('link', { name: /^Deals$/i })).not.toHaveClass('text-[#16A34A]');
+  });
+
+  it('marks Community active only on community pages', () => {
+    renderLayoutAt('/community');
+
+    expect(screen.getByRole('link', { name: /^Community$/i })).toHaveClass('text-[#16A34A]');
     expect(screen.getByRole('link', { name: /^Deals$/i })).not.toHaveClass('text-[#16A34A]');
   });
 });
