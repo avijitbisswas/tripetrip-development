@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,7 +9,24 @@ import {
   type CommunityPost,
   type CommunityProfile,
 } from '@/src/services/community';
-import { ArrowLeft, Building2, Heart, Loader2, MessageCircle, Send, Share2, Sparkles, UserRound } from 'lucide-react';
+import {
+  ArrowLeft,
+  Building2,
+  CalendarClock,
+  CircleSlash,
+  Flag,
+  Globe2,
+  Heart,
+  Image as ImageIcon,
+  ListChecks,
+  Loader2,
+  MapPin,
+  MessageCircle,
+  Share2,
+  Smile,
+  Sparkles,
+  UserRound,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 function initials(name: string) {
@@ -95,6 +113,28 @@ function PostCard({ post }: { post: CommunityPost }) {
   );
 }
 
+function ComposerToolButton({
+  label,
+  children,
+  onClick,
+}: {
+  label: string;
+  children: ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function Community() {
   const { userId } = useParams();
   const [viewer, setViewer] = useState<CommunityProfile | null>(null);
@@ -107,6 +147,15 @@ export default function Community() {
   const theme = useMemo(() => roleTheme(viewer?.role), [viewer?.role]);
   const isProfileMode = Boolean(userId);
   const remaining = 280 - content.length;
+  const canPost = !posting && content.trim().length >= 2;
+
+  const insertComposerText = (value: string) => {
+    setContent((current) => `${current}${current ? ' ' : ''}${value}`.slice(0, 280));
+  };
+
+  const composerToast = (feature: string) => {
+    toast.message(`${feature} composer control is ready. Storage support can be connected next.`);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -249,20 +298,66 @@ export default function Community() {
             <form onSubmit={handlePost} className="border-b border-slate-200 bg-white p-5">
               <div className="flex gap-4">
                 {viewer && <Avatar profile={viewer} />}
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <textarea
                     value={content}
                     onChange={(event) => setContent(event.target.value.slice(0, 280))}
-                    rows={3}
-                    className="w-full resize-none border-0 bg-transparent text-lg font-semibold leading-7 text-slate-900 outline-none placeholder:text-slate-300"
-                    placeholder={viewer?.role === 'vendor' ? 'Share a partner update...' : 'Share a travel thought...'}
+                    rows={2}
+                    className="min-h-[76px] w-full resize-none border-0 bg-transparent pt-1 text-xl font-semibold leading-8 text-slate-900 outline-none placeholder:text-slate-400"
+                    placeholder="What's happening?"
                   />
-                  <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-                    <span className={`text-xs font-black ${remaining < 20 ? 'text-rose-500' : 'text-slate-400'}`}>{remaining}</span>
-                    <Button type="submit" disabled={posting || content.trim().length < 2} className="rounded-full bg-emerald-600 px-5 font-black text-white hover:bg-emerald-700">
-                      {posting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                  <button
+                    type="button"
+                    aria-label="Change reply audience"
+                    title="Change reply audience"
+                    onClick={() => composerToast('Reply audience')}
+                    className="mb-4 inline-flex items-center gap-1.5 rounded-full px-1 text-sm font-black text-emerald-600 transition-colors hover:bg-emerald-50"
+                  >
+                    <Globe2 className="h-4 w-4" />
+                    Everyone can reply
+                  </button>
+                  <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="-ml-2 flex min-w-0 flex-wrap items-center gap-1">
+                      <ComposerToolButton label="Add image" onClick={() => composerToast('Image upload')}>
+                        <ImageIcon className="h-5 w-5" />
+                      </ComposerToolButton>
+                      <ComposerToolButton label="Add GIF" onClick={() => composerToast('GIF')}>
+                        <span className="rounded-[4px] border border-current px-1 text-[9px] font-black leading-4">GIF</span>
+                      </ComposerToolButton>
+                      <ComposerToolButton label="Limit visibility" onClick={() => composerToast('Visibility')}>
+                        <CircleSlash className="h-5 w-5" />
+                      </ComposerToolButton>
+                      <ComposerToolButton label="Add poll" onClick={() => insertComposerText('Poll:')}>
+                        <ListChecks className="h-5 w-5" />
+                      </ComposerToolButton>
+                      <ComposerToolButton label="Add emoji" onClick={() => insertComposerText(':smile:')}>
+                        <Smile className="h-5 w-5" />
+                      </ComposerToolButton>
+                      <ComposerToolButton label="Schedule post" onClick={() => composerToast('Scheduled post')}>
+                        <CalendarClock className="h-5 w-5" />
+                      </ComposerToolButton>
+                      <ComposerToolButton label="Add location" onClick={() => insertComposerText('Location:')}>
+                        <MapPin className="h-5 w-5" />
+                      </ComposerToolButton>
+                      <ComposerToolButton label="Mark important" onClick={() => insertComposerText('Important:')}>
+                        <Flag className="h-5 w-5" />
+                      </ComposerToolButton>
+                    </div>
+                    <div className="flex items-center justify-end gap-3">
+                      {remaining < 40 && (
+                        <span className={`text-xs font-black ${remaining < 20 ? 'text-rose-500' : 'text-slate-400'}`}>{remaining}</span>
+                      )}
+                      <Button
+                        type="submit"
+                        disabled={!canPost}
+                        className={`rounded-full px-5 font-black text-white shadow-none disabled:opacity-100 ${
+                          canPost ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-200 disabled:bg-slate-200 disabled:text-white'
+                        }`}
+                      >
+                        {posting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Post
-                    </Button>
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
