@@ -4,7 +4,7 @@
 
 **Goal:** Replace the More navigation/page with a role-isolated, Twitter-like community feed and profile page for travelers and vendors.
 
-**Architecture:** Add a `community_posts` Supabase table and Worker API endpoints that verify the caller's Supabase bearer token, read the caller's profile role, and only return or create posts for that role. Add React community pages that render a composer, feed, and profile timeline using those Worker endpoints.
+**Architecture:** Store community posts in the existing `messages` table with an internal community marker, while Worker API endpoints verify the caller's Supabase bearer token, read the caller's profile role, and only return or create posts for that role. Add React community pages that render a composer, feed, and profile timeline using those Worker endpoints.
 
 **Tech Stack:** React, React Router, Supabase, Cloudflare Worker, Vitest, Tailwind.
 
@@ -18,7 +18,7 @@
 - Modify: `supabase_schema.sql`
 
 - [ ] Add failing Worker tests for: unauthenticated requests returning `401`, same-role feed reads returning posts, and post creation assigning the authenticated user's role.
-- [ ] Add `community_posts` SQL table, indexes, and RLS policies to `supabase_schema.sql`.
+- [ ] Use the existing `messages` table for persistence so no new Supabase migration is required.
 - [ ] Implement `/api/community/posts` GET and POST in `worker/index.ts`.
 - [ ] Implement `/api/community/profile/:userId` GET in `worker/index.ts`.
 - [ ] Run `npm test -- worker/index.test.ts` and `npm run lint`.
@@ -55,5 +55,4 @@
 
 - [ ] Commit the implementation.
 - [ ] Push `supabase-migration`.
-- [ ] Tell the user to run the new `community_posts` SQL in Supabase before tester use.
-- [ ] Verify `/api/config/health` and app routes after Cloudflare deploys.
+- [ ] Verify `/api/config/health`, `/community`, and community post creation after Cloudflare deploys.

@@ -57,6 +57,7 @@ type ServerSupabaseClient = ManualPaymentSupabaseClient &
   };
 
 const CONFIG_HEALTH_VERSION = "2026-06-15";
+const COMMUNITY_MESSAGE_PREFIX = "__tripetrip_community__:";
 
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -134,6 +135,55 @@ function mapCommunityPost(row: Record<string, unknown>) {
       id: String(author?.id || row.author_id),
       fullName: author?.full_name || "Tripetrip Member",
       role: String(author?.role || row.role),
+      avatarUrl: author?.avatar_url || null,
+    },
+  };
+}
+
+function encodeCommunityMessage(role: string, content: string) {
+  return `${COMMUNITY_MESSAGE_PREFIX}${JSON.stringify({ role, content })}`;
+}
+
+function parseCommunityMessage(value: unknown) {
+  if (typeof value !== "string" || !value.startsWith(COMMUNITY_MESSAGE_PREFIX)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value.slice(COMMUNITY_MESSAGE_PREFIX.length)) as {
+      role?: string;
+      content?: string;
+    };
+    if (!parsed.role || !parsed.content) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function mapCommunityMessage(row: Record<string, unknown>) {
+  const parsed = parseCommunityMessage(row.content);
+  const author = row.profiles as
+    | {
+        id?: string;
+        full_name?: string | null;
+        role?: string;
+        avatar_url?: string | null;
+      }
+    | undefined;
+
+  if (!parsed) return null;
+
+  return {
+    id: String(row.id),
+    authorId: String(row.sender_id),
+    role: parsed.role,
+    content: parsed.content,
+    createdAt: String(row.created_at || ""),
+    author: {
+      id: String(author?.id || row.sender_id),
+      fullName: author?.full_name || "Tripetrip Member",
+      role: String(author?.role || parsed.role),
       avatarUrl: author?.avatar_url || null,
     },
   };
@@ -252,13 +302,14 @@ async function handleListCommunityPosts(request: Request, env: WorkerEnv) {
   const url = new URL(request.url);
   const authorId = url.searchParams.get("authorId");
   let query = (
-    auth.supabase.from("community_posts") as unknown as {
+    auth.supabase.from("messages") as unknown as {
       select: (columns: string) => unknown;
     }
   ).select(
-    "id, author_id, role, content, created_at, profiles:author_id(id, full_name, role, avatar_url)",
+    "id, sender_id, content, created_at, profiles:sender_id(id, full_name, role, avatar_url)",
   ) as {
     eq: (column: string, value: string) => unknown;
+    like: (column: string, value: string) => unknown;
     order: (column: string, options: { ascending: boolean }) => unknown;
     limit: (count: number) => Promise<{
       data: Array<Record<string, unknown>> | null;
@@ -266,8 +317,8 @@ async function handleListCommunityPosts(request: Request, env: WorkerEnv) {
     }>;
   };
 
-  query = query.eq("role", auth.profile.role) as typeof query;
-  if (authorId) query = query.eq("author_id", authorId) as typeof query;
+  query = query.like("content", `${COMMUNITY_MESSAGE_PREFIX}%`) as typeof query;
+  if (authorId) query = query.eq("sender_id", authorId) as typeof query;
   query = query.order("created_at", { ascending: false }) as typeof query;
 
   const { data, error } = await query.limit(50);
@@ -278,7 +329,10 @@ async function handleListCommunityPosts(request: Request, env: WorkerEnv) {
 
   return json({
     viewer: auth.profile,
-    posts: (data || []).map(mapCommunityPost),
+    posts: (data || [])
+      .map(mapCommunityMessage)
+      .filter((post): post is NonNullable<typeof post> => Boolean(post) && post.role === auth.profile.role)
+      .filter((post) => !authorId || post?.authorId === authorId),
   });
 }
 
@@ -294,10 +348,10 @@ async function handleCreateCommunityPost(request: Request, env: WorkerEnv) {
   }
 
   const { data, error } = await (
-    auth.supabase.from("community_posts") as unknown as {
+    auth.supabase.from("messages") as unknown as {
       insert: (row: {
-        author_id: string;
-        role: string;
+        sender_id: string;
+        receiver_id: string;
         content: string;
       }) => {
         select: (columns: string) => {
@@ -310,12 +364,12 @@ async function handleCreateCommunityPost(request: Request, env: WorkerEnv) {
     }
   )
     .insert({
-      author_id: auth.profile.id,
-      role: auth.profile.role,
-      content: trimmedContent,
+      sender_id: auth.profile.id,
+      receiver_id: auth.profile.id,
+      content: encodeCommunityMessage(auth.profile.role, trimmedContent),
     })
     .select(
-      "id, author_id, role, content, created_at, profiles:author_id(id, full_name, role, avatar_url)",
+      "id, sender_id, content, created_at, profiles:sender_id(id, full_name, role, avatar_url)",
     )
     .single();
 
@@ -323,7 +377,7 @@ async function handleCreateCommunityPost(request: Request, env: WorkerEnv) {
     return json({ error: error?.message || "Unable to create community post" }, { status: 502 });
   }
 
-  return json({ post: mapCommunityPost(data) });
+  return json({ post: mapCommunityMessage(data) });
 }
 
 async function handleGetCommunityProfile(

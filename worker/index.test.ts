@@ -20,6 +20,7 @@ function createSelectQuery(result: unknown) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {
     select: vi.fn(() => query),
     eq: vi.fn(() => query),
+    like: vi.fn(() => query),
     order: vi.fn(() => query),
     limit: vi.fn(() => query),
     single: vi.fn(async () => result),
@@ -43,9 +44,8 @@ function createCommunitySupabaseMock() {
   const insertSingle = vi.fn(async () => ({
     data: {
       id: "post-2",
-      author_id: "user-1",
-      role: "traveler",
-      content: "Fresh road note",
+      sender_id: "user-1",
+      content: '__tripetrip_community__:{"role":"traveler","content":"Fresh road note"}',
       created_at: "2026-06-18T09:00:00.000Z",
       profiles: { id: "user-1", full_name: "Traveler One", role: "traveler", avatar_url: null },
     },
@@ -67,16 +67,15 @@ function createCommunitySupabaseMock() {
       };
     }
 
-    if (table === "community_posts") {
+    if (table === "messages") {
       return {
         select: vi.fn(() =>
           createSelectQuery({
             data: [
               {
                 id: "post-1",
-                author_id: "user-1",
-                role: "traveler",
-                content: "Looking for monsoon trek tips.",
+                sender_id: "user-1",
+                content: '__tripetrip_community__:{"role":"traveler","content":"Looking for monsoon trek tips."}',
                 created_at: "2026-06-18T08:00:00.000Z",
                 profiles: { id: "user-1", full_name: "Traveler One", role: "traveler", avatar_url: null },
               },
@@ -300,9 +299,9 @@ describe("cloudflare worker runtime", () => {
 
     expect(response.status).toBe(200);
     expect(supabase.insert).toHaveBeenCalledWith({
-      author_id: "user-1",
-      role: "traveler",
-      content: "Fresh road note",
+      sender_id: "user-1",
+      receiver_id: "user-1",
+      content: '__tripetrip_community__:{"role":"traveler","content":"Fresh road note"}',
     });
     await expect(response.json()).resolves.toMatchObject({
       post: {
