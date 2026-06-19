@@ -3,7 +3,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { LocationAutosuggest } from '@/src/components/maps/LocationAutosuggest';
 import { formatRupees, packages, trustBadges } from '@/src/data/tripetripStays';
+import { useState } from 'react';
 import { Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Filter, Heart, MapPin, Search as SearchIcon, SlidersHorizontal, Star } from 'lucide-react';
 
 const heroImage = 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&q=90&w=2400';
@@ -28,6 +30,8 @@ function SearchField({ label, value, icon: Icon }: { label: string; value: strin
 }
 
 export default function Search() {
+  const [destination, setDestination] = useState('');
+
   return (
     <main className="min-h-screen bg-white text-slate-950">
       <section className="relative min-h-[300px] overflow-visible md:min-h-[390px]">
@@ -44,7 +48,7 @@ export default function Search() {
           <div className="absolute bottom-[-96px] left-4 right-4 md:left-8 md:right-8">
             <div className="mx-auto max-w-[1250px] rounded-[24px] border border-white/60 bg-white/92 p-2 shadow-[0_26px_80px_rgba(15,23,42,0.18)] backdrop-blur-2xl">
               <div className="flex flex-col md:flex-row md:items-center">
-                <SearchField label="Where are you going?" value="Search destination" />
+                <LocationAutosuggest label="Where are you going?" placeholder="Search destination" value={destination} onChange={setDestination} />
                 <SearchField label="Check-in" value="24 May, Sat" icon={Calendar} />
                 <SearchField label="Check-out" value="26 May, Mon" icon={Calendar} />
                 <SearchField label="Guests" value="2 Adults, 0 Child" />

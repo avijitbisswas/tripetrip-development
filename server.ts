@@ -319,6 +319,46 @@ async function startServer() {
     });
   });
 
+  app.get('/api/maps/suggest', async (req, res) => {
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.VITE_MAPBOX_TOKEN || process.env.MAPBOX_TOKEN;
+    if (!token) {
+      return res.status(503).json({ error: 'Maps are not configured' });
+    }
+
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (query.length < 2) {
+      return res.json({ suggestions: [] });
+    }
+
+    try {
+      const endpoint =
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
+        `?access_token=${encodeURIComponent(token)}` +
+        `&autocomplete=true&limit=5&types=place,locality,neighborhood,address,poi,postcode,district,region,country`;
+      const response = await fetch(endpoint);
+      if (!response.ok) {
+        return res.status(502).json({ error: 'Unable to load map suggestions' });
+      }
+
+      const payload = (await response.json()) as {
+        features?: Array<{ id?: string; place_name?: string; properties?: { feature_type?: string } }>;
+      };
+
+      res.json({
+        suggestions: (payload.features || [])
+          .filter((feature) => feature.id && feature.place_name)
+          .map((feature) => ({
+            id: String(feature.id),
+            label: String(feature.place_name),
+            secondary: feature.properties?.feature_type || undefined,
+          })),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load map suggestions';
+      res.status(500).json({ error: message });
+    }
+  });
+
   app.post('/api/email/send', async (req, res) => {
     const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.RESEND_FROM_EMAIL;

@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { LocationAutosuggest } from '@/src/components/maps/LocationAutosuggest';
 import {
   BadgeCheck,
   Calendar,
@@ -23,6 +24,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
+import { useState } from 'react';
 
 const heroImage = 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&q=90&w=1800';
 
@@ -168,6 +170,9 @@ export default function Transport() {
 }
 
 function ListingScreen() {
+  const [pickupLocation, setPickupLocation] = useState('');
+  const [dropLocation, setDropLocation] = useState('');
+
   return (
     <section data-testid="transport-listing-screen" className="overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-[0_18px_70px_rgba(15,23,42,0.08)]">
       <div className="relative min-h-[292px] overflow-hidden bg-slate-950">
@@ -177,8 +182,20 @@ function ListingScreen() {
           <h1 className="text-4xl font-black tracking-tight text-white md:text-5xl">Ride & Roam</h1>
           <p className="mt-2 text-sm font-extrabold text-white">Travel smarter with trusted transport providers.</p>
           <div className="mt-7 grid gap-2 rounded-[18px] border border-white/25 bg-white/95 p-2 shadow-[0_20px_60px_rgba(15,23,42,0.22)] backdrop-blur-2xl md:grid-cols-[1fr_1fr_.86fr_.74fr_.9fr_auto]">
-            <SearchField icon={MapPin} label="Pick-up Location" value="Goa Airport (GOI)" />
-            <SearchField icon={Route} label="Drop Location" value="Calangute Beach" />
+            <LocationAutosuggest
+              label="Pick-up Location"
+              placeholder="Goa Airport (GOI)"
+              value={pickupLocation}
+              onChange={setPickupLocation}
+              compact
+            />
+            <LocationAutosuggest
+              label="Drop Location"
+              placeholder="Calangute Beach"
+              value={dropLocation}
+              onChange={setDropLocation}
+              compact
+            />
             <SearchField icon={Calendar} label="Date" value="24 May, Sat" />
             <SearchField icon={Clock} label="Time" value="10:00 AM" />
             <SearchField icon={Users} label="Passengers" value="2 Adults, 2 Bags" />

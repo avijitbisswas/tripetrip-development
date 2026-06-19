@@ -233,6 +233,47 @@ describe("cloudflare worker runtime", () => {
     vi.unstubAllGlobals();
   });
 
+  it("returns map suggestions from Mapbox", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          features: [
+            {
+              id: "place.1",
+              place_name: "Goa Airport, Goa, India",
+              properties: { feature_type: "airport" },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const env = createEnv({
+      NEXT_PUBLIC_MAPBOX_TOKEN: "mapbox-public-token",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/maps/suggest?q=Goa"),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      suggestions: [
+        {
+          id: "place.1",
+          label: "Goa Airport, Goa, India",
+          secondary: "airport",
+        },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.mapbox.com/geocoding/v5/mapbox.places/Goa.json?access_token=mapbox-public-token&autocomplete=true&limit=5&types=place,locality,neighborhood,address,poi,postcode,district,region,country",
+    );
+    vi.unstubAllGlobals();
+  });
+
   it("rejects community feed requests without a bearer token", async () => {
     const env = createEnv({
       SUPABASE_URL: "https://tripetrip.supabase.co",

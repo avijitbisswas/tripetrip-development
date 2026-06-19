@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { LocationAutosuggest } from '@/src/components/maps/LocationAutosuggest';
 import {
   activityFilters,
   adventures,
@@ -25,8 +26,11 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
+import { useState } from 'react';
 
 export default function Activities() {
+  const [location, setLocation] = useState('');
+
   return (
     <main className="min-h-screen bg-white text-slate-950">
       <section className="mx-auto max-w-[1500px] px-3 pb-10 pt-3 sm:px-4 md:px-8">
@@ -42,7 +46,7 @@ export default function Activities() {
             <p className="mt-3 max-w-2xl text-base font-semibold text-white/90 sm:text-lg">Adventure experiences from verified local operators.</p>
 
             <div className="mt-8 grid gap-2 rounded-[26px] border border-white/30 bg-white/92 p-2 shadow-[0_24px_70px_rgba(15,23,42,0.22)] backdrop-blur-2xl md:grid-cols-[1.1fr_1fr_.8fr_.9fr_auto]">
-              <SearchField icon={MapPin} label="Location" value="Where are you going?" />
+              <LocationAutosuggest label="Location" placeholder="Where are you going?" value={location} onChange={setLocation} />
               <SearchField icon={Compass} label="Activity Type" value="All Activities" />
               <SearchField icon={Calendar} label="Date" value="24 May, Sat" />
               <SearchField icon={Users} label="Participants" value="2 Adults" />

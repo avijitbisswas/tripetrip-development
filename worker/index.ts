@@ -32,6 +32,9 @@ export type WorkerEnv = {
   SUPABASE_SERVICE_KEY?: string;
   CLOUDINARY_CLOUD_NAME?: string;
   NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?: string;
+  NEXT_PUBLIC_MAPBOX_TOKEN?: string;
+  VITE_MAPBOX_TOKEN?: string;
+  MAPBOX_TOKEN?: string;
   CLOUDINARY_API_KEY?: string;
   CLOUDINARY_API_SECRET?: string;
   CLOUDINARY_UPLOAD_FOLDER?: string;
@@ -558,6 +561,42 @@ async function handleCloudinarySign(env: WorkerEnv) {
   });
 }
 
+async function handleMapSuggestions(request: Request, env: WorkerEnv) {
+  const token = env.NEXT_PUBLIC_MAPBOX_TOKEN || env.VITE_MAPBOX_TOKEN || env.MAPBOX_TOKEN;
+  if (!token) {
+    return json({ error: "Maps are not configured" }, { status: 503 });
+  }
+
+  const url = new URL(request.url);
+  const query = url.searchParams.get("q")?.trim() || "";
+  if (query.length < 2) {
+    return json({ suggestions: [] });
+  }
+
+  const endpoint =
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
+    `?access_token=${encodeURIComponent(token)}` +
+    `&autocomplete=true&limit=5&types=place,locality,neighborhood,address,poi,postcode,district,region,country`;
+  const response = await fetch(endpoint);
+  if (!response.ok) {
+    return json({ error: "Unable to load map suggestions" }, { status: 502 });
+  }
+
+  const payload = (await response.json()) as {
+    features?: Array<{ id?: string; place_name?: string; properties?: { feature_type?: string } }>;
+  };
+
+  return json({
+    suggestions: (payload.features || [])
+      .filter((feature) => feature.id && feature.place_name)
+      .map((feature) => ({
+        id: String(feature.id),
+        label: String(feature.place_name),
+        secondary: feature.properties?.feature_type || undefined,
+      })),
+  });
+}
+
 async function handleEmailSend(request: Request, env: WorkerEnv) {
   const apiKey = env.RESEND_API_KEY;
   const from = env.RESEND_FROM_EMAIL;
@@ -802,6 +841,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return json(getConfigHealth(env));
   if (request.method === "GET" && pathname === "/api/cloudinary/sign")
     return handleCloudinarySign(env);
+  if (request.method === "GET" && pathname === "/api/maps/suggest")
+    return handleMapSuggestions(request, env);
   if (request.method === "POST" && pathname === "/api/email/send")
     return handleEmailSend(request, env);
   if (request.method === "POST" && pathname === "/api/vendor-os/ai/brief")
