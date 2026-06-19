@@ -301,7 +301,7 @@ describe("cloudflare worker runtime", () => {
     expect(supabase.insert).toHaveBeenCalledWith({
       sender_id: "user-1",
       receiver_id: "user-1",
-      content: '__tripetrip_community__:{"role":"traveler","content":"Fresh road note"}',
+      content: '__tripetrip_community__:{"role":"traveler","content":"Fresh road note","audience":"everyone","visibility":"feed"}',
     });
     await expect(response.json()).resolves.toMatchObject({
       post: {
@@ -309,6 +309,158 @@ describe("cloudflare worker runtime", () => {
         role: "traveler",
         content: "Fresh road note",
       },
+    });
+  });
+
+  it("stores and returns structured community metadata while keeping profile-only scheduled posts out of the main feed", async () => {
+    const insertSingle = vi.fn(async () => ({
+      data: {
+        id: "post-9",
+        sender_id: "user-1",
+        content:
+          '__tripetrip_community__:{"role":"traveler","content":"Roadtrip update","audience":"circle","visibility":"profile","location":"Munnar, Kerala","scheduledAt":"2099-06-20T10:30:00.000Z","important":true,"media":{"type":"image","url":"https://cdn.example.com/community-photo.jpg"},"poll":{"options":["Tea estates","Waterfalls"]}}',
+        created_at: "2026-06-19T08:00:00.000Z",
+        profiles: { id: "user-1", full_name: "Traveler One", role: "traveler", avatar_url: null },
+      },
+      error: null,
+    }));
+    const insert = vi.fn(() => ({ select: vi.fn(() => ({ single: insertSingle })) }));
+    const from = vi.fn((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn((column: string, value: string) => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: value, full_name: "Traveler One", role: "traveler", avatar_url: null },
+                  error: null,
+                })),
+              })),
+              single: vi.fn(async () => ({
+                data: { id: value, full_name: "Traveler One", role: "traveler", avatar_url: null },
+                error: null,
+              })),
+            })),
+          })),
+        };
+      }
+
+      if (table === "messages") {
+        return {
+          select: vi.fn(() =>
+            createSelectQuery({
+              data: [
+                {
+                  id: "post-hidden",
+                  sender_id: "user-2",
+                  content:
+                    '__tripetrip_community__:{"role":"traveler","content":"Private itinerary drop","visibility":"profile","scheduledAt":"2099-06-20T10:30:00.000Z"}',
+                  created_at: "2026-06-19T09:00:00.000Z",
+                  profiles: { id: "user-2", full_name: "Traveler Two", role: "traveler", avatar_url: null },
+                },
+                {
+                  id: "post-live",
+                  sender_id: "user-2",
+                  content:
+                    '__tripetrip_community__:{"role":"traveler","content":"Live now","location":"Goa","important":true}',
+                  created_at: "2026-06-19T07:00:00.000Z",
+                  profiles: { id: "user-2", full_name: "Traveler Two", role: "traveler", avatar_url: null },
+                },
+              ],
+              error: null,
+            }),
+          ),
+          insert,
+        };
+      }
+
+      return {};
+    });
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "user-1" } },
+          error: null,
+        })),
+        admin: {
+          createUser: vi.fn(),
+          deleteUser: vi.fn(),
+        },
+      },
+      from,
+    });
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const createResponse = await worker.fetch(
+      new Request("https://tripetrip.example/api/community/posts", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer user-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content: "Roadtrip update",
+          audience: "circle",
+          visibility: "profile",
+          location: "Munnar, Kerala",
+          scheduledAt: "2099-06-20T10:30:00.000Z",
+          important: true,
+          media: {
+            type: "image",
+            url: "https://cdn.example.com/community-photo.jpg",
+          },
+          poll: {
+            options: ["Tea estates", "Waterfalls"],
+          },
+        }),
+      }),
+      env,
+    );
+
+    expect(createResponse.status).toBe(200);
+    expect(insert).toHaveBeenCalledWith({
+      sender_id: "user-1",
+      receiver_id: "user-1",
+      content:
+        '__tripetrip_community__:{"role":"traveler","content":"Roadtrip update","audience":"circle","visibility":"profile","location":"Munnar, Kerala","scheduledAt":"2099-06-20T10:30:00.000Z","important":true,"media":{"type":"image","url":"https://cdn.example.com/community-photo.jpg"},"poll":{"options":["Tea estates","Waterfalls"]}}',
+    });
+    await expect(createResponse.json()).resolves.toMatchObject({
+      post: {
+        content: "Roadtrip update",
+        audience: "circle",
+        visibility: "profile",
+        location: "Munnar, Kerala",
+        important: true,
+        media: {
+          type: "image",
+          url: "https://cdn.example.com/community-photo.jpg",
+        },
+        poll: {
+          options: ["Tea estates", "Waterfalls"],
+        },
+      },
+    });
+
+    const listResponse = await worker.fetch(
+      new Request("https://tripetrip.example/api/community/posts", {
+        headers: { Authorization: "Bearer user-token" },
+      }),
+      env,
+    );
+
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toMatchObject({
+      posts: [
+        {
+          id: "post-live",
+          content: "Live now",
+          location: "Goa",
+          important: true,
+        },
+      ],
     });
   });
 });

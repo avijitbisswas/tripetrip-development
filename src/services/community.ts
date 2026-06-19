@@ -1,6 +1,18 @@
 import { supabase } from '@/src/lib/supabase';
 
 export type CommunityRole = 'traveler' | 'vendor' | 'admin';
+export type CommunityAudience = 'everyone' | 'circle' | 'mentions';
+export type CommunityVisibility = 'feed' | 'profile';
+
+export interface CommunityMedia {
+  type: 'image' | 'gif';
+  url: string;
+  alt?: string;
+}
+
+export interface CommunityPoll {
+  options: string[];
+}
 
 export interface CommunityProfile {
   id: string;
@@ -15,7 +27,25 @@ export interface CommunityPost {
   role: CommunityRole;
   content: string;
   createdAt: string;
+  audience?: CommunityAudience;
+  visibility?: CommunityVisibility;
+  location?: string | null;
+  scheduledAt?: string | null;
+  important?: boolean;
+  media?: CommunityMedia | null;
+  poll?: CommunityPoll | null;
   author: CommunityProfile;
+}
+
+export interface CreateCommunityPostInput {
+  content: string;
+  audience?: CommunityAudience;
+  visibility?: CommunityVisibility;
+  location?: string | null;
+  scheduledAt?: string | null;
+  important?: boolean;
+  media?: CommunityMedia | null;
+  poll?: CommunityPoll | null;
 }
 
 async function getAccessToken() {
@@ -53,10 +83,10 @@ export async function listCommunityPosts(authorId?: string) {
   return communityFetch<{ viewer: CommunityProfile; posts: CommunityPost[] }>(`/api/community/posts${search}`);
 }
 
-export async function createCommunityPost(content: string) {
+export async function createCommunityPost(input: CreateCommunityPostInput) {
   return communityFetch<{ post: CommunityPost }>('/api/community/posts', {
     method: 'POST',
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(input),
   });
 }
 

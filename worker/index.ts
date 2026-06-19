@@ -58,6 +58,26 @@ type ServerSupabaseClient = ManualPaymentSupabaseClient &
 
 const CONFIG_HEALTH_VERSION = "2026-06-15";
 const COMMUNITY_MESSAGE_PREFIX = "__tripetrip_community__:";
+const COMMUNITY_AUDIENCES = new Set(["everyone", "circle", "mentions"]);
+const COMMUNITY_VISIBILITIES = new Set(["feed", "profile"]);
+
+type CommunityMessagePayload = {
+  role: string;
+  content: string;
+  audience?: "everyone" | "circle" | "mentions";
+  visibility?: "feed" | "profile";
+  location?: string | null;
+  scheduledAt?: string | null;
+  important?: boolean;
+  media?: {
+    type: "image" | "gif";
+    url: string;
+    alt?: string;
+  } | null;
+  poll?: {
+    options: string[];
+  } | null;
+};
 
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -140,8 +160,57 @@ function mapCommunityPost(row: Record<string, unknown>) {
   };
 }
 
-function encodeCommunityMessage(role: string, content: string) {
-  return `${COMMUNITY_MESSAGE_PREFIX}${JSON.stringify({ role, content })}`;
+function normalizeCommunityPayload(input: Partial<CommunityMessagePayload>) {
+  const content = String(input.content || "").trim();
+  const role = String(input.role || "").trim();
+  const audience = COMMUNITY_AUDIENCES.has(String(input.audience))
+    ? (String(input.audience) as CommunityMessagePayload["audience"])
+    : "everyone";
+  const visibility = COMMUNITY_VISIBILITIES.has(String(input.visibility))
+    ? (String(input.visibility) as CommunityMessagePayload["visibility"])
+    : "feed";
+  const location = String(input.location || "").trim();
+  const scheduledAtValue = String(input.scheduledAt || "").trim();
+  const scheduledAt =
+    scheduledAtValue && !Number.isNaN(new Date(scheduledAtValue).getTime())
+      ? new Date(scheduledAtValue).toISOString()
+      : null;
+  const media =
+    input.media &&
+    (input.media.type === "image" || input.media.type === "gif") &&
+    typeof input.media.url === "string" &&
+    input.media.url.trim()
+      ? {
+          type: input.media.type,
+          url: input.media.url.trim(),
+          ...(typeof input.media.alt === "string" && input.media.alt.trim()
+            ? { alt: input.media.alt.trim() }
+            : {}),
+        }
+      : null;
+  const pollOptions = Array.isArray(input.poll?.options)
+    ? input.poll.options
+        .map((option) => String(option || "").trim())
+        .filter(Boolean)
+        .slice(0, 4)
+    : [];
+  const poll = pollOptions.length >= 2 ? { options: pollOptions } : null;
+
+  return {
+    role,
+    content,
+    audience,
+    visibility,
+    ...(location ? { location } : {}),
+    ...(scheduledAt ? { scheduledAt } : {}),
+    ...(input.important ? { important: true } : {}),
+    ...(media ? { media } : {}),
+    ...(poll ? { poll } : {}),
+  };
+}
+
+function encodeCommunityMessage(payload: CommunityMessagePayload) {
+  return `${COMMUNITY_MESSAGE_PREFIX}${JSON.stringify(normalizeCommunityPayload(payload))}`;
 }
 
 function parseCommunityMessage(value: unknown) {
@@ -150,12 +219,10 @@ function parseCommunityMessage(value: unknown) {
   }
 
   try {
-    const parsed = JSON.parse(value.slice(COMMUNITY_MESSAGE_PREFIX.length)) as {
-      role?: string;
-      content?: string;
-    };
-    if (!parsed.role || !parsed.content) return null;
-    return parsed;
+    const parsed = JSON.parse(value.slice(COMMUNITY_MESSAGE_PREFIX.length)) as Partial<CommunityMessagePayload>;
+    const normalized = normalizeCommunityPayload(parsed);
+    if (!normalized.role || !normalized.content) return null;
+    return normalized;
   } catch {
     return null;
   }
@@ -180,6 +247,13 @@ function mapCommunityMessage(row: Record<string, unknown>) {
     role: parsed.role,
     content: parsed.content,
     createdAt: String(row.created_at || ""),
+    audience: parsed.audience,
+    visibility: parsed.visibility,
+    location: parsed.location || null,
+    scheduledAt: parsed.scheduledAt || null,
+    important: Boolean(parsed.important),
+    media: parsed.media || null,
+    poll: parsed.poll || null,
     author: {
       id: String(author?.id || row.sender_id),
       fullName: author?.full_name || "Tripetrip Member",
@@ -327,11 +401,21 @@ async function handleListCommunityPosts(request: Request, env: WorkerEnv) {
     return json({ error: error.message || "Unable to load community feed" }, { status: 502 });
   }
 
+  const now = Date.now();
   return json({
     viewer: auth.profile,
     posts: (data || [])
       .map(mapCommunityMessage)
       .filter((post): post is NonNullable<typeof post> => Boolean(post) && post.role === auth.profile.role)
+      .filter((post) => {
+        const scheduledAt = post.scheduledAt ? new Date(post.scheduledAt).getTime() : null;
+        const isFutureScheduled = scheduledAt ? scheduledAt > now : false;
+        const isOwnProfile = Boolean(authorId) && authorId === auth.profile.id;
+
+        if (isFutureScheduled && !isOwnProfile) return false;
+        if (!authorId && post.visibility === "profile") return false;
+        return true;
+      })
       .filter((post) => !authorId || post?.authorId === authorId),
   });
 }
@@ -340,8 +424,12 @@ async function handleCreateCommunityPost(request: Request, env: WorkerEnv) {
   const auth = await getAuthenticatedProfile(request, env);
   if ("error" in auth) return auth.error;
 
-  const { content } = (await readJsonBody(request)) as { content?: string };
-  const trimmedContent = content?.trim() || "";
+  const body = (await readJsonBody(request)) as Partial<CommunityMessagePayload>;
+  const payload = normalizeCommunityPayload({
+    ...body,
+    role: auth.profile.role,
+  });
+  const trimmedContent = payload.content;
 
   if (trimmedContent.length < 2 || trimmedContent.length > 280) {
     return json({ error: "Post must be between 2 and 280 characters" }, { status: 400 });
@@ -366,7 +454,7 @@ async function handleCreateCommunityPost(request: Request, env: WorkerEnv) {
     .insert({
       sender_id: auth.profile.id,
       receiver_id: auth.profile.id,
-      content: encodeCommunityMessage(auth.profile.role, trimmedContent),
+      content: encodeCommunityMessage(payload),
     })
     .select(
       "id, sender_id, content, created_at, profiles:sender_id(id, full_name, role, avatar_url)",
