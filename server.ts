@@ -320,8 +320,8 @@ async function startServer() {
   });
 
   app.get('/api/maps/suggest', async (req, res) => {
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.VITE_MAPBOX_TOKEN || process.env.MAPBOX_TOKEN;
-    if (!token) {
+    const baseUrl = process.env.NOMINATIM_BASE_URL || process.env.VITE_NOMINATIM_BASE_URL;
+    if (!baseUrl) {
       return res.status(503).json({ error: 'Maps are not configured' });
     }
 
@@ -332,25 +332,25 @@ async function startServer() {
 
     try {
       const endpoint =
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
-        `?access_token=${encodeURIComponent(token)}` +
-        `&autocomplete=true&limit=5&types=place,locality,neighborhood,address,poi,postcode,district,region,country`;
+        `${baseUrl.replace(/\/+$/, '')}/search?format=jsonv2&addressdetails=1&limit=5&q=${encodeURIComponent(query)}`;
       const response = await fetch(endpoint);
       if (!response.ok) {
         return res.status(502).json({ error: 'Unable to load map suggestions' });
       }
 
-      const payload = (await response.json()) as {
-        features?: Array<{ id?: string; place_name?: string; properties?: { feature_type?: string } }>;
-      };
+      const payload = (await response.json()) as Array<{
+        place_id?: number | string;
+        display_name?: string;
+        type?: string;
+      }>;
 
       res.json({
-        suggestions: (payload.features || [])
-          .filter((feature) => feature.id && feature.place_name)
+        suggestions: (payload || [])
+          .filter((feature) => feature.place_id && feature.display_name)
           .map((feature) => ({
-            id: String(feature.id),
-            label: String(feature.place_name),
-            secondary: feature.properties?.feature_type || undefined,
+            id: String(feature.place_id),
+            label: String(feature.display_name),
+            secondary: feature.type || undefined,
           })),
       });
     } catch (error) {

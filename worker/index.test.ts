@@ -233,24 +233,22 @@ describe("cloudflare worker runtime", () => {
     vi.unstubAllGlobals();
   });
 
-  it("returns map suggestions from Mapbox", async () => {
+  it("returns map suggestions from Nominatim", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
-        JSON.stringify({
-          features: [
-            {
-              id: "place.1",
-              place_name: "Goa Airport, Goa, India",
-              properties: { feature_type: "airport" },
-            },
-          ],
-        }),
+        JSON.stringify([
+          {
+            place_id: 101,
+            display_name: "Goa Airport, Goa, India",
+            type: "aerodrome",
+          },
+        ]),
         { status: 200 },
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
     const env = createEnv({
-      NEXT_PUBLIC_MAPBOX_TOKEN: "mapbox-public-token",
+      NOMINATIM_BASE_URL: "https://nominatim.tripetrip.internal",
     });
 
     const response = await worker.fetch(
@@ -262,14 +260,14 @@ describe("cloudflare worker runtime", () => {
     await expect(response.json()).resolves.toEqual({
       suggestions: [
         {
-          id: "place.1",
+          id: "101",
           label: "Goa Airport, Goa, India",
-          secondary: "airport",
+          secondary: "aerodrome",
         },
       ],
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.mapbox.com/geocoding/v5/mapbox.places/Goa.json?access_token=mapbox-public-token&autocomplete=true&limit=5&types=place,locality,neighborhood,address,poi,postcode,district,region,country",
+      "https://nominatim.tripetrip.internal/search?format=jsonv2&addressdetails=1&limit=5&q=Goa",
     );
     vi.unstubAllGlobals();
   });

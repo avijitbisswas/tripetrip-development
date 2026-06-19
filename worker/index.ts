@@ -32,9 +32,10 @@ export type WorkerEnv = {
   SUPABASE_SERVICE_KEY?: string;
   CLOUDINARY_CLOUD_NAME?: string;
   NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?: string;
-  NEXT_PUBLIC_MAPBOX_TOKEN?: string;
-  VITE_MAPBOX_TOKEN?: string;
-  MAPBOX_TOKEN?: string;
+  NOMINATIM_BASE_URL?: string;
+  VITE_NOMINATIM_BASE_URL?: string;
+  MAP_STYLE_URL?: string;
+  VITE_MAP_STYLE_URL?: string;
   CLOUDINARY_API_KEY?: string;
   CLOUDINARY_API_SECRET?: string;
   CLOUDINARY_UPLOAD_FOLDER?: string;
@@ -562,8 +563,8 @@ async function handleCloudinarySign(env: WorkerEnv) {
 }
 
 async function handleMapSuggestions(request: Request, env: WorkerEnv) {
-  const token = env.NEXT_PUBLIC_MAPBOX_TOKEN || env.VITE_MAPBOX_TOKEN || env.MAPBOX_TOKEN;
-  if (!token) {
+  const baseUrl = env.NOMINATIM_BASE_URL || env.VITE_NOMINATIM_BASE_URL;
+  if (!baseUrl) {
     return json({ error: "Maps are not configured" }, { status: 503 });
   }
 
@@ -574,25 +575,25 @@ async function handleMapSuggestions(request: Request, env: WorkerEnv) {
   }
 
   const endpoint =
-    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
-    `?access_token=${encodeURIComponent(token)}` +
-    `&autocomplete=true&limit=5&types=place,locality,neighborhood,address,poi,postcode,district,region,country`;
+    `${baseUrl.replace(/\/+$/, "")}/search?format=jsonv2&addressdetails=1&limit=5&q=${encodeURIComponent(query)}`;
   const response = await fetch(endpoint);
   if (!response.ok) {
     return json({ error: "Unable to load map suggestions" }, { status: 502 });
   }
 
-  const payload = (await response.json()) as {
-    features?: Array<{ id?: string; place_name?: string; properties?: { feature_type?: string } }>;
-  };
+  const payload = (await response.json()) as Array<{
+    place_id?: number | string;
+    display_name?: string;
+    type?: string;
+  }>;
 
   return json({
-    suggestions: (payload.features || [])
-      .filter((feature) => feature.id && feature.place_name)
+    suggestions: (payload || [])
+      .filter((feature) => feature.place_id && feature.display_name)
       .map((feature) => ({
-        id: String(feature.id),
-        label: String(feature.place_name),
-        secondary: feature.properties?.feature_type || undefined,
+        id: String(feature.place_id),
+        label: String(feature.display_name),
+        secondary: feature.type || undefined,
       })),
   });
 }
