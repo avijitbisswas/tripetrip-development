@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LocationAutosuggest } from '@/src/components/maps/LocationAutosuggest';
@@ -26,10 +26,36 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export default function Activities() {
-  const [location, setLocation] = useState('');
+  const [searchParams] = useSearchParams();
+  const query = searchParams.get('q')?.trim() || '';
+  const [location, setLocation] = useState(query);
+  const visibleAdventures = useMemo(() => {
+    const term = query.toLowerCase();
+    if (!term) return adventures;
+
+    return adventures.filter((adventure) =>
+      [
+        adventure.title,
+        adventure.activity,
+        adventure.location,
+        adventure.operator.name,
+        adventure.description,
+        adventure.difficulty,
+        adventure.duration,
+        ...adventure.highlights,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(term),
+    );
+  }, [query]);
+
+  useEffect(() => {
+    setLocation(query);
+  }, [query]);
 
   return (
     <main className="min-h-screen bg-white text-slate-950">
@@ -107,7 +133,9 @@ export default function Activities() {
           <div>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#059669]">1,248 adventures found</p>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#059669]">
+                  {visibleAdventures.length} {visibleAdventures.length === 1 ? 'adventure' : 'adventures'} found
+                </p>
                 <h2 className="mt-1 text-2xl font-black tracking-tight">Book direct with verified operators</h2>
               </div>
               <Button variant="outline" className="rounded-2xl border-slate-200 font-bold">
@@ -116,11 +144,18 @@ export default function Activities() {
               </Button>
             </div>
 
+            {visibleAdventures.length > 0 ? (
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-              {adventures.map((adventure) => (
+              {visibleAdventures.map((adventure) => (
                 <AdventureCard key={adventure.id} adventure={adventure} />
               ))}
             </div>
+            ) : (
+              <div className="rounded-[24px] border border-slate-200 bg-white p-8 text-center shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+                <h3 className="text-lg font-black text-slate-950">No adventures found</h3>
+                <p className="mt-2 text-sm font-semibold text-slate-500">Try another location or activity type.</p>
+              </div>
+            )}
           </div>
         </section>
 

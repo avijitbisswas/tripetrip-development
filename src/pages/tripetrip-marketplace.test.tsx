@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import StaySearch from '@/src/pages/stays/Search';
+import PackageSearch from '@/src/pages/Search';
 import StayListingDetail from '@/src/pages/stays/ListingDetail';
 import StayBookingConfirmation from '@/src/pages/stays/BookingConfirmation';
 import Activities from '@/src/pages/Activities';
@@ -19,6 +20,7 @@ function renderWithRoutes(initialPath: string) {
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
         <Route path="/stays" element={<StaySearch />} />
+        <Route path="/packages" element={<PackageSearch />} />
         <Route path="/stays/booking-confirmed" element={<StayBookingConfirmation />} />
         <Route path="/stays/:id" element={<StayListingDetail />} />
         <Route path="/activities" element={<Activities />} />
@@ -47,6 +49,15 @@ describe('Tripetrip premium marketplace screens', () => {
     expect(screen.getByRole('heading', { name: /Luxury Beach Villa/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /The Lake Resort/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Book Direct & Save/i).length).toBeGreaterThan(3);
+  });
+
+  it('filters stay listings from the q search parameter', () => {
+    renderWithRoutes('/stays?q=Goa');
+
+    expect(screen.getByDisplayValue('Goa')).toBeInTheDocument();
+    expect(screen.getByText(/1 Stay Found/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Luxury Beach Villa/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /The Lake Resort/i })).not.toBeInTheDocument();
   });
 
   it('renders an Airbnb-inspired property detail page with a sticky booking widget', () => {
@@ -80,6 +91,24 @@ describe('Tripetrip premium marketplace screens', () => {
     expect(screen.getByRole('heading', { name: /Scuba Diving Andaman/i })).toBeInTheDocument();
   });
 
+  it('filters activity listings from the q search parameter', () => {
+    renderWithRoutes('/activities?q=Andaman');
+
+    expect(screen.getByDisplayValue('Andaman')).toBeInTheDocument();
+    expect(screen.getByText(/1 adventure found/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Scuba Diving Andaman/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Paragliding in Bir Billing/i })).not.toBeInTheDocument();
+  });
+
+  it('filters package listings from the q search parameter', () => {
+    renderWithRoutes('/packages?q=Kerala');
+
+    expect(screen.getAllByText('Kerala').length).toBeGreaterThan(0);
+    expect(screen.getByText(/1 Package Found/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Kerala Backwaters/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Goa Beach Escape/i })).not.toBeInTheDocument();
+  });
+
   it('renders the Thrill Zone adventure detail page', () => {
     renderWithRoutes('/listing/paragliding-bir-billing');
 
@@ -110,6 +139,12 @@ describe('Tripetrip premium marketplace screens', () => {
     expect(screen.getByRole('link', { name: /Toyota Innova Crysta/i })).toHaveAttribute('href', '/transport/toyota-innova-crysta');
     expect(screen.getByRole('heading', { name: /Mercedes E-Class/i })).toBeInTheDocument();
     expect(screen.queryByTestId('transport-detail-screen')).not.toBeInTheDocument();
+  });
+
+  it('prefills transport pickup from the q search parameter', () => {
+    renderWithRoutes('/transport?q=Delhi');
+
+    expect(screen.getByDisplayValue('Delhi')).toBeInTheDocument();
   });
 
   it('opens a Ride & Roam vehicle detail screen from the transport listing flow', () => {

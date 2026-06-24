@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LocationAutosuggest } from '@/src/components/maps/LocationAutosuggest';
@@ -24,7 +24,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const heroImage = 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&q=90&w=1800';
 
@@ -170,8 +170,14 @@ export default function Transport() {
 }
 
 function ListingScreen() {
-  const [pickupLocation, setPickupLocation] = useState('');
+  const [searchParams] = useSearchParams();
+  const query = searchParams.get('q')?.trim() || '';
+  const [pickupLocation, setPickupLocation] = useState(query);
   const [dropLocation, setDropLocation] = useState('');
+
+  useEffect(() => {
+    setPickupLocation(query);
+  }, [query]);
 
   return (
     <section data-testid="transport-listing-screen" className="overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-[0_18px_70px_rgba(15,23,42,0.08)]">

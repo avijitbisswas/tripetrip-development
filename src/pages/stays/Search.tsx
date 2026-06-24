@@ -1,11 +1,11 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { LocationAutosuggest } from '@/src/components/maps/LocationAutosuggest';
 import { formatRupees, packages, trustBadges } from '@/src/data/tripetripStays';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Calendar, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Filter, Heart, MapPin, Search as SearchIcon, SlidersHorizontal, Star } from 'lucide-react';
 
 const heroImage = 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?auto=format&fit=crop&q=90&w=2400';
@@ -30,7 +30,33 @@ function SearchField({ label, value, icon: Icon }: { label: string; value: strin
 }
 
 export default function Search() {
-  const [destination, setDestination] = useState('');
+  const [searchParams] = useSearchParams();
+  const query = searchParams.get('q')?.trim() || '';
+  const [destination, setDestination] = useState(query);
+  const visiblePackages = useMemo(() => {
+    const term = query.toLowerCase();
+    if (!term) return packages;
+
+    return packages.filter((property) =>
+      [
+        property.title,
+        property.location,
+        property.region,
+        property.propertyType,
+        property.provider,
+        property.overview,
+        ...property.amenities,
+        ...property.features,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(term),
+    );
+  }, [query]);
+
+  useEffect(() => {
+    setDestination(query);
+  }, [query]);
 
   return (
     <main className="min-h-screen bg-white text-slate-950">
@@ -139,7 +165,7 @@ export default function Search() {
                 <Filter className="mr-2 h-4 w-4" />
                 Filters
               </Button>
-              <p className="text-sm font-extrabold"><span>1,410</span> Stays Found</p>
+              <p className="text-sm font-extrabold">{visiblePackages.length} {visiblePackages.length === 1 ? 'Stay' : 'Stays'} Found</p>
             </div>
             <Button variant="outline" className="rounded-xl text-xs font-semibold text-slate-600">
               <SlidersHorizontal className="mr-2 h-4 w-4" />
@@ -147,8 +173,9 @@ export default function Search() {
             </Button>
           </div>
 
+          {visiblePackages.length > 0 ? (
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            {packages.map((property) => (
+            {visiblePackages.map((property) => (
               <Link
                 key={property.id}
                 to={`/stays/${property.id}`}
@@ -188,6 +215,12 @@ export default function Search() {
               </Link>
             ))}
           </div>
+          ) : (
+            <div className="rounded-[20px] border border-slate-200 bg-white p-8 text-center shadow-[0_16px_45px_rgba(15,23,42,0.08)]">
+              <h3 className="text-lg font-extrabold text-slate-950">No stays found</h3>
+              <p className="mt-2 text-sm font-semibold text-slate-500">Try another destination or clear the search.</p>
+            </div>
+          )}
 
           <div className="mt-10 flex items-center justify-center gap-2">
             <button className="grid h-10 w-10 place-items-center rounded-xl text-slate-500 hover:bg-slate-100"><ChevronLeft className="h-4 w-4" /></button>

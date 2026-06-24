@@ -1,10 +1,11 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { formatRupees, packages, trustBadges } from '@/src/data/tripetripPackages';
 import { Calendar, ChevronDown, Filter, Heart, Search as SearchIcon, SlidersHorizontal, Star } from 'lucide-react';
+import { useMemo } from 'react';
 
 const heroImage = 'https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&q=90&w=2400';
 const filterGroups = [
@@ -27,6 +28,30 @@ function SearchField({ label, value, icon: Icon }: { label: string; value: strin
 }
 
 export default function Search() {
+  const [searchParams] = useSearchParams();
+  const query = searchParams.get('q')?.trim() || '';
+  const visiblePackages = useMemo(() => {
+    const term = query.toLowerCase();
+    if (!term) return packages;
+
+    return packages.filter((pkg) =>
+      [
+        pkg.title,
+        pkg.location,
+        pkg.region,
+        pkg.duration,
+        pkg.provider,
+        pkg.tripType,
+        pkg.overview,
+        ...pkg.highlights,
+        ...pkg.included,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(term),
+    );
+  }, [query]);
+
   return (
     <main className="min-h-screen bg-white text-slate-950">
       <section className="relative min-h-[380px] overflow-visible md:min-h-[430px]">
@@ -42,7 +67,7 @@ export default function Search() {
           <div className="absolute bottom-[-120px] left-4 right-4 md:left-8 md:right-8">
             <div className="mx-auto max-w-[1180px] rounded-[22px] border border-white/50 bg-white/90 p-2 shadow-2xl shadow-slate-900/18 backdrop-blur-xl">
               <div className="flex flex-col md:flex-row md:items-center">
-                <SearchField label="Destination" value="Where are you going?" />
+                <SearchField label="Destination" value={query || 'Where are you going?'} />
                 <SearchField label="Date" value="Anytime" icon={Calendar} />
                 <SearchField label="Budget" value="Any Budget" />
                 <SearchField label="Duration" value="Any Duration" />
@@ -110,7 +135,7 @@ export default function Search() {
                 <Filter className="mr-2 h-4 w-4" />
                 Filters
               </Button>
-              <p className="text-sm font-bold">{packages.length * 28 + 60} Packages Found</p>
+              <p className="text-sm font-bold">{visiblePackages.length} {visiblePackages.length === 1 ? 'Package' : 'Packages'} Found</p>
             </div>
             <Button variant="outline" className="rounded-xl text-xs font-semibold text-slate-600">
               <SlidersHorizontal className="mr-2 h-4 w-4" />
@@ -118,8 +143,9 @@ export default function Search() {
             </Button>
           </div>
 
+          {visiblePackages.length > 0 ? (
           <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            {packages.map((pkg) => (
+            {visiblePackages.map((pkg) => (
               <Link key={pkg.id} to={`/listing/${pkg.id}`} className="group overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_16px_45px_rgba(15,23,42,0.08)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_26px_70px_rgba(15,23,42,0.16)]">
                 <div className="relative aspect-[4/3] overflow-hidden">
                   <img src={pkg.heroImage} alt={pkg.title} className="h-full w-full object-cover transition duration-700 group-hover:scale-110" />
@@ -142,6 +168,12 @@ export default function Search() {
               </Link>
             ))}
           </div>
+          ) : (
+            <div className="rounded-[20px] border border-slate-200 bg-white p-8 text-center shadow-[0_16px_45px_rgba(15,23,42,0.08)]">
+              <h3 className="text-lg font-bold text-slate-950">No packages found</h3>
+              <p className="mt-2 text-sm font-semibold text-slate-500">Try another destination or package type.</p>
+            </div>
+          )}
         </div>
       </section>
     </main>
