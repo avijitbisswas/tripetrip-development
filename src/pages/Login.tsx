@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Plane, Mail, Lock, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getDashboardPathForRole, signInWithEmail } from '@/src/services/auth';
+import { getDashboardPathForRole, signInWithEmail, type TripetripUser } from '@/src/services/auth';
 import { getProfileRole } from '@/src/services/profiles';
 
 export default function Login() {
@@ -20,7 +20,7 @@ export default function Login() {
 
     try {
       const user = await signInWithEmail(email, password);
-      const role = await getProfileRole(user.id);
+      const role = (user as TripetripUser).role || (await getProfileRole(user.id));
       toast.success('Welcome back to Tripetrip');
       navigate(getDashboardPathForRole(role));
     } catch (error) {

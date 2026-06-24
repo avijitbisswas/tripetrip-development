@@ -17,6 +17,7 @@ import {
   createDealInventoryRepository,
   type DealInventorySupabaseClient,
 } from "../src/features/deals/dealInventory";
+import { handleLoginUser } from "../src/features/auth/loginRoute";
 import { handleRegisterUser } from "../src/features/auth/registerRoute";
 
 type AssetsBinding = {
@@ -52,6 +53,7 @@ type ServerSupabaseClient = ManualPaymentSupabaseClient &
   DealInventorySupabaseClient & {
     auth: {
       admin: Parameters<typeof handleRegisterUser>[1]["adminAuth"];
+      signInWithPassword: Parameters<typeof handleLoginUser>[1]["auth"]["signInWithPassword"];
       getUser: (token: string) => Promise<{
         data: { user: { id: string } | null } | null;
         error: { message?: string } | null;
@@ -732,6 +734,23 @@ async function handleRegister(request: Request, env: WorkerEnv) {
   return json(result.body, { status: result.status });
 }
 
+async function handleLogin(request: Request, env: WorkerEnv) {
+  const { supabase } = createRepositories(env);
+
+  if (!supabase) {
+    return json({ error: "Login service is not configured" }, { status: 503 });
+  }
+
+  const result = await handleLoginUser(await readJsonBody(request), {
+    auth: supabase.auth,
+    supabase: supabase as unknown as Parameters<
+      typeof handleLoginUser
+    >[1]["supabase"],
+  });
+
+  return json(result.body, { status: result.status });
+}
+
 async function handleCreateOrder(request: Request, env: WorkerEnv) {
   const { paymentRepository } = createRepositories(env);
   const { amount, bookingId, travelerName, purpose } = (await readJsonBody(
@@ -848,6 +867,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleEmailSend(request, env);
   if (request.method === "POST" && pathname === "/api/vendor-os/ai/brief")
     return handleVendorAIBrief(request, env);
+  if (request.method === "POST" && pathname === "/api/auth/login")
+    return handleLogin(request, env);
   if (request.method === "POST" && pathname === "/api/auth/register")
     return handleRegister(request, env);
   if (request.method === "GET" && pathname === "/api/community/posts")

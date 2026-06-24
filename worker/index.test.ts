@@ -166,6 +166,68 @@ describe("cloudflare worker runtime", () => {
     expect(bodyText).not.toContain("gemini-key");
   });
 
+  it("logs in users through the server Supabase client", async () => {
+    const signInWithPassword = vi.fn(async () => ({
+      data: {
+        user: {
+          id: "vendor-1",
+          email: "demo.vendor@tripetrip.test",
+        },
+      },
+      error: null,
+    }));
+    const single = vi.fn(async () => ({
+      data: { role: "vendor", full_name: "Demo Vendor" },
+      error: null,
+    }));
+    const eq = vi.fn(() => ({ single }));
+    const select = vi.fn(() => ({ eq }));
+    const from = vi.fn(() => ({ select }));
+    createClientMock.mockReturnValue({
+      auth: {
+        signInWithPassword,
+        admin: {
+          createUser: vi.fn(),
+          deleteUser: vi.fn(),
+        },
+      },
+      from,
+    });
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "DEMO.VENDOR@TRIPETRIP.TEST",
+          password: "Tripetrip@123",
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(signInWithPassword).toHaveBeenCalledWith({
+      email: "demo.vendor@tripetrip.test",
+      password: "Tripetrip@123",
+    });
+    expect(from).toHaveBeenCalledWith("profiles");
+    expect(select).toHaveBeenCalledWith("role, full_name");
+    expect(eq).toHaveBeenCalledWith("id", "vendor-1");
+    await expect(response.json()).resolves.toEqual({
+      user: {
+        id: "vendor-1",
+        email: "demo.vendor@tripetrip.test",
+        role: "vendor",
+        fullName: "Demo Vendor",
+      },
+    });
+  });
+
   it("signs Cloudinary uploads with Worker Web Crypto", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-11T00:00:00.000Z"));

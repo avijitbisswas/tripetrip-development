@@ -12,6 +12,7 @@ import { createManualPaymentRepository, type ManualPaymentSupabaseClient } from 
 import { createDealBookingRepository, type DealBookingSupabaseClient } from './src/features/deals/dealBookingRepository';
 import { handleCreateDealBooking } from './src/features/deals/dealBookingRoute';
 import { createDealInventoryRepository, type DealInventorySupabaseClient } from './src/features/deals/dealInventory';
+import { handleLoginUser } from './src/features/auth/loginRoute';
 import { handleRegisterUser } from './src/features/auth/registerRoute';
 
 dotenv.config();
@@ -228,6 +229,7 @@ async function startServer() {
     DealInventorySupabaseClient & {
       auth: {
         admin: Parameters<typeof handleRegisterUser>[1]['adminAuth'];
+        signInWithPassword: Parameters<typeof handleLoginUser>[1]['auth']['signInWithPassword'];
         getUser: (token: string) => Promise<{
           data: { user: { id: string } | null } | null;
           error: { message?: string } | null;
@@ -475,6 +477,19 @@ async function startServer() {
         supabase: serverSupabaseClient as unknown as Parameters<typeof handleRegisterUser>[1]['supabase'],
       },
     );
+
+    res.status(result.status).json(result.body);
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    if (!serverSupabaseClient) {
+      return res.status(503).json({ error: 'Login service is not configured' });
+    }
+
+    const result = await handleLoginUser(req.body as { email?: string; password?: string }, {
+      auth: serverSupabaseClient.auth,
+      supabase: serverSupabaseClient as unknown as Parameters<typeof handleLoginUser>[1]['supabase'],
+    });
 
     res.status(result.status).json(result.body);
   });
