@@ -1,8 +1,9 @@
 import { Button } from '@/components/ui/button';
 import { CalendarDays, Car, Compass, History, MapPin, Mic, Search, Sparkles, Users } from 'lucide-react';
 import { motion } from 'motion/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { suggestLocations, type MapSuggestion } from '@/src/services/maps';
 
 const tabs = ['Stay', 'Packages', 'Activities', 'Transport'] as const;
 type SearchTab = (typeof tabs)[number];
@@ -63,8 +64,39 @@ const tabConfig: Record<SearchTab, {
 export default function EnhancedSearchBar() {
   const [activeTab, setActiveTab] = useState<SearchTab>('Stay');
   const [destination, setDestination] = useState('');
+  const [suggestions, setSuggestions] = useState<MapSuggestion[]>([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const navigate = useNavigate();
   const config = tabConfig[activeTab];
+
+  useEffect(() => {
+    if (destination.trim().length < 2) {
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      return;
+    }
+
+    let cancelled = false;
+    const handle = window.setTimeout(async () => {
+      try {
+        const nextSuggestions = await suggestLocations(destination.trim());
+        if (!cancelled) {
+          setSuggestions(nextSuggestions);
+          setSuggestionsOpen(nextSuggestions.length > 0);
+        }
+      } catch {
+        if (!cancelled) {
+          setSuggestions([]);
+          setSuggestionsOpen(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [destination]);
 
   const handleSearch = () => {
     const params = new URLSearchParams();
@@ -109,21 +141,57 @@ export default function EnhancedSearchBar() {
       </div>
 
       <div className="grid gap-2 pt-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr_auto]">
-        <label className="flex min-h-16 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-100">
-          <MapPin className="h-5 w-5 shrink-0 text-slate-400" />
-          <span className="flex-1">
-            <span className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">{config.destinationLabel}</span>
-            <input
-              value={destination}
-              onChange={(event) => setDestination(event.target.value)}
-              className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-300"
-              placeholder={config.destinationPlaceholder}
-            />
-          </span>
-          <button type="button" aria-label="Voice search" className="rounded-full p-2 text-emerald-600 hover:bg-emerald-50">
-            <Mic className="h-4 w-4" />
-          </button>
-        </label>
+        <div className="relative">
+          <label className="flex min-h-16 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-100">
+            <MapPin className="h-5 w-5 shrink-0 text-slate-400" />
+            <span className="flex-1">
+              <span className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">{config.destinationLabel}</span>
+              <input
+                value={destination}
+                onChange={(event) => {
+                  setDestination(event.target.value);
+                  setSuggestionsOpen(true);
+                }}
+                onFocus={() => {
+                  if (suggestions.length) setSuggestionsOpen(true);
+                }}
+                onBlur={() => {
+                  window.setTimeout(() => setSuggestionsOpen(false), 120);
+                }}
+                className="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-300"
+                placeholder={config.destinationPlaceholder}
+                autoComplete="off"
+              />
+            </span>
+            <button type="button" aria-label="Voice search" className="rounded-full p-2 text-emerald-600 hover:bg-emerald-50">
+              <Mic className="h-4 w-4" />
+            </button>
+          </label>
+
+          {suggestionsOpen && suggestions.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.14)]">
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion.id}
+                  type="button"
+                  aria-label={`${suggestion.label}${suggestion.secondary ? ` ${suggestion.secondary}` : ''}`}
+                  className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-b-0 hover:bg-slate-50"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setDestination(suggestion.label);
+                    setSuggestionsOpen(false);
+                  }}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-black text-slate-900">{suggestion.label}</span>
+                    {suggestion.secondary && <span className="mt-1 block text-[11px] font-semibold text-slate-500">{suggestion.secondary}</span>}
+                  </span>
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {config.fields.map((field) => (
           <button key={field.label} type="button" className="flex min-h-16 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 text-left transition hover:border-indigo-200 hover:bg-slate-50">
