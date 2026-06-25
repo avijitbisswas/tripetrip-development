@@ -20,7 +20,10 @@ export default function Login() {
 
     try {
       const user = await signInWithEmail(email, password);
-      const role = (user as TripetripUser).role || (await getProfileRole(user.id));
+      const role =
+        (user as TripetripUser).role ||
+        (typeof user.user_metadata?.role === 'string' ? (user.user_metadata.role as TripetripUser['role']) : undefined) ||
+        (await getProfileRole(user.id));
       toast.success('Welcome back to Tripetrip');
       navigate(getDashboardPathForRole(role));
     } catch (error) {

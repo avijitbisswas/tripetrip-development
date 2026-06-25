@@ -5,11 +5,24 @@ interface SupabaseEnv {
   VITE_SUPABASE_ANON_KEY?: string;
 }
 
-export function resolveSupabaseConfig(env: SupabaseEnv) {
-  if (env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY) {
+declare global {
+  interface Window {
+    __TRIPETRIP_CONFIG__?: SupabaseEnv;
+  }
+}
+
+function getRuntimeSupabaseEnv(): SupabaseEnv {
+  if (typeof window === 'undefined') return {};
+  return window.__TRIPETRIP_CONFIG__ || {};
+}
+
+export function resolveSupabaseConfig(env: SupabaseEnv, runtimeEnv: SupabaseEnv = {}) {
+  const config = env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY ? env : runtimeEnv;
+
+  if (config.VITE_SUPABASE_URL && config.VITE_SUPABASE_ANON_KEY) {
     return {
-      url: env.VITE_SUPABASE_URL,
-      anonKey: env.VITE_SUPABASE_ANON_KEY,
+      url: config.VITE_SUPABASE_URL,
+      anonKey: config.VITE_SUPABASE_ANON_KEY,
       isConfigured: true,
     };
   }
@@ -24,7 +37,7 @@ export function resolveSupabaseConfig(env: SupabaseEnv) {
 export const supabaseConfig = resolveSupabaseConfig({
   VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
   VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
-});
+}, getRuntimeSupabaseEnv());
 
 export const supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey, {
   auth: {

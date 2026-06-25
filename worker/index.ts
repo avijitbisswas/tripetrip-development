@@ -28,6 +28,7 @@ export type WorkerEnv = {
   ASSETS: AssetsBinding;
   SUPABASE_URL?: string;
   VITE_SUPABASE_URL?: string;
+  VITE_SUPABASE_ANON_KEY?: string;
   SUPABASE_PROJECT_REF?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_SERVICE_KEY?: string;
@@ -95,6 +96,52 @@ function json(body: unknown, init: ResponseInit = {}) {
   });
 }
 
+function resolvePublicSupabaseUrl(env: WorkerEnv) {
+  const projectRef = env.SUPABASE_PROJECT_REF?.trim();
+  return (
+    env.VITE_SUPABASE_URL ||
+    env.SUPABASE_URL ||
+    (projectRef ? `https://${projectRef}.supabase.co` : undefined)
+  );
+}
+
+function getRuntimeConfigScript(env: WorkerEnv) {
+  const supabaseUrl = resolvePublicSupabaseUrl(env);
+  const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+
+  const config = {
+    VITE_SUPABASE_URL: supabaseUrl,
+    VITE_SUPABASE_ANON_KEY: supabaseAnonKey,
+  };
+  const serialized = JSON.stringify(config).replace(/</g, "\\u003c");
+
+  return `<script>window.__TRIPETRIP_CONFIG__=${serialized};</script>`;
+}
+
+async function injectRuntimeConfig(response: Response, env: WorkerEnv) {
+  const contentType = response.headers.get("Content-Type") || "";
+  const runtimeConfigScript = getRuntimeConfigScript(env);
+
+  if (!runtimeConfigScript || !contentType.toLowerCase().includes("text/html")) {
+    return response;
+  }
+
+  const html = await response.text();
+  const body = html.includes("</head>")
+    ? html.replace("</head>", `${runtimeConfigScript}</head>`)
+    : `${runtimeConfigScript}${html}`;
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Length");
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function readJsonBody(request: Request) {
   if (request.method === "GET" || request.method === "HEAD") return {};
   return request.json().catch(() => ({}));
@@ -102,10 +149,7 @@ async function readJsonBody(request: Request) {
 
 function createServerSupabaseClient(env: WorkerEnv) {
   const projectRef = env.SUPABASE_PROJECT_REF?.trim();
-  const supabaseUrl =
-    env.SUPABASE_URL ||
-    env.VITE_SUPABASE_URL ||
-    (projectRef ? `https://${projectRef}.supabase.co` : undefined);
+  const supabaseUrl = resolvePublicSupabaseUrl(env);
   const supabaseServiceKey =
     env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY;
 
@@ -903,6 +947,6 @@ export default {
       return handleApiRequest(request, env);
     }
 
-    return env.ASSETS.fetch(request);
+    return injectRuntimeConfig(await env.ASSETS.fetch(request), env);
   },
 };

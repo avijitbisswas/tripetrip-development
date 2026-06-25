@@ -10,6 +10,22 @@ describe('resolveSupabaseConfig', () => {
     });
   });
 
+  it('uses runtime Supabase config when build env values are missing', () => {
+    expect(
+      resolveSupabaseConfig(
+        {},
+        {
+          VITE_SUPABASE_URL: 'https://runtime.supabase.co',
+          VITE_SUPABASE_ANON_KEY: 'runtime-anon-key',
+        },
+      ),
+    ).toEqual({
+      url: 'https://runtime.supabase.co',
+      anonKey: 'runtime-anon-key',
+      isConfigured: true,
+    });
+  });
+
   it('uses provided Supabase env values', () => {
     expect(resolveSupabaseConfig({
       VITE_SUPABASE_URL: 'https://example.supabase.co',

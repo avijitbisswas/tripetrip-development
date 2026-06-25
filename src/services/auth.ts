@@ -23,6 +23,28 @@ export type TripetripUser = User & {
   fullName?: string | null;
 };
 
+function isUserRole(value: unknown): value is UserRole {
+  return value === 'traveler' || value === 'vendor' || value === 'admin';
+}
+
+function getRoleFromSupabaseUser(user: User) {
+  const metadataRole = user.user_metadata?.role ?? user.app_metadata?.role;
+  return isUserRole(metadataRole) ? metadataRole : undefined;
+}
+
+function getFullNameFromSupabaseUser(user: User) {
+  const metadataFullName = user.user_metadata?.full_name ?? user.user_metadata?.fullName;
+  return typeof metadataFullName === 'string' && metadataFullName.trim() ? metadataFullName : null;
+}
+
+function toEnrichedSupabaseUser(user: User): TripetripUser {
+  return {
+    ...user,
+    role: getRoleFromSupabaseUser(user),
+    fullName: getFullNameFromSupabaseUser(user),
+  } as TripetripUser;
+}
+
 function toTripetripUser(user: ApiAuthUser): TripetripUser {
   return {
     id: user.id,
@@ -139,7 +161,7 @@ export async function signInWithEmail(email: string, password: string) {
     throw new ServiceError(error.message, 'SIGN_IN_FAILED', 401);
   }
 
-  return data.user;
+  return toEnrichedSupabaseUser(data.user);
 }
 
 export async function registerWithEmail(input: {
@@ -195,7 +217,7 @@ export async function registerWithEmail(input: {
     throw new ServiceError(error?.message || 'Registration succeeded, but sign in failed', 'SIGN_IN_FAILED', 401);
   }
 
-  return data.user;
+  return toEnrichedSupabaseUser(data.user);
 }
 
 export async function signOut() {

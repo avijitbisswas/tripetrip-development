@@ -22,6 +22,7 @@ vi.mock('@/src/lib/supabase', () => ({
 beforeEach(() => {
   supabaseConfigMock.isConfigured = true;
   window.localStorage.clear();
+  vi.clearAllMocks();
   vi.restoreAllMocks();
 });
 
@@ -37,6 +38,36 @@ describe('getDashboardPathForRole', () => {
 });
 
 describe('signInWithEmail', () => {
+  it('returns the role from Supabase user metadata when browser auth is configured', async () => {
+    vi.mocked(supabase.auth.signInWithPassword).mockResolvedValueOnce({
+      data: {
+        user: {
+          id: 'vendor-1',
+          email: 'demo.vendor@tripetrip.test',
+          user_metadata: {
+            role: 'vendor',
+            full_name: 'Demo Vendor',
+          },
+          app_metadata: {},
+        },
+      },
+      error: null,
+    } as never);
+
+    const user = await signInWithEmail('demo.vendor@tripetrip.test', 'Tripetrip@123');
+
+    expect(supabase.auth.signInWithPassword).toHaveBeenCalledWith({
+      email: 'demo.vendor@tripetrip.test',
+      password: 'Tripetrip@123',
+    });
+    expect(user).toMatchObject({
+      id: 'vendor-1',
+      email: 'demo.vendor@tripetrip.test',
+      role: 'vendor',
+      fullName: 'Demo Vendor',
+    });
+  });
+
   it('uses the server login endpoint when browser Supabase config is missing', async () => {
     supabaseConfigMock.isConfigured = false;
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(

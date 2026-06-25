@@ -122,6 +122,26 @@ describe("cloudflare worker runtime", () => {
     expect(env.ASSETS.fetch).toHaveBeenCalledWith(request);
   });
 
+  it("injects public Supabase runtime config into frontend HTML", async () => {
+    const html = '<!doctype html><html><head></head><body><div id="root"></div></body></html>';
+    const env = createEnv({
+      ASSETS: {
+        fetch: vi.fn(async () => new Response(html, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        })),
+      },
+      SUPABASE_PROJECT_REF: "runtime-ref",
+      VITE_SUPABASE_ANON_KEY: "runtime-anon-key",
+    });
+
+    const response = await worker.fetch(new Request("https://tripetrip.example/"), env);
+    const body = await response.text();
+
+    expect(body).toContain("window.__TRIPETRIP_CONFIG__");
+    expect(body).toContain("https://runtime-ref.supabase.co");
+    expect(body).toContain("runtime-anon-key");
+  });
+
   it("reports configuration health without exposing secret values", async () => {
     const env = createEnv({
       SUPABASE_PROJECT_REF: "tripetrip-ref",
