@@ -1,3 +1,5 @@
+import type { ResolvedVendorAccommodationAccess } from './accommodationAccess';
+
 export type VendorBusinessCategory =
   | 'property_owner'
   | 'hotel'
@@ -164,6 +166,9 @@ export interface VendorOSContext {
   selectedOrganization: VendorOrganization | null;
   branches: VendorBranch[];
   activeBranch: VendorBranch | null;
+  vendorProfileId?: string | null;
+  vendorBusinessType?: string | null;
+  accommodationAccess: ResolvedVendorAccommodationAccess | null;
   role: VendorOSRole;
   can: (module: VendorOSModule, action?: PermissionAction) => boolean;
 }

@@ -243,6 +243,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
   const documents = useVendorOSDocuments(tenant.selectedOrganization?.id);
   const activeModule = useMemo(() => getVendorOSModuleByPath(params.module), [params.module]);
   const visibleModules = vendorOSModules.filter((module) => tenant.can(module.id, 'view'));
+  const accommodationAccess = tenant.accommodationAccess;
 
   if (tenant.loading) {
     return (
@@ -281,6 +282,12 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
                 ['Branches', tenant.branches.length],
                 ['Unread', notifications.unreadCount],
                 ['Role', tenant.role],
+                ...(accommodationAccess?.isAccommodationProvider
+                  ? [
+                      ['Plan', accommodationAccess.planTier],
+                      ['Access', accommodationAccess.enforcementMode],
+                    ]
+                  : []),
               ].map(([label, value]) => (
                 <div key={label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">{label}</div>
@@ -288,6 +295,25 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
                 </div>
               ))}
             </section>
+
+            {accommodationAccess?.isAccommodationProvider && (
+              <section className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">Accommodation Access</div>
+                    <div className="mt-2 text-base font-black text-slate-950">
+                      {accommodationAccess.planTier} plan · {accommodationAccess.enforcementMode} mode
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Vendor OS modules are filtered for accommodation operations. Advanced automation remains roadmap-backed until the backend workflows are implemented.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm">
+                    {accommodationAccess.visibleModules.length} visible modules
+                  </div>
+                </div>
+              </section>
+            )}
 
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {visibleModules

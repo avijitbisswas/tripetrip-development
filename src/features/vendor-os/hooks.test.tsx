@@ -10,6 +10,14 @@ import {
 } from './hooks';
 import type { VendorBranch, VendorNotification, VendorOrganization, VendorTeamMember } from './types';
 
+vi.mock('@/src/services/vendors', () => ({
+  getVendorByUserId: vi.fn(),
+}));
+
+vi.mock('./accessService', () => ({
+  getVendorAccommodationAccess: vi.fn(),
+}));
+
 vi.mock('./api', () => ({
   listVendorOrganizations: vi.fn(),
   listVendorBranches: vi.fn(),
@@ -41,6 +49,8 @@ import {
   uploadVendorDocumentFile,
   updateVendorOSRecord,
 } from './api';
+import { getVendorByUserId } from '@/src/services/vendors';
+import { getVendorAccommodationAccess } from './accessService';
 
 const organization: VendorOrganization = {
   id: 'org-1',
@@ -120,6 +130,44 @@ describe('Vendor OS hooks', () => {
     vi.mocked(listVendorOrganizations).mockResolvedValue([organization]);
     vi.mocked(listVendorBranches).mockResolvedValue([branch]);
     vi.mocked(listVendorTeamMembers).mockResolvedValue([member]);
+    vi.mocked(getVendorByUserId).mockResolvedValue({
+      id: 'vendor-1',
+      user_id: 'user-2',
+      business_type: 'hotel',
+    } as never);
+    vi.mocked(getVendorAccommodationAccess).mockResolvedValue({
+      vendorProfileId: 'vendor-1',
+      businessType: 'hotel',
+      providerFamily: 'accommodation',
+      planTier: 'advanced',
+      enforcementMode: 'open',
+      moduleOverrides: {},
+      capabilityOverrides: {},
+      approvalOverrides: {},
+      isAccommodationProvider: true,
+      visibleModules: ['dashboard', 'crm', 'calendar', 'inbox', 'accounting', 'team', 'pms', 'ai_assistant', 'marketplace', 'subscriptions', 'analytics', 'branches', 'documents', 'settings'],
+      moduleVisibility: {
+        dashboard: true,
+        crm: true,
+        calendar: true,
+        inbox: true,
+        accounting: true,
+        team: true,
+        pms: true,
+        tours: false,
+        activities: false,
+        fleet: false,
+        ai_assistant: true,
+        marketplace: true,
+        subscriptions: true,
+        analytics: true,
+        branches: true,
+        documents: true,
+        settings: true,
+      },
+      resolvedCapabilities: {} as never,
+      resolvedApprovals: {} as never,
+    });
     vi.mocked(listVendorNotifications).mockResolvedValue([unread, { ...unread, id: 'note-2', status: 'read' }]);
     vi.mocked(listVendorOSRecords).mockResolvedValue([]);
     vi.mocked(createVendorOSRecord).mockResolvedValue({
@@ -169,8 +217,11 @@ describe('Vendor OS hooks', () => {
     expect(result.current.selectedOrganization?.name).toBe('Himalayan Escape Group');
     expect(result.current.activeBranch?.name).toBe('Manali Hotel');
     expect(result.current.role).toBe('staff');
+    expect(result.current.vendorProfileId).toBe('vendor-1');
+    expect(result.current.vendorBusinessType).toBe('hotel');
     expect(result.current.can('calendar', 'view')).toBe(true);
     expect(result.current.can('accounting', 'view')).toBe(false);
+    expect(result.current.can('fleet', 'view')).toBe(false);
   });
 
   it('returns unread notification count', async () => {

@@ -5,18 +5,20 @@
 - Design approved for accommodation provider family rollout.
 - Control model defined for provider family, plan tiers, capability wall, and approval wall.
 - Documentation strategy defined for spec, plan, and delivery-status tracking.
+- Accommodation access domain model added in Vendor OS code.
+- Worker-backed accommodation access endpoints added for admin and vendor use.
+- Admin console accommodation controls added for plan tier, enforcement mode, module overrides, and approval policies.
+- Vendor OS tenant access now filters modules for accommodation providers.
 
 ## In Progress
 
-- Implementation planning for accommodation control-plane rollout.
+- Verification, polish, and test stabilization for phase-one accommodation rollout.
 
 ## Next
 
-- Write implementation plan for Phase 1.
-- Implement provider-family normalization for accommodation vendors.
-- Add plan assignment, capability override, and approval policy persistence.
-- Extend admin console with accommodation controls.
-- Filter Vendor OS module visibility for accommodation providers.
+- Add deeper module-level accommodation feature surfacing inside PMS, calendar, analytics, and guest workflows.
+- Expand admin controls to capability-level toggles if needed beyond module and approval policy scope.
+- Add stronger backend enforcement paths for advanced capability locks where direct Supabase writes still bypass UI controls.
 
 ## Deferred
 

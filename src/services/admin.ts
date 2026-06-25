@@ -132,6 +132,17 @@ export function listAdminAuditEntries() {
   return adminFetch<{ entries: Array<Record<string, unknown>> }>('/api/admin/audit');
 }
 
+export function listAdminAccommodationAccess() {
+  return adminFetch<{ vendors: Array<Record<string, unknown>> }>('/api/admin/accommodation/access');
+}
+
+export function saveAdminAccommodationAccess(input: Record<string, unknown>) {
+  return adminFetch<{ success: true; access: Record<string, unknown> }>('/api/admin/accommodation/access', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 export function getPublicSiteConfig() {
   return fetch('/api/public/site-config').then(async (response) => {
     const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;

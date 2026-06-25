@@ -1,8 +1,17 @@
 import type { UserRole, VerificationStatus } from '@/src/types/domain';
 import { dealModels } from '@/src/features/deals/data';
+import {
+  buildDefaultVendorAccommodationAccess,
+  resolveVendorAccommodationAccess,
+  type ApprovalMode,
+  type VendorAccessEnforcementMode,
+  type VendorPlanTier,
+  type VendorProviderFamily,
+} from '@/src/features/vendor-os/accommodationAccess';
 
 const ADMIN_AUDIT_PREFIX = '__tripetrip_admin_audit__:';
 const ADMIN_CONFIG_PREFIX = '__tripetrip_admin_config__:';
+const ADMIN_VENDOR_ACCESS_PREFIX = '__tripetrip_vendor_access__:';
 export const DEFAULT_CONTENT_CONFIG = {
   homepageAnnouncement: '',
   featuredVendorSlugs: [] as string[],
@@ -66,6 +75,18 @@ type AdminAuditEntry = AdminActionInput & {
 type SiteConfig = {
   content: typeof DEFAULT_CONTENT_CONFIG;
   system: typeof DEFAULT_SYSTEM_CONFIG;
+};
+
+type VendorAccommodationAccessRecord = {
+  vendorProfileId: string;
+  businessType: string;
+  providerFamily: VendorProviderFamily;
+  planTier: VendorPlanTier;
+  enforcementMode: VendorAccessEnforcementMode;
+  moduleOverrides: Record<string, boolean>;
+  capabilityOverrides: Record<string, boolean>;
+  approvalOverrides: Record<string, ApprovalMode>;
+  updatedAt?: string;
 };
 
 function safeString(value: unknown, fallback = '') {
@@ -487,4 +508,138 @@ export function getAdminContentPreview(config: SiteConfig['content']) {
     featuredVendorSlugs: config.featuredVendorSlugs,
     featuredListingIds: config.featuredListingIds,
   };
+}
+
+async function listLatestVendorAccessMessages(supabase: SupabaseLike) {
+  const { data } = await supabase
+    .from('messages')
+    .select('id, sender_id, content, created_at')
+    .like('content', `${ADMIN_VENDOR_ACCESS_PREFIX}%`)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  return (data || []) as Array<Record<string, unknown>>;
+}
+
+export async function listAdminAccommodationAccess(supabase: SupabaseLike) {
+  const vendors = await listAdminVendors(supabase);
+  const rows = await listLatestVendorAccessMessages(supabase);
+  const latestByVendor = new Map<string, VendorAccommodationAccessRecord>();
+
+  for (const row of rows) {
+    const parsed = parsePrefixedJson<VendorAccommodationAccessRecord>(row.content, ADMIN_VENDOR_ACCESS_PREFIX);
+    if (!parsed?.vendorProfileId || latestByVendor.has(parsed.vendorProfileId)) continue;
+    latestByVendor.set(parsed.vendorProfileId, parsed);
+  }
+
+  return vendors.map((vendor) => {
+    const vendorId = safeString(vendor.id);
+    const businessType = safeString(vendor.business_type);
+    const saved = latestByVendor.get(vendorId);
+    const base = saved || buildDefaultVendorAccommodationAccess({ vendorProfileId: vendorId, businessType });
+    const resolved = resolveVendorAccommodationAccess({
+      ...base,
+      businessType,
+      providerFamily: saved?.providerFamily || buildDefaultVendorAccommodationAccess({ vendorProfileId: vendorId, businessType }).providerFamily,
+    });
+
+    return {
+      vendorId,
+      businessName: safeString(vendor.business_name),
+      businessType,
+      slug: safeString(vendor.slug),
+      isActive: Boolean(vendor.is_active),
+      verificationStatus: safeString(vendor.verification_status),
+      profile: vendor.profile || vendor.profiles || null,
+      access: resolved,
+    };
+  });
+}
+
+export async function getVendorAccommodationAccess(
+  supabase: SupabaseLike,
+  input: { organizationId?: string | null; userId?: string | null },
+) {
+  let vendor: Record<string, unknown> | null = null;
+
+  if (input.organizationId) {
+    const { data } = await supabase
+      .from('vendor_organizations')
+      .select('id, primary_vendor_profile_id')
+      .eq('id', input.organizationId)
+      .maybeSingle();
+
+    const vendorProfileId = safeString(data?.primary_vendor_profile_id);
+    if (vendorProfileId) {
+      const vendorResult = await supabase.from('vendor_profiles').select('*').eq('id', vendorProfileId).maybeSingle();
+      vendor = (vendorResult.data as Record<string, unknown> | null) || null;
+    }
+  }
+
+  if (!vendor && input.userId) {
+    const vendorResult = await supabase.from('vendor_profiles').select('*').eq('user_id', input.userId).maybeSingle();
+    vendor = (vendorResult.data as Record<string, unknown> | null) || null;
+  }
+
+  if (!vendor) return null;
+
+  const vendorId = safeString(vendor.id);
+  const businessType = safeString(vendor.business_type);
+  const rows = await listLatestVendorAccessMessages(supabase);
+  const saved = rows
+    .map((row) => parsePrefixedJson<VendorAccommodationAccessRecord>(row.content, ADMIN_VENDOR_ACCESS_PREFIX))
+    .find((entry) => entry?.vendorProfileId === vendorId);
+
+  return resolveVendorAccommodationAccess(
+    saved || buildDefaultVendorAccommodationAccess({ vendorProfileId: vendorId, businessType }),
+  );
+}
+
+export async function saveAdminAccommodationAccess(
+  supabase: SupabaseLike,
+  viewer: AdminViewer,
+  input: {
+    vendorProfileId: string;
+    businessType: string;
+    providerFamily?: VendorProviderFamily;
+    planTier?: VendorPlanTier;
+    enforcementMode?: VendorAccessEnforcementMode;
+    moduleOverrides?: Record<string, boolean>;
+    capabilityOverrides?: Record<string, boolean>;
+    approvalOverrides?: Record<string, ApprovalMode>;
+  },
+) {
+  const current = buildDefaultVendorAccommodationAccess({
+    vendorProfileId: input.vendorProfileId,
+    businessType: input.businessType,
+  });
+
+  const payload: VendorAccommodationAccessRecord = {
+    vendorProfileId: input.vendorProfileId,
+    businessType: input.businessType,
+    providerFamily: input.providerFamily || current.providerFamily,
+    planTier: input.planTier || current.planTier,
+    enforcementMode: input.enforcementMode || current.enforcementMode,
+    moduleOverrides: input.moduleOverrides || {},
+    capabilityOverrides: input.capabilityOverrides || {},
+    approvalOverrides: input.approvalOverrides || {},
+    updatedAt: new Date().toISOString(),
+  };
+
+  await supabase.from('messages').insert({
+    sender_id: viewer.id,
+    receiver_id: viewer.id,
+    content: withPrefix(ADMIN_VENDOR_ACCESS_PREFIX, payload),
+  });
+
+  await logAdminAction(supabase, viewer, {
+    module: 'accommodation_access',
+    action: 'update',
+    entityType: 'vendor_accommodation_access',
+    entityId: input.vendorProfileId,
+    summary: `Updated accommodation access for vendor ${input.vendorProfileId}`,
+    details: payload as unknown as Record<string, unknown>,
+  });
+
+  return resolveVendorAccommodationAccess(payload);
 }

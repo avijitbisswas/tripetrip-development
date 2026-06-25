@@ -34,7 +34,9 @@ import {
 import {
   DEFAULT_CONTENT_CONFIG,
   DEFAULT_SYSTEM_CONFIG,
+  getVendorAccommodationAccess,
   getAdminContentPreview,
+  listAdminAccommodationAccess,
   getAdminOverview,
   getAdminSystemState,
   getSiteConfig,
@@ -48,6 +50,7 @@ import {
   logAdminAction,
   removeAdminCommunityPost,
   saveSiteConfig,
+  saveAdminAccommodationAccess,
   updateAdminBooking,
   updateAdminListing,
   updateAdminUser,
@@ -1262,6 +1265,46 @@ async function handleAdminAudit(request: Request, env: WorkerEnv) {
   return json({ entries: await listAdminAuditEntries(auth.supabase) });
 }
 
+async function handleAdminAccommodationAccess(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    return json({ vendors: await listAdminAccommodationAccess(auth.supabase) });
+  }
+
+  const body = await readJsonBody(request);
+  const access = await saveAdminAccommodationAccess(auth.supabase, auth.profile, {
+    vendorProfileId: String(body.vendorProfileId || ""),
+    businessType: String(body.businessType || ""),
+    providerFamily: body.providerFamily,
+    planTier: body.planTier,
+    enforcementMode: body.enforcementMode,
+    moduleOverrides: typeof body.moduleOverrides === "object" && body.moduleOverrides ? body.moduleOverrides : {},
+    capabilityOverrides: typeof body.capabilityOverrides === "object" && body.capabilityOverrides ? body.capabilityOverrides : {},
+    approvalOverrides: typeof body.approvalOverrides === "object" && body.approvalOverrides ? body.approvalOverrides : {},
+  });
+
+  return json({ success: true, access });
+}
+
+async function handleVendorOSAccess(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedProfile(request, env);
+  if ("error" in auth) return auth.error;
+
+  const organizationId = new URL(request.url).searchParams.get("organizationId");
+  const access = await getVendorAccommodationAccess(auth.supabase, {
+    organizationId,
+    userId: auth.profile.id,
+  });
+
+  if (!access) {
+    return json({ access: null });
+  }
+
+  return json({ access });
+}
+
 async function handlePublicSiteConfig(env: WorkerEnv) {
   const { supabase } = createRepositories(env);
   if (!supabase) {
@@ -1310,6 +1353,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handlePasswordRequestOtp(request, env);
   if (request.method === "POST" && pathname === "/api/auth/password/reset-with-otp")
     return handlePasswordResetWithOtp(request, env);
+  if (request.method === "GET" && pathname === "/api/vendor-os/access")
+    return handleVendorOSAccess(request, env);
   if (request.method === "GET" && pathname === "/api/community/posts")
     return handleListCommunityPosts(request, env);
   if (request.method === "POST" && pathname === "/api/community/posts")
@@ -1344,6 +1389,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleAdminSystem(request, env);
   if (request.method === "GET" && pathname === "/api/admin/audit")
     return handleAdminAudit(request, env);
+  if ((request.method === "GET" || request.method === "PATCH") && pathname === "/api/admin/accommodation/access")
+    return handleAdminAccommodationAccess(request, env);
   if (
     request.method === "POST" &&
     /^\/api\/admin\/payments\/[^/]+\/(approve|reject)$/.test(pathname)

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { getVendorByUserId } from '@/src/services/vendors';
 import {
   createVendorDocumentSignedUrl,
   createVendorOSRecord,
@@ -17,6 +18,8 @@ import {
   uploadVendorDocumentFile,
   type VendorOSRecordRow,
 } from './api';
+import { buildDefaultVendorAccommodationAccess, resolveVendorAccommodationAccess } from './accommodationAccess';
+import { getVendorAccommodationAccess as getVendorAccommodationAccessForOrg } from './accessService';
 import { getVendorOSOperation } from './operations';
 import { canAccessVendorModule } from './permissions';
 import type {
@@ -40,6 +43,9 @@ export function useVendorOSTenant(userId?: string | null) {
   const [branches, setBranches] = useState<VendorBranch[]>([]);
   const [activeBranch, setActiveBranch] = useState<VendorBranch | null>(null);
   const [teamMembers, setTeamMembers] = useState<VendorTeamMember[]>([]);
+  const [vendorProfileId, setVendorProfileId] = useState<string | null>(null);
+  const [vendorBusinessType, setVendorBusinessType] = useState<string | null>(null);
+  const [accommodationAccess, setAccommodationAccess] = useState<ReturnType<typeof resolveVendorAccommodationAccess> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,10 +59,21 @@ export function useVendorOSTenant(userId?: string | null) {
       try {
         const orgs = await listVendorOrganizations(userId || undefined);
         const selected = orgs[0] || null;
-        const [branchList, memberList] = await Promise.all([
+        const [branchList, memberList, vendorProfile] = await Promise.all([
           listVendorBranches(selected?.id),
           listVendorTeamMembers(selected?.id),
+          userId ? getVendorByUserId(userId) : Promise.resolve(null),
         ]);
+        const access =
+          (await getVendorAccommodationAccessForOrg(selected?.id || undefined).catch(() => null)) ||
+          (vendorProfile
+            ? resolveVendorAccommodationAccess(
+                buildDefaultVendorAccommodationAccess({
+                  vendorProfileId: vendorProfile.id,
+                  businessType: vendorProfile.business_type,
+                }),
+              )
+            : null);
 
         if (!mounted) return;
         setOrganizations(orgs);
@@ -64,6 +81,9 @@ export function useVendorOSTenant(userId?: string | null) {
         setBranches(branchList);
         setActiveBranch(branchList[0] || null);
         setTeamMembers(memberList);
+        setVendorProfileId(vendorProfile?.id || null);
+        setVendorBusinessType(vendorProfile?.business_type || null);
+        setAccommodationAccess(access);
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : 'Unable to load Vendor OS context');
@@ -86,8 +106,9 @@ export function useVendorOSTenant(userId?: string | null) {
   }, [selectedOrganization, teamMembers, userId]);
 
   const can = useCallback(
-    (module: VendorOSModule, action: PermissionAction = 'view') => canAccessVendorModule(role, module, action),
-    [role],
+    (module: VendorOSModule, action: PermissionAction = 'view') =>
+      Boolean(accommodationAccess?.moduleVisibility[module] ?? true) && canAccessVendorModule(role, module, action),
+    [accommodationAccess, role],
   );
 
   return {
@@ -96,6 +117,9 @@ export function useVendorOSTenant(userId?: string | null) {
     setSelectedOrganization,
     branches,
     activeBranch,
+    vendorProfileId,
+    vendorBusinessType,
+    accommodationAccess,
     setActiveBranch,
     teamMembers,
     role,

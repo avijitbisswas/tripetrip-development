@@ -10,6 +10,7 @@ import {
   getAdminContentConfig,
   getAdminOverview,
   getAdminSystemState,
+  listAdminAccommodationAccess,
   listAdminAuditEntries,
   listAdminBookings,
   listAdminCommunityPosts,
@@ -20,6 +21,7 @@ import {
   listAdminVendors,
   removeAdminCommunityPost,
   saveAdminContentConfig,
+  saveAdminAccommodationAccess,
   saveAdminSystemConfig,
   updateAdminBooking,
   updateAdminListing,
@@ -38,6 +40,7 @@ const navItems = [
   { path: '/admin/bookings', label: 'Bookings', icon: CalendarDays },
   { path: '/admin/payments', label: 'Payments', icon: Receipt },
   { path: '/admin/community', label: 'Community', icon: MessageSquare },
+  { path: '/admin/accommodation', label: 'Accommodation', icon: Building2 },
   { path: '/admin/deals', label: 'Deals', icon: BadgeCheck },
   { path: '/admin/content', label: 'Content', icon: Megaphone },
   { path: '/admin/system', label: 'System', icon: Settings2 },
@@ -77,6 +80,7 @@ export default function AdminConsole() {
   const [bookings, setBookings] = useState<Array<Record<string, unknown>>>([]);
   const [payments, setPayments] = useState<Array<Record<string, unknown>>>([]);
   const [posts, setPosts] = useState<Array<Record<string, unknown>>>([]);
+  const [accommodationVendors, setAccommodationVendors] = useState<Array<Record<string, unknown>>>([]);
   const [deals, setDeals] = useState<Array<Record<string, unknown>>>([]);
   const [content, setContent] = useState<Record<string, unknown>>({});
   const [contentPreview, setContentPreview] = useState<Record<string, unknown>>({});
@@ -113,6 +117,7 @@ export default function AdminConsole() {
       if (path === '/admin/bookings') setBookings((await listAdminBookings()).bookings);
       if (path === '/admin/payments') setPayments((await listAdminManualPayments()).payments);
       if (path === '/admin/community') setPosts((await listAdminCommunityPosts()).posts);
+      if (path === '/admin/accommodation') setAccommodationVendors((await listAdminAccommodationAccess()).vendors);
       if (path === '/admin/deals') setDeals((await listAdminDeals()).deals);
       if (path === '/admin/content') {
         const response = await getAdminContentConfig();
@@ -397,6 +402,150 @@ export default function AdminConsole() {
                           Remove
                         </Button>
                       </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </AdminSection>
+          )}
+
+          {activePath === '/admin/accommodation' && (
+            <AdminSection title="Accommodation Access Wall" subtitle="Plan tiers, module visibility, and approval posture for stay providers">
+              <div className="space-y-4">
+                {accommodationVendors.map((vendor) => {
+                  const access = (vendor.access as Record<string, unknown> | undefined) || {};
+                  const moduleVisibility = (access.moduleVisibility as Record<string, boolean> | undefined) || {};
+                  const approvalPolicies = (access.resolvedApprovals as Record<string, string> | undefined) || {};
+                  const providerFamily = String(access.providerFamily || 'generic');
+                  const isAccommodation = providerFamily === 'accommodation';
+
+                  return (
+                    <div key={String(vendor.vendorId)} className="rounded-2xl border border-slate-200 p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="font-black text-slate-950">{String(vendor.businessName || '-')}</div>
+                            <Badge>{String(vendor.businessType || 'unknown')}</Badge>
+                            <Badge className={isAccommodation ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-700'}>
+                              {providerFamily}
+                            </Badge>
+                          </div>
+                          <div className="mt-2 text-sm text-slate-500">
+                            {String(vendor.slug || '')} · {String(vendor.verificationStatus || 'pending')}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {(['advanced', 'paid', 'basic'] as const).map((planTier) => (
+                            <Button
+                              key={planTier}
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                saveAdminAccommodationAccess({
+                                  vendorProfileId: vendor.vendorId,
+                                  businessType: vendor.businessType,
+                                  providerFamily: access.providerFamily,
+                                  planTier,
+                                  enforcementMode: access.enforcementMode,
+                                  moduleOverrides: access.moduleOverrides || {},
+                                  approvalOverrides: access.approvalOverrides || {},
+                                }).then(() => loadModule())
+                              }
+                            >
+                              {planTier}
+                            </Button>
+                          ))}
+                          {(['open', 'enforced'] as const).map((mode) => (
+                            <Button
+                              key={mode}
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                saveAdminAccommodationAccess({
+                                  vendorProfileId: vendor.vendorId,
+                                  businessType: vendor.businessType,
+                                  providerFamily: access.providerFamily,
+                                  planTier: access.planTier,
+                                  enforcementMode: mode,
+                                  moduleOverrides: access.moduleOverrides || {},
+                                  approvalOverrides: access.approvalOverrides || {},
+                                }).then(() => loadModule())
+                              }
+                            >
+                              {mode}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                      {isAccommodation ? (
+                        <>
+                          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                            {Object.entries(moduleVisibility).map(([moduleKey, enabled]) => (
+                              <button
+                                key={moduleKey}
+                                type="button"
+                                className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-bold ${
+                                  enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'
+                                }`}
+                                onClick={() =>
+                                  saveAdminAccommodationAccess({
+                                    vendorProfileId: vendor.vendorId,
+                                    businessType: vendor.businessType,
+                                    providerFamily: access.providerFamily,
+                                    planTier: access.planTier,
+                                    enforcementMode: access.enforcementMode,
+                                    moduleOverrides: {
+                                      ...((access.moduleOverrides as Record<string, boolean> | undefined) || {}),
+                                      [moduleKey]: !enabled,
+                                    },
+                                    approvalOverrides: access.approvalOverrides || {},
+                                  }).then(() => loadModule())
+                                }
+                              >
+                                <span>{moduleKey}</span>
+                                <span>{enabled ? 'On' : 'Off'}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                            {Object.entries(approvalPolicies).map(([policyKey, value]) => (
+                              <div key={policyKey} className="rounded-2xl bg-slate-50 px-4 py-3">
+                                <div className="text-[11px] font-black uppercase tracking-widest text-slate-400">{policyKey}</div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {(['open', 'vendor_owner_only', 'admin_approval_required'] as const).map((mode) => (
+                                    <Button
+                                      key={mode}
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        saveAdminAccommodationAccess({
+                                          vendorProfileId: vendor.vendorId,
+                                          businessType: vendor.businessType,
+                                          providerFamily: access.providerFamily,
+                                          planTier: access.planTier,
+                                          enforcementMode: access.enforcementMode,
+                                          moduleOverrides: access.moduleOverrides || {},
+                                          approvalOverrides: {
+                                            ...((access.approvalOverrides as Record<string, string> | undefined) || {}),
+                                            [policyKey]: mode,
+                                          },
+                                        }).then(() => loadModule())
+                                      }
+                                    >
+                                      {mode}
+                                    </Button>
+                                  ))}
+                                </div>
+                                <div className="mt-2 text-xs font-semibold text-slate-500">Effective: {value}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
+                          This vendor is not currently classified into the accommodation provider family.
+                        </div>
+                      )}
                     </div>
                   );
                 })}
