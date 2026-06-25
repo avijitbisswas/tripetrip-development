@@ -933,7 +933,7 @@ async function handleRegisterRequestOtp(request: Request, env: WorkerEnv) {
 
   try {
     const result = await handleRequestRegistrationOtp(await readJsonBody(request), {
-      findUserByEmail: (email) => findUserByEmail(supabase.auth.admin.listUsers, email),
+      findUserByEmail: (email) => findUserByEmail((params) => supabase.auth.admin.listUsers(params), email),
       createChallengeToken: (payload) => createEncryptedChallengeToken(payload, otpSecret),
       sendOtpEmail: (input) => sendOtpEmail(env, input),
     });
@@ -972,7 +972,7 @@ async function handlePasswordRequestOtp(request: Request, env: WorkerEnv) {
 
   try {
     const result = await handleRequestPasswordResetOtp(await readJsonBody(request), {
-      findUserByEmail: (email) => findUserByEmail(supabase.auth.admin.listUsers, email),
+      findUserByEmail: (email) => findUserByEmail((params) => supabase.auth.admin.listUsers(params), email),
       createChallengeToken: (payload) => createEncryptedChallengeToken(payload, otpSecret),
       sendOtpEmail: (input) => sendOtpEmail(env, input),
     });

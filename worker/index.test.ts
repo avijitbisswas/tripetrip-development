@@ -383,6 +383,73 @@ describe("cloudflare worker runtime", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps Supabase admin listUsers bound when requesting registration OTPs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-25T12:00:00.000Z"));
+    vi.spyOn(Math, "random").mockReturnValue(0.123456);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "email_otp_bound" }), { status: 200 })));
+
+    const admin = {
+      fetch: vi.fn(),
+      listUsers: vi.fn(function (this: { fetch: (params?: { page?: number; perPage?: number }) => void }, params?: { page?: number; perPage?: number }) {
+        this.fetch(params);
+        return Promise.resolve({
+          data: { users: [], nextPage: null, lastPage: 0 },
+          error: null,
+        });
+      }),
+      createUser: vi.fn(),
+      deleteUser: vi.fn(),
+      updateUserById: vi.fn(),
+    };
+
+    createClientMock.mockReturnValue({
+      auth: { admin },
+      from: vi.fn((table: string) => {
+        if (table === "messages") {
+          return {
+            select: vi.fn(() =>
+              createSelectQuery({
+                data: [],
+                error: null,
+              }),
+            ),
+          };
+        }
+
+        return {};
+      }),
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+      RESEND_API_KEY: "resend-key",
+      RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/auth/register/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "bound.user@example.com",
+          fullName: "Bound User",
+          mobile: "9876543210",
+          role: "traveler",
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(admin.listUsers).toHaveBeenCalled();
+    expect(admin.fetch).toHaveBeenCalledWith({ page: 1, perPage: 1000 });
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("signs Cloudinary uploads with Worker Web Crypto", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-11T00:00:00.000Z"));
