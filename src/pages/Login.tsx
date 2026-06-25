@@ -67,7 +67,9 @@ export default function Login() {
             <div className="space-y-2">
               <div className="flex justify-between items-center ml-1">
                 <Label className="text-xs font-bold uppercase tracking-widest text-slate-400">Password</Label>
-                <span className="text-[10px] uppercase font-bold text-slate-300 tracking-widest">Email auth</span>
+                <Link to="/forgot-password" className="text-[10px] uppercase font-bold text-indigo-500 tracking-widest hover:underline">
+                  Forgot Password
+                </Link>
               </div>
               <div className="relative group">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 group-focus-within:text-indigo-600 transition-colors" />

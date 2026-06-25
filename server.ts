@@ -13,7 +13,19 @@ import { createDealBookingRepository, type DealBookingSupabaseClient } from './s
 import { handleCreateDealBooking } from './src/features/deals/dealBookingRoute';
 import { createDealInventoryRepository, type DealInventorySupabaseClient } from './src/features/deals/dealInventory';
 import { handleLoginUser } from './src/features/auth/loginRoute';
+import {
+  handleRequestPasswordResetOtp,
+  handleRequestRegistrationOtp,
+  handleResetPasswordWithOtp,
+  handleVerifyRegistrationOtp,
+} from './src/features/auth/otpFlow';
 import { handleRegisterUser } from './src/features/auth/registerRoute';
+import {
+  buildOtpEmailHtml,
+  createEncryptedChallengeToken,
+  findUserByEmail,
+  verifyEncryptedChallengeToken,
+} from './src/features/auth/otpSupport';
 
 dotenv.config();
 
@@ -228,8 +240,24 @@ async function startServer() {
     DealBookingSupabaseClient &
     DealInventorySupabaseClient & {
       auth: {
-        admin: Parameters<typeof handleRegisterUser>[1]['adminAuth'];
         signInWithPassword: Parameters<typeof handleLoginUser>[1]['auth']['signInWithPassword'];
+        admin: Parameters<typeof handleRegisterUser>[1]['adminAuth'] & {
+          listUsers: (params?: { page?: number; perPage?: number }) => Promise<{
+            data?: {
+              users?: Array<{ id: string; email?: string | null }>;
+              nextPage?: number | null;
+              lastPage?: number | null;
+            } | null;
+            error?: { message?: string } | null;
+          }>;
+          updateUserById: (
+            userId: string,
+            attributes: { password: string; email_confirm: boolean },
+          ) => Promise<{
+            data?: { user: { id: string } | null } | null;
+            error?: { message?: string } | null;
+          }>;
+        };
         getUser: (token: string) => Promise<{
           data: { user: { id: string } | null } | null;
           error: { message?: string } | null;
@@ -255,6 +283,29 @@ async function startServer() {
   const dealInventoryRepository = createDealInventoryRepository({
     supabase: serverSupabaseClient,
   });
+
+  const otpSecret = process.env.AUTH_OTP_SECRET || supabaseServiceKey || null;
+
+  async function sendOtpEmail(input: { to: string; otp: string; purpose: 'register' | 'reset-password'; fullName?: string }) {
+    const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.RESEND_FROM_EMAIL;
+
+    if (!apiKey || !from) {
+      throw new Error('Email is not configured');
+    }
+
+    const resend = new Resend(apiKey);
+    const { error } = await resend.emails.send({
+      from,
+      to: input.to,
+      subject: input.purpose === 'register' ? 'Your Tripetrip verification code' : 'Your Tripetrip password reset code',
+      html: buildOtpEmailHtml(input),
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Unable to send OTP email');
+    }
+  }
 
   async function getAuthenticatedProfile(authHeader?: string) {
     if (!serverSupabaseClient) return { error: { status: 503, body: { error: 'Community service is not configured' } } };
@@ -481,6 +532,39 @@ async function startServer() {
     res.status(result.status).json(result.body);
   });
 
+  app.post('/api/auth/register/request-otp', async (req, res) => {
+    if (!serverSupabaseClient || !otpSecret) {
+      return res.status(503).json({ error: 'Registration service is not configured' });
+    }
+
+    try {
+      const result = await handleRequestRegistrationOtp(req.body, {
+        findUserByEmail: (email) => findUserByEmail(serverSupabaseClient.auth.admin.listUsers, email),
+        createChallengeToken: (payload) => createEncryptedChallengeToken(payload, otpSecret),
+        sendOtpEmail,
+      });
+
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to send verification code';
+      res.status(502).json({ error: message });
+    }
+  });
+
+  app.post('/api/auth/register/verify-otp', async (req, res) => {
+    if (!serverSupabaseClient || !otpSecret) {
+      return res.status(503).json({ error: 'Registration service is not configured' });
+    }
+
+    const result = await handleVerifyRegistrationOtp(req.body, {
+      verifyChallengeToken: (token) => verifyEncryptedChallengeToken(token, otpSecret),
+      adminAuth: serverSupabaseClient.auth.admin,
+      supabase: serverSupabaseClient as unknown as Parameters<typeof handleRegisterUser>[1]['supabase'],
+    });
+
+    res.status(result.status).json(result.body);
+  });
+
   app.post('/api/auth/login', async (req, res) => {
     if (!serverSupabaseClient) {
       return res.status(503).json({ error: 'Login service is not configured' });
@@ -489,6 +573,38 @@ async function startServer() {
     const result = await handleLoginUser(req.body as { email?: string; password?: string }, {
       auth: serverSupabaseClient.auth,
       supabase: serverSupabaseClient as unknown as Parameters<typeof handleLoginUser>[1]['supabase'],
+    });
+
+    res.status(result.status).json(result.body);
+  });
+
+  app.post('/api/auth/password/request-otp', async (req, res) => {
+    if (!serverSupabaseClient || !otpSecret) {
+      return res.status(503).json({ error: 'Password reset service is not configured' });
+    }
+
+    try {
+      const result = await handleRequestPasswordResetOtp(req.body, {
+        findUserByEmail: (email) => findUserByEmail(serverSupabaseClient.auth.admin.listUsers, email),
+        createChallengeToken: (payload) => createEncryptedChallengeToken(payload, otpSecret),
+        sendOtpEmail,
+      });
+
+      res.status(result.status).json(result.body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to send reset code';
+      res.status(502).json({ error: message });
+    }
+  });
+
+  app.post('/api/auth/password/reset-with-otp', async (req, res) => {
+    if (!serverSupabaseClient || !otpSecret) {
+      return res.status(503).json({ error: 'Password reset service is not configured' });
+    }
+
+    const result = await handleResetPasswordWithOtp(req.body, {
+      verifyChallengeToken: (token) => verifyEncryptedChallengeToken(token, otpSecret),
+      adminAuth: serverSupabaseClient.auth.admin,
     });
 
     res.status(result.status).json(result.body);

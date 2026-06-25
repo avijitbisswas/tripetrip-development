@@ -248,6 +248,108 @@ describe("cloudflare worker runtime", () => {
     });
   });
 
+  it("completes the registration OTP flow before creating the account", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-25T12:00:00.000Z"));
+    vi.spyOn(Math, "random").mockReturnValue(0.123456);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email_otp_1" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const createUser = vi.fn(async () => ({ data: { user: { id: "user-otp-1" } }, error: null }));
+    const deleteUser = vi.fn();
+    const updateUserById = vi.fn();
+    const listUsers = vi.fn(async () => ({
+      data: { users: [], aud: "authenticated", nextPage: null, lastPage: 0, total: 0 },
+      error: null,
+    }));
+    const profileSingle = vi.fn(async () => ({ data: {}, error: null }));
+    const vendorSingle = vi.fn(async () => ({ data: {}, error: null }));
+    const profileSelect = vi.fn(() => ({ single: profileSingle }));
+    const vendorSelect = vi.fn(() => ({ single: vendorSingle }));
+    const profileUpsert = vi.fn(() => ({ select: profileSelect }));
+    const vendorUpsert = vi.fn(() => ({ select: vendorSelect }));
+    const from = vi.fn((table: string) => {
+      if (table === "profiles") return { upsert: profileUpsert };
+      if (table === "vendor_profiles") return { upsert: vendorUpsert };
+      return {};
+    });
+
+    createClientMock.mockReturnValue({
+      auth: {
+        admin: {
+          listUsers,
+          createUser,
+          deleteUser,
+          updateUserById,
+        },
+      },
+      from,
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+      RESEND_API_KEY: "resend-key",
+      RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
+    });
+
+    const otpRequest = await worker.fetch(
+      new Request("https://tripetrip.example/api/auth/register/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "new.vendor@example.com",
+          fullName: "New Vendor",
+          mobile: "9876543210",
+          role: "vendor",
+        }),
+      }),
+      env,
+    );
+
+    expect(otpRequest.status).toBe(200);
+    const otpPayload = await otpRequest.json() as {
+      challengeToken: string;
+      maskedEmail: string;
+    };
+    expect(otpPayload.maskedEmail).toBe("n***r@example.com");
+    const verifyResponse = await worker.fetch(
+      new Request("https://tripetrip.example/api/auth/register/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          challengeToken: otpPayload.challengeToken,
+          otp: "211110",
+          password: "Tripetrip@123",
+        }),
+      }),
+      env,
+    );
+
+    const verifyBody = await verifyResponse.json();
+    expect(verifyResponse.status).toBe(200);
+    expect(createUser).toHaveBeenCalledWith({
+      email: "new.vendor@example.com",
+      password: "Tripetrip@123",
+      email_confirm: true,
+      user_metadata: {
+        full_name: "New Vendor",
+        role: "vendor",
+        phone: "+919876543210",
+      },
+    });
+    expect(from).toHaveBeenCalledWith("profiles");
+    expect(from).toHaveBeenCalledWith("vendor_profiles");
+    expect(verifyBody).toMatchObject({
+      user: {
+        id: "user-otp-1",
+        role: "vendor",
+      },
+    });
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("signs Cloudinary uploads with Worker Web Crypto", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-11T00:00:00.000Z"));

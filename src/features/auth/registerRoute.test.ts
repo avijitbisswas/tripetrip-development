@@ -15,6 +15,7 @@ describe('registration route handler', () => {
         email: 'qa.traveler@gmail.com',
         password: 'TestPass123!',
         fullName: 'QA Traveler',
+        phone: '+919876543210',
         role: 'traveler',
       },
       { adminAuth, supabase },
@@ -37,6 +38,7 @@ describe('registration route handler', () => {
       user_metadata: {
         full_name: 'QA Traveler',
         role: 'traveler',
+        phone: '+919876543210',
       },
     });
     expect(tables.profiles).toEqual([
@@ -44,7 +46,7 @@ describe('registration route handler', () => {
         id: 'user-1',
         role: 'traveler',
         full_name: 'QA Traveler',
-        phone: null,
+        phone: '+919876543210',
       },
     ]);
   });
@@ -62,6 +64,7 @@ describe('registration route handler', () => {
         email: 'qa.vendor@gmail.com',
         password: 'TestPass123!',
         fullName: 'Goa Luxe',
+        phone: '9876543210',
         role: 'vendor',
       },
       { adminAuth, supabase },
@@ -89,6 +92,7 @@ describe('registration route handler', () => {
         email: 'bad',
         password: 'short',
         fullName: '',
+        phone: '123',
         role: 'vendor',
       },
       { adminAuth, supabase: createSupabaseMock({}) },
@@ -113,6 +117,7 @@ describe('registration route handler', () => {
         email: 'qa.vendor@gmail.com',
         password: 'TestPass123!',
         fullName: 'QA Vendor',
+        phone: '+919876543210',
         role: 'vendor',
       },
       { adminAuth, supabase },

@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { supabase } from '@/src/lib/supabase';
-import { getCurrentSession, getDashboardPathForRole, registerWithEmail, signInWithEmail, signOut } from './auth';
+import {
+  completePasswordReset,
+  completeRegistration,
+  getCurrentSession,
+  getDashboardPathForRole,
+  requestPasswordResetOtp,
+  requestRegistrationOtp,
+  signInWithEmail,
+  signOut,
+} from './auth';
 
 const supabaseConfigMock = vi.hoisted(() => ({
   isConfigured: true,
@@ -138,12 +147,61 @@ describe('signInWithEmail', () => {
   });
 });
 
-describe('registerWithEmail', () => {
-  it('creates accounts through the server registration endpoint', async () => {
+describe('registration OTP flow', () => {
+  it('requests a registration OTP through the server auth endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          challengeToken: 'register-token',
+          expiresAt: '2026-06-25T12:10:00.000Z',
+          maskedEmail: 'q***r@gmail.com',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    try {
+      const response = await requestRegistrationOtp({
+        email: 'qa.vendor@gmail.com',
+        fullName: 'QA Vendor',
+        mobile: '9876543210',
+        role: 'vendor',
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/auth/register/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'qa.vendor@gmail.com',
+          fullName: 'QA Vendor',
+          mobile: '9876543210',
+          role: 'vendor',
+        }),
+      });
+      expect(response).toEqual({
+        challengeToken: 'register-token',
+        expiresAt: '2026-06-25T12:10:00.000Z',
+        maskedEmail: 'q***r@gmail.com',
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('creates the account after OTP verification succeeds', async () => {
     vi.mocked(supabase.auth.signInWithPassword).mockResolvedValueOnce({
       data: {
         user: {
           id: 'user-1',
+          email: 'qa.vendor@gmail.com',
+          user_metadata: {
+            role: 'vendor',
+            full_name: 'QA Vendor',
+          },
+          app_metadata: {},
         },
       },
       error: null,
@@ -155,6 +213,8 @@ describe('registerWithEmail', () => {
             id: 'user-1',
             role: 'vendor',
             fullName: 'QA Vendor',
+            email: 'qa.vendor@gmail.com',
+            phone: '+919876543210',
           },
         }),
         {
@@ -165,21 +225,20 @@ describe('registerWithEmail', () => {
     );
 
     try {
-      const user = await registerWithEmail({
-        email: 'qa.vendor@gmail.com',
+      const user = await completeRegistration({
+        challengeToken: 'register-token',
+        otp: '123456',
         password: 'TestPass123!',
-        fullName: 'QA Vendor',
-        role: 'vendor',
+        email: 'qa.vendor@gmail.com',
       });
 
-      expect(fetchMock).toHaveBeenCalledWith('/api/auth/register', {
+      expect(fetchMock).toHaveBeenCalledWith('/api/auth/register/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: 'qa.vendor@gmail.com',
+          challengeToken: 'register-token',
+          otp: '123456',
           password: 'TestPass123!',
-          fullName: 'QA Vendor',
-          role: 'vendor',
         }),
       });
       expect(supabase.auth.signInWithPassword).toHaveBeenCalledWith({
@@ -202,16 +261,86 @@ describe('registerWithEmail', () => {
 
     try {
       await expect(
-        registerWithEmail({
+        requestRegistrationOtp({
           email: 'qa.vendor@gmail.com',
-          password: 'TestPass123!',
           fullName: 'QA Vendor',
+          mobile: '9876543210',
           role: 'vendor',
         }),
       ).rejects.toMatchObject({
         message: 'email rate limit exceeded',
         code: 'SIGN_UP_FAILED',
         status: 429,
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+});
+
+describe('password reset OTP flow', () => {
+  it('requests a password reset OTP', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          challengeToken: 'reset-token',
+          expiresAt: '2026-06-25T12:10:00.000Z',
+          maskedEmail: 'q***r@gmail.com',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    try {
+      const response = await requestPasswordResetOtp('qa.vendor@gmail.com');
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/auth/password/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'qa.vendor@gmail.com' }),
+      });
+      expect(response.challengeToken).toBe('reset-token');
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('completes a password reset with OTP verification', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          email: 'qa.vendor@gmail.com',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    try {
+      const response = await completePasswordReset({
+        challengeToken: 'reset-token',
+        otp: '654321',
+        password: 'NewTripetrip@123',
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith('/api/auth/password/reset-with-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challengeToken: 'reset-token',
+          otp: '654321',
+          password: 'NewTripetrip@123',
+        }),
+      });
+      expect(response).toEqual({
+        success: true,
+        email: 'qa.vendor@gmail.com',
       });
     } finally {
       fetchMock.mockRestore();

@@ -22,6 +22,7 @@ const BookingConfirmation = lazy(() => import('@/src/pages/BookingConfirmation')
 const StayBookingConfirmation = lazy(() => import('@/src/pages/stays/BookingConfirmation'));
 const Login = lazy(() => import('@/src/pages/Login'));
 const Register = lazy(() => import('@/src/pages/Register'));
+const ForgotPassword = lazy(() => import('@/src/pages/ForgotPassword'));
 const TravelerDashboard = lazy(() => import('@/src/pages/traveler/Dashboard'));
 const VendorDashboard = lazy(() => import('@/src/pages/vendor/Dashboard'));
 const ListingManager = lazy(() => import('@/src/pages/vendor/ListingManager'));
@@ -109,6 +110,7 @@ export default function App() {
               <Route path="/v/:slug" element={<PublicVendorPage />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/dashboard" element={session ? <TravelerDashboard /> : <Navigate to="/login" />} />
               <Route path="/vendor" element={session ? <VendorDashboard /> : <Navigate to="/login" />} />
               <Route

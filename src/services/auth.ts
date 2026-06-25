@@ -164,30 +164,59 @@ export async function signInWithEmail(email: string, password: string) {
   return toEnrichedSupabaseUser(data.user);
 }
 
-export async function registerWithEmail(input: {
+async function readJsonOrThrow<T>(response: Response, fallbackMessage: string, code: string) {
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) {
+    throw new ServiceError(payload.error || fallbackMessage, code, response.status);
+  }
+
+  return payload;
+}
+
+export async function requestRegistrationOtp(input: {
   email: string;
-  password: string;
   fullName: string;
+  mobile: string;
   role: UserRole;
 }) {
-  const response = await fetch('/api/auth/register', {
+  const response = await fetch('/api/auth/register/request-otp', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
 
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new ServiceError(payload.error || 'Registration failed', 'SIGN_UP_FAILED', response.status);
-  }
+  return readJsonOrThrow<{
+    challengeToken: string;
+    expiresAt: string;
+    maskedEmail: string;
+  }>(response, 'Registration failed', 'SIGN_UP_FAILED');
+}
 
-  const payload = (await response.json()) as {
+export async function completeRegistration(input: {
+  challengeToken: string;
+  otp: string;
+  password: string;
+  email: string;
+}) {
+  const response = await fetch('/api/auth/register/verify-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      challengeToken: input.challengeToken,
+      otp: input.otp,
+      password: input.password,
+    }),
+  });
+
+  const payload = await readJsonOrThrow<{
     user?: {
       id?: string;
       role?: UserRole;
       fullName?: string;
+      email?: string;
+      phone?: string;
     };
-  };
+  }>(response, 'Registration failed', 'SIGN_UP_FAILED');
 
   if (!payload.user?.id) {
     throw new ServiceError('Registration failed', 'SIGN_UP_FAILED', 500);
@@ -196,20 +225,20 @@ export async function registerWithEmail(input: {
   if (!supabaseConfig.isConfigured) {
     writeLocalAuthUser({
       id: payload.user.id,
-      email: input.email,
+      email: payload.user.email || input.email,
       role: payload.user.role,
       fullName: payload.user.fullName,
     });
     return toTripetripUser({
       id: payload.user.id,
-      email: input.email,
+      email: payload.user.email || input.email,
       role: payload.user.role,
       fullName: payload.user.fullName,
     });
   }
 
   const { data, error } = await supabase.auth.signInWithPassword({
-    email: input.email,
+    email: payload.user.email || input.email,
     password: input.password,
   });
 
@@ -218,6 +247,37 @@ export async function registerWithEmail(input: {
   }
 
   return toEnrichedSupabaseUser(data.user);
+}
+
+export async function requestPasswordResetOtp(email: string) {
+  const response = await fetch('/api/auth/password/request-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+
+  return readJsonOrThrow<{
+    challengeToken: string;
+    expiresAt: string;
+    maskedEmail: string;
+  }>(response, 'Password reset failed', 'PASSWORD_RESET_REQUEST_FAILED');
+}
+
+export async function completePasswordReset(input: {
+  challengeToken: string;
+  otp: string;
+  password: string;
+}) {
+  const response = await fetch('/api/auth/password/reset-with-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  return readJsonOrThrow<{
+    success: true;
+    email: string;
+  }>(response, 'Password reset failed', 'PASSWORD_RESET_FAILED');
 }
 
 export async function signOut() {

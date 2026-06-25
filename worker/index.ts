@@ -18,7 +18,19 @@ import {
   type DealInventorySupabaseClient,
 } from "../src/features/deals/dealInventory";
 import { handleLoginUser } from "../src/features/auth/loginRoute";
+import {
+  handleRequestPasswordResetOtp,
+  handleRequestRegistrationOtp,
+  handleResetPasswordWithOtp,
+  handleVerifyRegistrationOtp,
+} from "../src/features/auth/otpFlow";
 import { handleRegisterUser } from "../src/features/auth/registerRoute";
+import {
+  buildOtpEmailHtml,
+  createEncryptedChallengeToken,
+  findUserByEmail,
+  verifyEncryptedChallengeToken,
+} from "../src/features/auth/otpSupport";
 
 type AssetsBinding = {
   fetch: (request: Request) => Promise<Response>;
@@ -43,6 +55,7 @@ export type WorkerEnv = {
   CLOUDINARY_UPLOAD_FOLDER?: string;
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;
+  AUTH_OTP_SECRET?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   MANUAL_PAYMENT_UPI_ID?: string;
@@ -53,8 +66,24 @@ type ServerSupabaseClient = ManualPaymentSupabaseClient &
   DealBookingSupabaseClient &
   DealInventorySupabaseClient & {
     auth: {
-      admin: Parameters<typeof handleRegisterUser>[1]["adminAuth"];
       signInWithPassword: Parameters<typeof handleLoginUser>[1]["auth"]["signInWithPassword"];
+      admin: Parameters<typeof handleRegisterUser>[1]["adminAuth"] & {
+        listUsers: (params?: { page?: number; perPage?: number }) => Promise<{
+          data?: {
+            users?: Array<{ id: string; email?: string | null }>;
+            nextPage?: number | null;
+            lastPage?: number | null;
+          } | null;
+          error?: { message?: string } | null;
+        }>;
+        updateUserById: (
+          userId: string,
+          attributes: { password: string; email_confirm: boolean },
+        ) => Promise<{
+          data?: { user: { id: string } | null } | null;
+          error?: { message?: string } | null;
+        }>;
+      };
       getUser: (token: string) => Promise<{
         data: { user: { id: string } | null } | null;
         error: { message?: string } | null;
@@ -177,6 +206,52 @@ function createRepositories(env: WorkerEnv) {
     bookingRepository: createDealBookingRepository({ supabase }),
     inventoryRepository: createDealInventoryRepository({ supabase }),
   };
+}
+
+function getOtpSecret(env: WorkerEnv) {
+  return (
+    env.AUTH_OTP_SECRET ||
+    env.SUPABASE_SERVICE_ROLE_KEY ||
+    env.SUPABASE_SERVICE_KEY ||
+    null
+  );
+}
+
+async function sendOtpEmail(
+  env: WorkerEnv,
+  input: { to: string; otp: string; purpose: "register" | "reset-password"; fullName?: string },
+) {
+  const apiKey = env.RESEND_API_KEY;
+  const from = env.RESEND_FROM_EMAIL;
+
+  if (!apiKey || !from) {
+    throw new Error("Email is not configured");
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: input.to,
+      subject:
+        input.purpose === "register"
+          ? "Your Tripetrip verification code"
+          : "Your Tripetrip password reset code",
+      html: buildOtpEmailHtml(input),
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      message?: string;
+      error?: string;
+    };
+    throw new Error(payload.message || payload.error || "Unable to send OTP email");
+  }
 }
 
 function getBearerToken(request: Request) {
@@ -795,6 +870,83 @@ async function handleLogin(request: Request, env: WorkerEnv) {
   return json(result.body, { status: result.status });
 }
 
+async function handleRegisterRequestOtp(request: Request, env: WorkerEnv) {
+  const { supabase } = createRepositories(env);
+  const otpSecret = getOtpSecret(env);
+
+  if (!supabase || !otpSecret) {
+    return json({ error: "Registration service is not configured" }, { status: 503 });
+  }
+
+  try {
+    const result = await handleRequestRegistrationOtp(await readJsonBody(request), {
+      findUserByEmail: (email) => findUserByEmail(supabase.auth.admin.listUsers, email),
+      createChallengeToken: (payload) => createEncryptedChallengeToken(payload, otpSecret),
+      sendOtpEmail: (input) => sendOtpEmail(env, input),
+    });
+
+    return json(result.body, { status: result.status });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to send verification code";
+    return json({ error: message }, { status: 502 });
+  }
+}
+
+async function handleRegisterVerifyOtp(request: Request, env: WorkerEnv) {
+  const { supabase } = createRepositories(env);
+  const otpSecret = getOtpSecret(env);
+
+  if (!supabase || !otpSecret) {
+    return json({ error: "Registration service is not configured" }, { status: 503 });
+  }
+
+  const result = await handleVerifyRegistrationOtp(await readJsonBody(request), {
+    verifyChallengeToken: (token) => verifyEncryptedChallengeToken(token, otpSecret),
+    adminAuth: supabase.auth.admin,
+    supabase: supabase as unknown as Parameters<typeof handleRegisterUser>[1]["supabase"],
+  });
+
+  return json(result.body, { status: result.status });
+}
+
+async function handlePasswordRequestOtp(request: Request, env: WorkerEnv) {
+  const { supabase } = createRepositories(env);
+  const otpSecret = getOtpSecret(env);
+
+  if (!supabase || !otpSecret) {
+    return json({ error: "Password reset service is not configured" }, { status: 503 });
+  }
+
+  try {
+    const result = await handleRequestPasswordResetOtp(await readJsonBody(request), {
+      findUserByEmail: (email) => findUserByEmail(supabase.auth.admin.listUsers, email),
+      createChallengeToken: (payload) => createEncryptedChallengeToken(payload, otpSecret),
+      sendOtpEmail: (input) => sendOtpEmail(env, input),
+    });
+
+    return json(result.body, { status: result.status });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to send reset code";
+    return json({ error: message }, { status: 502 });
+  }
+}
+
+async function handlePasswordResetWithOtp(request: Request, env: WorkerEnv) {
+  const { supabase } = createRepositories(env);
+  const otpSecret = getOtpSecret(env);
+
+  if (!supabase || !otpSecret) {
+    return json({ error: "Password reset service is not configured" }, { status: 503 });
+  }
+
+  const result = await handleResetPasswordWithOtp(await readJsonBody(request), {
+    verifyChallengeToken: (token) => verifyEncryptedChallengeToken(token, otpSecret),
+    adminAuth: supabase.auth.admin,
+  });
+
+  return json(result.body, { status: result.status });
+}
+
 async function handleCreateOrder(request: Request, env: WorkerEnv) {
   const { paymentRepository } = createRepositories(env);
   const { amount, bookingId, travelerName, purpose } = (await readJsonBody(
@@ -913,8 +1065,16 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleVendorAIBrief(request, env);
   if (request.method === "POST" && pathname === "/api/auth/login")
     return handleLogin(request, env);
+  if (request.method === "POST" && pathname === "/api/auth/register/request-otp")
+    return handleRegisterRequestOtp(request, env);
+  if (request.method === "POST" && pathname === "/api/auth/register/verify-otp")
+    return handleRegisterVerifyOtp(request, env);
   if (request.method === "POST" && pathname === "/api/auth/register")
     return handleRegister(request, env);
+  if (request.method === "POST" && pathname === "/api/auth/password/request-otp")
+    return handlePasswordRequestOtp(request, env);
+  if (request.method === "POST" && pathname === "/api/auth/password/reset-with-otp")
+    return handlePasswordResetWithOtp(request, env);
   if (request.method === "GET" && pathname === "/api/community/posts")
     return handleListCommunityPosts(request, env);
   if (request.method === "POST" && pathname === "/api/community/posts")
