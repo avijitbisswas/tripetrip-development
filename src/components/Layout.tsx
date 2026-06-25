@@ -90,6 +90,14 @@ export default function Layout({ session }: LayoutProps) {
             <Heart className="h-5 w-5 text-slate-800" />
             {session ? (
               <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
+                {userRole === 'admin' && (
+                  <Link to="/admin">
+                    <Button variant="ghost" size="sm" className="font-semibold text-slate-600 hover:text-[#16A34A]">
+                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      Admin
+                    </Button>
+                  </Link>
+                )}
                 <Link to={userRole === 'vendor' ? '/vendor' : '/dashboard'}>
                   <Button variant="ghost" size="sm" className="font-semibold text-slate-600 hover:text-[#16A34A]">
                     <LayoutDashboard className="mr-2 h-4 w-4" />
@@ -131,7 +139,14 @@ export default function Layout({ session }: LayoutProps) {
               </Link>
             ))}
             {session ? (
-              <button onClick={handleLogout} className="text-left text-2xl font-bold tracking-tight text-red-600">Sign Out</button>
+              <>
+                {userRole === 'admin' && (
+                  <Link to="/admin" className="text-2xl font-bold tracking-tight text-[#16A34A]" onClick={() => setIsMenuOpen(false)}>
+                    Admin
+                  </Link>
+                )}
+                <button onClick={handleLogout} className="text-left text-2xl font-bold tracking-tight text-red-600">Sign Out</button>
+              </>
             ) : (
               <>
                 <Link to="/login" className="text-2xl font-bold tracking-tight text-slate-900" onClick={() => setIsMenuOpen(false)}>Login</Link>

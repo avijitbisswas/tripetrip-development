@@ -11,7 +11,7 @@ const Search = lazy(() => import('@/src/pages/Search'));
 const Deals = lazy(() => import('@/src/pages/Deals'));
 const Community = lazy(() => import('@/src/pages/Community'));
 const DealsConfirmation = lazy(() => import('@/src/pages/deals/Confirmation'));
-const AdminDeals = lazy(() => import('@/src/pages/admin/Deals'));
+const AdminConsole = lazy(() => import('@/src/pages/admin/Console'));
 const ProviderDeals = lazy(() => import('@/src/pages/provider/Deals'));
 const StaySearch = lazy(() => import('@/src/pages/stays/Search'));
 const Activities = lazy(() => import('@/src/pages/Activities'));
@@ -96,7 +96,7 @@ export default function App() {
               <Route path="/deals" element={<Deals />} />
               <Route path="/deals/:dealId" element={<Deals />} />
               <Route path="/deals/confirmation" element={<DealsConfirmation />} />
-              <Route path="/admin/deals" element={<AdminDeals />} />
+              <Route path="/admin/*" element={session ? <AdminConsole /> : <Navigate to="/login" />} />
               <Route path="/provider/deals" element={<ProviderDeals />} />
               <Route path="/packages" element={<Search />} />
               <Route path="/stays" element={<StaySearch />} />

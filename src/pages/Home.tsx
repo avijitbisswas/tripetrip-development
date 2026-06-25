@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import EnhancedSearchBar from '@/src/components/marketplace/EnhancedSearchBar';
 import MarketplaceSection from '@/src/components/marketplace/MarketplaceSection';
 import { ActivityCard, DealCard, PackageCard, PropertyCard, TransportCard } from '@/src/components/marketplace/cards';
+import { getPublicSiteConfig } from '@/src/services/admin';
 import { ArrowRight, BadgeCheck, Handshake, ShieldCheck, Sparkles, Tags } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
@@ -48,6 +50,26 @@ const deals = [
 ];
 
 export default function Home() {
+  const [announcement, setAnnouncement] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+
+    getPublicSiteConfig()
+      .then((payload) => {
+        if (!mounted) return;
+        const content = (payload.content as Record<string, unknown> | undefined) || {};
+        setAnnouncement(typeof content.homepageAnnouncement === 'string' ? content.homepageAnnouncement : '');
+      })
+      .catch(() => {
+        if (mounted) setAnnouncement('');
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <main className="bg-slate-50">
       <section className="relative min-h-[640px] overflow-visible pb-24 pt-24 md:pb-28">
@@ -57,6 +79,11 @@ export default function Home() {
 
         <div className="relative mx-auto max-w-7xl px-4">
           <motion.div initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }} className="max-w-2xl pb-10 pt-6 text-white md:pt-14">
+            {announcement ? (
+              <div className="mb-4 inline-flex max-w-xl rounded-2xl border border-emerald-300/30 bg-emerald-400/15 px-4 py-3 text-sm font-bold text-emerald-50 backdrop-blur">
+                {announcement}
+              </div>
+            ) : null}
             <p className="mb-4 inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-widest backdrop-blur">Direct Travel Revolution</p>
             <h1 className="text-5xl font-black leading-[0.98] tracking-tight md:text-7xl">
               Travel Direct.

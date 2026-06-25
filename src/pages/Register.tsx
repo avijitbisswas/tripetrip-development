@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { completeRegistration, getDashboardPathForRole, requestRegistrationOtp } from '@/src/services/auth';
 import { isValidEmail, isValidMobileNumber, isValidPassword } from '@/src/features/auth/validation';
+import { getPublicSiteConfig } from '@/src/services/admin';
 
 type RegisterRole = 'traveler' | 'vendor';
 type RegisterStep = 'details' | 'otp';
@@ -25,6 +26,7 @@ export default function Register() {
   const [challengeToken, setChallengeToken] = useState('');
   const [maskedEmail, setMaskedEmail] = useState('');
   const [resendCountdown, setResendCountdown] = useState(0);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -36,6 +38,24 @@ export default function Register() {
     return () => window.clearInterval(interval);
   }, [resendCountdown]);
 
+  useEffect(() => {
+    let mounted = true;
+
+    getPublicSiteConfig()
+      .then((payload) => {
+        if (!mounted) return;
+        const system = ((payload.system as Record<string, unknown> | undefined) || {}) as Record<string, unknown>;
+        setRegistrationEnabled(system.registrationEnabled !== false);
+      })
+      .catch(() => {
+        if (mounted) setRegistrationEnabled(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const validateDetails = () => {
     if (!fullName.trim()) return 'Enter your full name';
     if (!isValidEmail(email)) return 'Enter a valid email address';
@@ -45,6 +65,11 @@ export default function Register() {
   };
 
   const sendOtp = async () => {
+    if (!registrationEnabled) {
+      toast.error('Registration is temporarily disabled');
+      return;
+    }
+
     const validationError = validateDetails();
     if (validationError) {
       toast.error(validationError);
@@ -127,6 +152,11 @@ export default function Register() {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-2xl p-10 shadow-xl">
+          {!registrationEnabled ? (
+            <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+              Registration is temporarily disabled by the Tripetrip admin team.
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-4 mb-10 p-1 bg-slate-50 rounded-xl border border-slate-100">
             <button
               type="button"
@@ -267,7 +297,7 @@ export default function Register() {
               </div>
             )}
 
-            <Button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white hover:bg-indigo-700 h-14 rounded-xl font-bold uppercase tracking-widest shadow-lg shadow-indigo-100 mt-4 transition-all">
+            <Button type="submit" disabled={loading || !registrationEnabled} className="w-full bg-indigo-600 text-white hover:bg-indigo-700 h-14 rounded-xl font-bold uppercase tracking-widest shadow-lg shadow-indigo-100 mt-4 transition-all disabled:bg-slate-300">
               {loading ? (
                 <Loader2 className="animate-spin w-5 h-5" />
               ) : step === 'details' ? (

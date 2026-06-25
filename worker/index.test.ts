@@ -186,6 +186,29 @@ describe("cloudflare worker runtime", () => {
     expect(bodyText).not.toContain("gemini-key");
   });
 
+  it("returns default public site config when Supabase is unavailable", async () => {
+    const env = createEnv();
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/public/site-config"),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      content: {
+        homepageAnnouncement: "",
+        featuredDealSlugs: ["goa-beach-escape", "manali-snow-retreat"],
+      },
+      system: {
+        registrationEnabled: true,
+        communityEnabled: true,
+        dealsEnabled: true,
+        maintenanceMode: false,
+      },
+    });
+  });
+
   it("logs in users through the server Supabase client", async () => {
     const signInWithPassword = vi.fn(async () => ({
       data: {
@@ -270,6 +293,16 @@ describe("cloudflare worker runtime", () => {
     const from = vi.fn((table: string) => {
       if (table === "profiles") return { upsert: profileUpsert };
       if (table === "vendor_profiles") return { upsert: vendorUpsert };
+      if (table === "messages") {
+        return {
+          select: vi.fn(() =>
+            createSelectQuery({
+              data: [],
+              error: null,
+            }),
+          ),
+        };
+      }
       return {};
     });
 
@@ -685,5 +718,51 @@ describe("cloudflare worker runtime", () => {
         },
       ],
     });
+  });
+
+  it("rejects admin payment requests without admin authentication", async () => {
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "user-1" } },
+          error: null,
+        })),
+        admin: {
+          listUsers: vi.fn(),
+          updateUserById: vi.fn(),
+        },
+      },
+      from: vi.fn((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: "user-1", full_name: "Traveler One", role: "traveler", avatar_url: null },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        return {};
+      }),
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/admin/payments/manual", {
+        headers: { Authorization: "Bearer user-token" },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "Admin access required" });
   });
 });

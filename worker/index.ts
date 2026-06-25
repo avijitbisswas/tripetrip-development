@@ -31,6 +31,28 @@ import {
   findUserByEmail,
   verifyEncryptedChallengeToken,
 } from "../src/features/auth/otpSupport";
+import {
+  DEFAULT_CONTENT_CONFIG,
+  DEFAULT_SYSTEM_CONFIG,
+  getAdminContentPreview,
+  getAdminOverview,
+  getAdminSystemState,
+  getSiteConfig,
+  listAdminAuditEntries,
+  listAdminBookings,
+  listAdminCommunityPosts,
+  listAdminDeals,
+  listAdminListings,
+  listAdminUsers,
+  listAdminVendors,
+  logAdminAction,
+  removeAdminCommunityPost,
+  saveSiteConfig,
+  updateAdminBooking,
+  updateAdminListing,
+  updateAdminUser,
+  updateAdminVendor,
+} from "../src/features/admin/controlPlane";
 
 type AssetsBinding = {
   fetch: (request: Request) => Promise<Response>;
@@ -444,6 +466,16 @@ async function getAuthenticatedProfile(request: Request, env: WorkerEnv) {
   };
 }
 
+async function getAuthenticatedAdmin(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedProfile(request, env);
+  if ("error" in auth) return auth;
+  if (auth.profile.role !== "admin") {
+    return { error: json({ error: "Admin access required" }, { status: 403 }) };
+  }
+
+  return auth;
+}
+
 function getConfigHealth(env: WorkerEnv) {
   const hasSupabaseUrl = Boolean(
     env.SUPABASE_URL || env.VITE_SUPABASE_URL || env.SUPABASE_PROJECT_REF,
@@ -495,6 +527,14 @@ function getConfigHealth(env: WorkerEnv) {
 }
 
 async function handleListCommunityPosts(request: Request, env: WorkerEnv) {
+  const { supabase } = createRepositories(env);
+  if (supabase) {
+    const siteConfig = await getSiteConfig(supabase);
+    if (!siteConfig.system.communityEnabled) {
+      return json({ error: "Community is temporarily disabled" }, { status: 403 });
+    }
+  }
+
   const auth = await getAuthenticatedProfile(request, env);
   if ("error" in auth) return auth.error;
 
@@ -546,6 +586,14 @@ async function handleListCommunityPosts(request: Request, env: WorkerEnv) {
 }
 
 async function handleCreateCommunityPost(request: Request, env: WorkerEnv) {
+  const { supabase } = createRepositories(env);
+  if (supabase) {
+    const siteConfig = await getSiteConfig(supabase);
+    if (!siteConfig.system.communityEnabled) {
+      return json({ error: "Community is temporarily disabled" }, { status: 403 });
+    }
+  }
+
   const auth = await getAuthenticatedProfile(request, env);
   if ("error" in auth) return auth.error;
 
@@ -878,6 +926,11 @@ async function handleRegisterRequestOtp(request: Request, env: WorkerEnv) {
     return json({ error: "Registration service is not configured" }, { status: 503 });
   }
 
+  const siteConfig = await getSiteConfig(supabase);
+  if (!siteConfig.system.registrationEnabled) {
+    return json({ error: "Registration is temporarily disabled" }, { status: 403 });
+  }
+
   try {
     const result = await handleRequestRegistrationOtp(await readJsonBody(request), {
       findUserByEmail: (email) => findUserByEmail(supabase.auth.admin.listUsers, email),
@@ -1014,14 +1067,20 @@ async function handleGetDealBooking(pathname: string, env: WorkerEnv) {
   return json({ booking });
 }
 
-async function handleListManualPayments(env: WorkerEnv) {
+async function handleListManualPayments(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
   const { paymentRepository } = createRepositories(env);
   const payments = await paymentRepository.list();
 
   return json({ payments });
 }
 
-async function handlePaymentDecision(pathname: string, env: WorkerEnv) {
+async function handlePaymentDecision(request: Request, pathname: string, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
   const match = pathname.match(
     /^\/api\/admin\/payments\/([^/]+)\/(approve|reject)$/,
   );
@@ -1047,6 +1106,180 @@ async function handlePaymentDecision(pathname: string, env: WorkerEnv) {
   return json({ payment: updated, booking });
 }
 
+async function handleAdminOverview(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+  return json(await getAdminOverview(auth.supabase));
+}
+
+async function handleAdminUsers(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    return json({ users: await listAdminUsers(auth.supabase) });
+  }
+
+  const body = await readJsonBody(request);
+  await updateAdminUser(auth.supabase, auth.profile, {
+    userId: String(body.userId || ""),
+    role: body.role,
+    fullName: typeof body.fullName === "string" ? body.fullName : undefined,
+    phone: typeof body.phone === "string" ? body.phone : undefined,
+    suspend: typeof body.suspend === "boolean" ? body.suspend : undefined,
+  });
+  return json({ success: true });
+}
+
+async function handleAdminVendors(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    return json({ vendors: await listAdminVendors(auth.supabase) });
+  }
+
+  const body = await readJsonBody(request);
+  await updateAdminVendor(auth.supabase, auth.profile, {
+    vendorId: String(body.vendorId || ""),
+    verificationStatus: body.verificationStatus,
+    isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
+    businessName: typeof body.businessName === "string" ? body.businessName : undefined,
+    businessType: typeof body.businessType === "string" ? body.businessType : undefined,
+    slug: typeof body.slug === "string" ? body.slug : undefined,
+  });
+  return json({ success: true });
+}
+
+async function handleAdminListings(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    return json({ listings: await listAdminListings(auth.supabase) });
+  }
+
+  const body = await readJsonBody(request);
+  await updateAdminListing(auth.supabase, auth.profile, {
+    listingId: String(body.listingId || ""),
+    isActive: typeof body.isActive === "boolean" ? body.isActive : undefined,
+    title: typeof body.title === "string" ? body.title : undefined,
+    category: typeof body.category === "string" ? body.category : undefined,
+    basePrice: typeof body.basePrice === "number" ? body.basePrice : undefined,
+  });
+  return json({ success: true });
+}
+
+async function handleAdminBookings(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    return json({ bookings: await listAdminBookings(auth.supabase) });
+  }
+
+  const body = await readJsonBody(request);
+  await updateAdminBooking(auth.supabase, auth.profile, {
+    bookingId: String(body.bookingId || ""),
+    status: typeof body.status === "string" ? body.status : undefined,
+    paymentStatus: typeof body.paymentStatus === "string" ? body.paymentStatus : undefined,
+  });
+  return json({ success: true });
+}
+
+async function handleAdminCommunity(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    return json({ posts: await listAdminCommunityPosts(auth.supabase) });
+  }
+
+  const body = await readJsonBody(request);
+  await removeAdminCommunityPost(auth.supabase, auth.profile, String(body.postId || ""));
+  return json({ success: true });
+}
+
+async function handleAdminDeals(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+  await logAdminAction(auth.supabase, auth.profile, {
+    module: "deals",
+    action: "view",
+    entityType: "deal_dashboard",
+    entityId: "all",
+    summary: "Viewed deal controls",
+  });
+  return json({ deals: listAdminDeals() });
+}
+
+async function handleAdminContent(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    const siteConfig = await getSiteConfig(auth.supabase);
+    return json({ config: siteConfig.content, preview: getAdminContentPreview(siteConfig.content) });
+  }
+
+  const body = await readJsonBody(request);
+  await saveSiteConfig(auth.supabase, auth.profile, "content", body);
+  await logAdminAction(auth.supabase, auth.profile, {
+    module: "content",
+    action: "update",
+    entityType: "site_content_config",
+    entityId: "content",
+    summary: "Updated public content controls",
+    details: body,
+  });
+  return json({ success: true });
+}
+
+async function handleAdminSystem(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    return json(await getAdminSystemState(auth.supabase, getConfigHealth(env)));
+  }
+
+  const body = await readJsonBody(request);
+  await saveSiteConfig(auth.supabase, auth.profile, "system", body);
+  await logAdminAction(auth.supabase, auth.profile, {
+    module: "system",
+    action: "update",
+    entityType: "site_system_config",
+    entityId: "system",
+    summary: "Updated platform system controls",
+    details: body,
+  });
+  return json({ success: true });
+}
+
+async function handleAdminAudit(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+  return json({ entries: await listAdminAuditEntries(auth.supabase) });
+}
+
+async function handlePublicSiteConfig(env: WorkerEnv) {
+  const { supabase } = createRepositories(env);
+  if (!supabase) {
+    return json({
+      content: DEFAULT_CONTENT_CONFIG,
+      system: DEFAULT_SYSTEM_CONFIG,
+      preview: getAdminContentPreview(DEFAULT_CONTENT_CONFIG),
+    });
+  }
+
+  const siteConfig = await getSiteConfig(supabase);
+  return json({
+    content: siteConfig.content,
+    system: siteConfig.system,
+    preview: getAdminContentPreview(siteConfig.content),
+  });
+}
+
 async function handleApiRequest(request: Request, env: WorkerEnv) {
   const url = new URL(request.url);
   const { pathname } = url;
@@ -1055,6 +1288,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return json({ status: "ok" });
   if (request.method === "GET" && pathname === "/api/config/health")
     return json(getConfigHealth(env));
+  if (request.method === "GET" && pathname === "/api/public/site-config")
+    return handlePublicSiteConfig(env);
   if (request.method === "GET" && pathname === "/api/cloudinary/sign")
     return handleCloudinarySign(env);
   if (request.method === "GET" && pathname === "/api/maps/suggest")
@@ -1088,12 +1323,32 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
   if (request.method === "GET" && pathname.startsWith("/api/deals/bookings/"))
     return handleGetDealBooking(pathname, env);
   if (request.method === "GET" && pathname === "/api/admin/payments/manual")
-    return handleListManualPayments(env);
+    return handleListManualPayments(request, env);
+  if (request.method === "GET" && pathname === "/api/admin/overview")
+    return handleAdminOverview(request, env);
+  if ((request.method === "GET" || request.method === "PATCH") && pathname === "/api/admin/users")
+    return handleAdminUsers(request, env);
+  if ((request.method === "GET" || request.method === "PATCH") && pathname === "/api/admin/vendors")
+    return handleAdminVendors(request, env);
+  if ((request.method === "GET" || request.method === "PATCH") && pathname === "/api/admin/listings")
+    return handleAdminListings(request, env);
+  if ((request.method === "GET" || request.method === "PATCH") && pathname === "/api/admin/bookings")
+    return handleAdminBookings(request, env);
+  if ((request.method === "GET" || request.method === "DELETE") && pathname === "/api/admin/community/posts")
+    return handleAdminCommunity(request, env);
+  if (request.method === "GET" && pathname === "/api/admin/deals")
+    return handleAdminDeals(request, env);
+  if ((request.method === "GET" || request.method === "PUT") && pathname === "/api/admin/content")
+    return handleAdminContent(request, env);
+  if ((request.method === "GET" || request.method === "PUT") && pathname === "/api/admin/system")
+    return handleAdminSystem(request, env);
+  if (request.method === "GET" && pathname === "/api/admin/audit")
+    return handleAdminAudit(request, env);
   if (
     request.method === "POST" &&
     /^\/api\/admin\/payments\/[^/]+\/(approve|reject)$/.test(pathname)
   ) {
-    return handlePaymentDecision(pathname, env);
+    return handlePaymentDecision(request, pathname, env);
   }
 
   return json({ error: "Not found" }, { status: 404 });
