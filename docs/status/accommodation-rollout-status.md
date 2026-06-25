@@ -9,6 +9,7 @@
 - Worker-backed accommodation access endpoints added for admin and vendor use.
 - Admin console accommodation controls added for plan tier, enforcement mode, module overrides, and approval policies.
 - Vendor OS tenant access now filters modules for accommodation providers.
+- Vendor OS shared mutation hooks now block creates, updates, deletes, and document uploads for modules disabled by accommodation access policy.
 
 ## In Progress
 
@@ -18,7 +19,7 @@
 
 - Add deeper module-level accommodation feature surfacing inside PMS, calendar, analytics, and guest workflows.
 - Expand admin controls to capability-level toggles if needed beyond module and approval policy scope.
-- Add stronger backend enforcement paths for advanced capability locks where direct Supabase writes still bypass UI controls.
+- Move Vendor OS write paths behind Worker or RLS-backed enforcement for stronger server-side guarantees beyond app-level hook guards.
 
 ## Deferred
 
@@ -31,5 +32,6 @@
 ## Notes / Risks
 
 - Phase 1 should remain permissive by default so launch behavior does not regress.
+- Current write enforcement is app-layer protection through shared hooks; direct Supabase writes outside the app still need server-side or RLS enforcement in a later phase.
 - Deferred advanced features must remain documented as roadmap-backed, not falsely shipped.
 - Status file should be updated at each implementation checkpoint.

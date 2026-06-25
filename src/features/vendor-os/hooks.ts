@@ -18,8 +18,10 @@ import {
   uploadVendorDocumentFile,
   type VendorOSRecordRow,
 } from './api';
+import type { ResolvedVendorAccommodationAccess } from './accommodationAccess';
 import { buildDefaultVendorAccommodationAccess, resolveVendorAccommodationAccess } from './accommodationAccess';
 import { getVendorAccommodationAccess as getVendorAccommodationAccessForOrg } from './accessService';
+import { getVendorMutationAccessError } from './mutationAccess';
 import { getVendorOSOperation } from './operations';
 import { canAccessVendorModule } from './permissions';
 import type {
@@ -36,6 +38,44 @@ import type {
 } from './types';
 
 const DEFAULT_ROLE: VendorOSRole = 'owner';
+
+function useMutationAccommodationAccess(
+  organizationId?: string | null,
+  accessOverride?: ResolvedVendorAccommodationAccess | null,
+) {
+  const [access, setAccess] = useState<ResolvedVendorAccommodationAccess | null | undefined>(() =>
+    organizationId && accessOverride === undefined ? undefined : accessOverride ?? null,
+  );
+
+  useEffect(() => {
+    if (accessOverride !== undefined) {
+      setAccess(accessOverride ?? null);
+      return;
+    }
+
+    if (!organizationId) {
+      setAccess(null);
+      return;
+    }
+
+    let mounted = true;
+    setAccess(undefined);
+
+    getVendorAccommodationAccessForOrg(organizationId)
+      .then((resolved) => {
+        if (mounted) setAccess(resolved);
+      })
+      .catch(() => {
+        if (mounted) setAccess(null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [accessOverride, organizationId]);
+
+  return access;
+}
 
 export function useVendorOSTenant(userId?: string | null) {
   const [organizations, setOrganizations] = useState<VendorOrganization[]>([]);
@@ -290,14 +330,26 @@ export function useVendorOSRecordMutations(
   module: VendorOSModule,
   organizationId?: string | null,
   branchId?: string | null,
+  accessOverride?: ResolvedVendorAccommodationAccess | null,
 ) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operation = useMemo(() => getVendorOSOperation(module), [module]);
+  const accommodationAccess = useMutationAccommodationAccess(organizationId, accessOverride);
 
   const createRecord = useCallback(
     async (input: Record<string, unknown>) => {
       if (!organizationId) throw new Error('Select an organization before creating records');
+      if (accommodationAccess === undefined) {
+        const message = 'Checking module access. Please try again.';
+        setError(message);
+        throw new Error(message);
+      }
+      const accessError = getVendorMutationAccessError(module, accommodationAccess);
+      if (accessError) {
+        setError(accessError);
+        throw new Error(accessError);
+      }
       setSubmitting(true);
       setError(null);
       try {
@@ -310,11 +362,21 @@ export function useVendorOSRecordMutations(
         setSubmitting(false);
       }
     },
-    [branchId, operation, organizationId],
+    [accommodationAccess, branchId, module, operation, organizationId],
   );
 
   const updateRecord = useCallback(
     async (recordId: string, input: Record<string, unknown>) => {
+      if (accommodationAccess === undefined) {
+        const message = 'Checking module access. Please try again.';
+        setError(message);
+        throw new Error(message);
+      }
+      const accessError = getVendorMutationAccessError(module, accommodationAccess);
+      if (accessError) {
+        setError(accessError);
+        throw new Error(accessError);
+      }
       setSubmitting(true);
       setError(null);
       try {
@@ -327,11 +389,21 @@ export function useVendorOSRecordMutations(
         setSubmitting(false);
       }
     },
-    [operation],
+    [accommodationAccess, module, operation],
   );
 
   const deleteRecord = useCallback(
     async (recordId: string) => {
+      if (accommodationAccess === undefined) {
+        const message = 'Checking module access. Please try again.';
+        setError(message);
+        throw new Error(message);
+      }
+      const accessError = getVendorMutationAccessError(module, accommodationAccess);
+      if (accessError) {
+        setError(accessError);
+        throw new Error(accessError);
+      }
       setSubmitting(true);
       setError(null);
       try {
@@ -344,7 +416,7 @@ export function useVendorOSRecordMutations(
         setSubmitting(false);
       }
     },
-    [operation],
+    [accommodationAccess, module, operation],
   );
 
   return {
@@ -356,13 +428,28 @@ export function useVendorOSRecordMutations(
   };
 }
 
-export function useVendorDocumentUpload(organizationId?: string | null, branchId?: string | null) {
+export function useVendorDocumentUpload(
+  organizationId?: string | null,
+  branchId?: string | null,
+  accessOverride?: ResolvedVendorAccommodationAccess | null,
+) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const accommodationAccess = useMutationAccommodationAccess(organizationId, accessOverride);
 
   const uploadDocument = useCallback(
     async (input: { name: string; document_type: string; status?: DocumentStatus; file: File | Blob }) => {
       if (!organizationId) throw new Error('Select an organization before uploading documents');
+      if (accommodationAccess === undefined) {
+        const message = 'Checking module access. Please try again.';
+        setError(message);
+        throw new Error(message);
+      }
+      const accessError = getVendorMutationAccessError('documents', accommodationAccess);
+      if (accessError) {
+        setError(accessError);
+        throw new Error(accessError);
+      }
       setSubmitting(true);
       setError(null);
       try {
@@ -383,7 +470,7 @@ export function useVendorDocumentUpload(organizationId?: string | null, branchId
         setSubmitting(false);
       }
     },
-    [branchId, organizationId],
+    [accommodationAccess, branchId, organizationId],
   );
 
   return {

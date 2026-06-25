@@ -8,6 +8,7 @@ import {
   useVendorOSRecords,
   useVendorOSTenant,
 } from './hooks';
+import type { ResolvedVendorAccommodationAccess } from './accommodationAccess';
 import type { VendorBranch, VendorNotification, VendorOrganization, VendorTeamMember } from './types';
 
 vi.mock('@/src/services/vendors', () => ({
@@ -125,8 +126,43 @@ const unread: VendorNotification = {
   read_at: null,
 };
 
+const enabledAccommodationAccess: ResolvedVendorAccommodationAccess = {
+  vendorProfileId: 'vendor-1',
+  businessType: 'hotel',
+  providerFamily: 'accommodation',
+  planTier: 'advanced',
+  enforcementMode: 'enforced',
+  moduleOverrides: {},
+  capabilityOverrides: {},
+  approvalOverrides: {},
+  isAccommodationProvider: true,
+  visibleModules: ['dashboard', 'crm', 'calendar', 'inbox', 'team', 'pms', 'documents', 'settings'],
+  moduleVisibility: {
+    dashboard: true,
+    crm: true,
+    calendar: true,
+    inbox: true,
+    accounting: false,
+    team: true,
+    pms: true,
+    tours: false,
+    activities: false,
+    fleet: false,
+    ai_assistant: false,
+    marketplace: false,
+    subscriptions: false,
+    analytics: false,
+    branches: false,
+    documents: true,
+    settings: true,
+  },
+  resolvedCapabilities: {} as never,
+  resolvedApprovals: {} as never,
+};
+
 describe('Vendor OS hooks', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(listVendorOrganizations).mockResolvedValue([organization]);
     vi.mocked(listVendorBranches).mockResolvedValue([branch]);
     vi.mocked(listVendorTeamMembers).mockResolvedValue([member]);
@@ -342,7 +378,9 @@ describe('Vendor OS hooks', () => {
   });
 
   it('creates, updates, and deletes records through module mutations', async () => {
-    const { result } = renderHook(() => useVendorOSRecordMutations('crm', 'org-1', 'branch-1'));
+    const { result } = renderHook(() =>
+      useVendorOSRecordMutations('crm', 'org-1', 'branch-1', enabledAccommodationAccess),
+    );
 
     await act(async () => {
       await result.current.createRecord({ title: 'Goa group trip', stage: 'new' });
@@ -361,9 +399,22 @@ describe('Vendor OS hooks', () => {
     expect(result.current.submitting).toBe(false);
   });
 
+  it('blocks record mutations when the module is disabled by accommodation access', async () => {
+    const { result } = renderHook(() => useVendorOSRecordMutations('fleet', 'org-1', 'branch-1', enabledAccommodationAccess));
+
+    await act(async () => {
+      await expect(result.current.createRecord({ name: 'Airport SUV' })).rejects.toThrow(
+        'This module is not enabled for this vendor account.',
+      );
+    });
+
+    expect(createVendorOSRecord).not.toHaveBeenCalled();
+    expect(result.current.error).toBe('This module is not enabled for this vendor account.');
+  });
+
   it('uploads document files through the document upload hook', async () => {
     const file = new File(['license'], 'license.pdf', { type: 'application/pdf' });
-    const { result } = renderHook(() => useVendorDocumentUpload('org-1', 'branch-1'));
+    const { result } = renderHook(() => useVendorDocumentUpload('org-1', 'branch-1', enabledAccommodationAccess));
 
     await act(async () => {
       await result.current.uploadDocument({
@@ -384,6 +435,58 @@ describe('Vendor OS hooks', () => {
       file,
     });
     expect(result.current.submitting).toBe(false);
+  });
+
+  it('blocks document upload when the documents module is disabled by accommodation access', async () => {
+    const file = new File(['license'], 'license.pdf', { type: 'application/pdf' });
+    const access: ResolvedVendorAccommodationAccess = {
+      vendorProfileId: 'vendor-1',
+      businessType: 'hotel',
+      providerFamily: 'accommodation',
+      planTier: 'advanced',
+      enforcementMode: 'enforced',
+      moduleOverrides: {},
+      capabilityOverrides: {},
+      approvalOverrides: {},
+      isAccommodationProvider: true,
+      visibleModules: ['dashboard', 'crm'],
+      moduleVisibility: {
+        dashboard: true,
+        crm: true,
+        calendar: false,
+        inbox: false,
+        accounting: false,
+        team: false,
+        pms: false,
+        tours: false,
+        activities: false,
+        fleet: false,
+        ai_assistant: false,
+        marketplace: false,
+        subscriptions: false,
+        analytics: false,
+        branches: false,
+        documents: false,
+        settings: false,
+      },
+      resolvedCapabilities: {} as never,
+      resolvedApprovals: {} as never,
+    };
+    const { result } = renderHook(() => useVendorDocumentUpload('org-1', 'branch-1', access));
+
+    await act(async () => {
+      await expect(
+        result.current.uploadDocument({
+          name: 'Hotel Trade License',
+          document_type: 'license',
+          status: 'active',
+          file,
+        }),
+      ).rejects.toThrow('This module is not enabled for this vendor account.');
+    });
+
+    expect(uploadVendorDocumentFile).not.toHaveBeenCalled();
+    expect(result.current.error).toBe('This module is not enabled for this vendor account.');
   });
 
   it('creates signed document URLs through the download hook', async () => {
