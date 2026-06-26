@@ -150,5 +150,117 @@ export function getAccommodationModuleInsights(
     };
   }
 
+  if (module === 'accounting') {
+    return {
+      title: 'Accommodation controls',
+      summary,
+      items: [
+        {
+          label: 'Integrated payments',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['billing.integrated_payments']
+              ? 'Enabled'
+              : 'Upgrade to unlock',
+        },
+        {
+          label: 'Payout actions',
+          status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.payout_actions),
+        },
+        {
+          label: 'Refund actions',
+          status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.refund_actions),
+        },
+      ],
+    };
+  }
+
+  if (module === 'crm') {
+    return {
+      title: 'Accommodation controls',
+      summary,
+      items: [
+        {
+          label: 'Manual guest communication',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['guest.manual_communication']
+              ? 'Enabled'
+              : 'Locked',
+        },
+        {
+          label: 'Automated confirmations',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['guest.automated_confirmations']
+              ? 'Enabled'
+              : 'Locked',
+        },
+        {
+          label: 'WhatsApp automation',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['guest.whatsapp_automation']
+              ? 'Enabled'
+              : 'Advanced only',
+        },
+      ],
+    };
+  }
+
+  if (module === 'inbox') {
+    return {
+      title: 'Accommodation controls',
+      summary,
+      items: [
+        {
+          label: 'Guest automation',
+          status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.guest_automation),
+        },
+        {
+          label: 'Automated confirmations',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['guest.automated_confirmations']
+              ? 'Enabled'
+              : 'Locked',
+        },
+        {
+          label: 'WhatsApp automation',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['guest.whatsapp_automation']
+              ? 'Enabled'
+              : 'Advanced only',
+        },
+      ],
+    };
+  }
+
+  if (module === 'settings') {
+    return {
+      title: 'Accommodation controls',
+      summary,
+      items: [
+        {
+          label: 'Pricing changes',
+          status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.pricing_changes),
+        },
+        {
+          label: 'Publishing policy',
+          status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.marketplace_publishing),
+        },
+        {
+          label: 'Current plan',
+          status: titleCasePlan(access.planTier),
+        },
+      ],
+    };
+  }
+
   return null;
+}
+
+function titleCasePlan(planTier: ResolvedVendorAccommodationAccess['planTier']) {
+  return planTier.charAt(0).toUpperCase() + planTier.slice(1);
 }

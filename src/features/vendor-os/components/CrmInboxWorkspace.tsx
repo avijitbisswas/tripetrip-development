@@ -1,7 +1,10 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Bot, CalendarClock, CheckCircle2, CircleDollarSign, MessageSquare, PhoneCall, Send, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { AccommodationInsightPanel } from './AccommodationInsightPanel';
 
 type CrmInboxMode = 'crm' | 'inbox';
 
@@ -9,6 +12,7 @@ interface CrmInboxWorkspaceProps {
   mode: CrmInboxMode;
   organizationId?: string;
   branchId?: string | null;
+  accommodationAccess?: ResolvedVendorAccommodationAccess | null;
 }
 
 const pipelineStages = [
@@ -97,10 +101,11 @@ function formatRecordValue(value: unknown) {
   return `INR ${amount.toLocaleString('en-IN')}`;
 }
 
-export function CrmInboxWorkspace({ mode, organizationId, branchId }: CrmInboxWorkspaceProps) {
+export function CrmInboxWorkspace({ mode, organizationId, branchId, accommodationAccess }: CrmInboxWorkspaceProps) {
   const isCrm = mode === 'crm';
   const records = useVendorOSRecords(mode, organizationId);
   const mutations = useVendorOSRecordMutations(mode, organizationId, branchId);
+  const accommodationInsight = getAccommodationModuleInsights(mode, accommodationAccess);
   const [leadForm, setLeadForm] = useState({ title: '', stage: 'new', estimated_value: '' });
   const [threadForm, setThreadForm] = useState({ subject: '', channel: 'tripetrip', status: 'open' });
   const [formMessage, setFormMessage] = useState<string | null>(null);
@@ -198,6 +203,8 @@ export function CrmInboxWorkspace({ mode, organizationId, branchId }: CrmInboxWo
           </div>
         </div>
       </section>
+
+      <AccommodationInsightPanel insight={accommodationInsight} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">

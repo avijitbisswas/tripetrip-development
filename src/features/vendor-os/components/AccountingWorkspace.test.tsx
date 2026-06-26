@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 import { AccountingWorkspace } from './AccountingWorkspace';
 
 const hookMocks = vi.hoisted(() => ({
@@ -8,6 +9,74 @@ const hookMocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   records: [] as Record<string, unknown>[],
 }));
+
+const accommodationAccess: ResolvedVendorAccommodationAccess = {
+  vendorProfileId: 'vendor-1',
+  businessType: 'hotel',
+  providerFamily: 'accommodation',
+  planTier: 'basic',
+  enforcementMode: 'enforced',
+  moduleOverrides: {},
+  capabilityOverrides: {},
+  approvalOverrides: {},
+  isAccommodationProvider: true,
+  visibleModules: ['dashboard', 'crm', 'calendar', 'inbox', 'accounting', 'team', 'pms', 'documents', 'settings'],
+  moduleVisibility: {
+    dashboard: true,
+    crm: true,
+    calendar: true,
+    inbox: true,
+    accounting: true,
+    team: true,
+    pms: true,
+    tours: false,
+    activities: false,
+    fleet: false,
+    ai_assistant: false,
+    marketplace: false,
+    subscriptions: false,
+    analytics: false,
+    branches: false,
+    documents: true,
+    settings: true,
+  },
+  resolvedCapabilities: {
+    'bookings.manual_entry': true,
+    'bookings.online_engine': false,
+    'bookings.group_bookings': false,
+    'bookings.ai_chatbot': false,
+    'inventory.manual_updates': true,
+    'inventory.ota_sync': false,
+    'inventory.rule_based_rates': false,
+    'inventory.dynamic_pricing': false,
+    'checkin.manual': true,
+    'checkin.mobile': false,
+    'checkin.digital_keys': false,
+    'billing.manual_folios': true,
+    'billing.gst_invoice': false,
+    'billing.integrated_payments': false,
+    'housekeeping.room_status': true,
+    'housekeeping.mobile_tasks': false,
+    'housekeeping.predictive_scheduling': false,
+    'staff.manual_attendance': true,
+    'staff.shift_scheduling': false,
+    'staff.biometric_attendance': false,
+    'analytics.occupancy_reports': true,
+    'analytics.operational_dashboards': false,
+    'analytics.ai_forecasting': false,
+    'guest.manual_communication': true,
+    'guest.automated_confirmations': false,
+    'guest.whatsapp_automation': false,
+  },
+  resolvedApprovals: {
+    pricing_changes: 'vendor_owner_only',
+    marketplace_publishing: 'admin_approval_required',
+    payout_actions: 'open',
+    refund_actions: 'open',
+    guest_automation: 'open',
+    ai_recommendations: 'admin_approval_required',
+  },
+};
 
 vi.mock('../hooks', () => ({
   useVendorOSRecords: () => ({
@@ -85,5 +154,15 @@ describe('AccountingWorkspace', () => {
     expect(screen.getByText('INV-3001')).toBeInTheDocument();
     expect(screen.getByText('Corporate Retreat')).toBeInTheDocument();
     expect(screen.getByText('INR 30,500')).toBeInTheDocument();
+  });
+
+  it('shows accommodation finance guidance for approvals and billing features', () => {
+    render(<AccountingWorkspace accommodationAccess={accommodationAccess} />);
+
+    expect(screen.getByText('Accommodation controls')).toBeInTheDocument();
+    expect(screen.getByText('Integrated payments')).toBeInTheDocument();
+    expect(screen.getByText('Upgrade to unlock')).toBeInTheDocument();
+    expect(screen.getByText('Payout actions')).toBeInTheDocument();
+    expect(screen.getAllByText('Open').length).toBeGreaterThan(0);
   });
 });

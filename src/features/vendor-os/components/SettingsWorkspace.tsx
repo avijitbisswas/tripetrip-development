@@ -14,12 +14,16 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { AccommodationInsightPanel } from './AccommodationInsightPanel';
 import type { VendorOSModule } from '../types';
 
 interface SettingsWorkspaceProps {
   organizationId?: string;
   branchId?: string | null;
+  accommodationAccess?: ResolvedVendorAccommodationAccess | null;
 }
 
 const moduleOptions: VendorOSModule[] = [
@@ -117,9 +121,10 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function SettingsWorkspace({ organizationId, branchId }: SettingsWorkspaceProps) {
+export function SettingsWorkspace({ organizationId, branchId, accommodationAccess }: SettingsWorkspaceProps) {
   const records = useVendorOSRecords('settings', organizationId);
   const mutations = useVendorOSRecordMutations('settings', organizationId, branchId);
+  const accommodationInsight = getAccommodationModuleInsights('settings', accommodationAccess);
   const [settingForm, setSettingForm] = useState({
     module: 'crm',
     enabled: 'true',
@@ -209,6 +214,8 @@ export function SettingsWorkspace({ organizationId, branchId }: SettingsWorkspac
           </div>
         </div>
       </section>
+
+      <AccommodationInsightPanel insight={accommodationInsight} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">

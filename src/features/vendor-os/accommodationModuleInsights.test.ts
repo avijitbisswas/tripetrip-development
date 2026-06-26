@@ -116,4 +116,42 @@ describe('getAccommodationModuleInsights', () => {
       ]),
     );
   });
+
+  it('describes accounting approvals for payouts and guest automation', () => {
+    const insight = getAccommodationModuleInsights('accounting', buildAccess());
+
+    expect(insight?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Payout actions', status: 'Open' }),
+        expect.objectContaining({ label: 'Refund actions', status: 'Open' }),
+      ]),
+    );
+  });
+
+  it('describes guest communication and automation in CRM and inbox', () => {
+    const crmInsight = getAccommodationModuleInsights('crm', buildAccess());
+    const inboxInsight = getAccommodationModuleInsights('inbox', buildAccess());
+
+    expect(crmInsight?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Automated confirmations', status: 'Locked' }),
+      ]),
+    );
+    expect(inboxInsight?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Guest automation', status: 'Open' }),
+      ]),
+    );
+  });
+
+  it('describes settings approvals and availability posture', () => {
+    const insight = getAccommodationModuleInsights('settings', buildAccess());
+
+    expect(insight?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Pricing changes', status: 'Owner approval' }),
+        expect.objectContaining({ label: 'Publishing policy', status: 'Admin approval' }),
+      ]),
+    );
+  });
 });

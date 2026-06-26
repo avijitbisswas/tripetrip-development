@@ -11,6 +11,7 @@
 - Vendor OS tenant access now filters modules for accommodation providers.
 - Vendor OS shared mutation hooks now block creates, updates, deletes, and document uploads for modules disabled by accommodation access policy.
 - PMS, calendar, marketplace, and analytics workspaces now surface accommodation plan, capability, and approval guidance directly in the vendor UI.
+- CRM, inbox, accounting, and settings workspaces now surface accommodation plan, capability, and approval guidance directly in the vendor UI.
 
 ## In Progress
 
@@ -18,7 +19,7 @@
 
 ## Next
 
-- Extend accommodation guidance into guest communications, accounting, and settings workflows.
+- Extend accommodation guidance into team, documents, and subscription workflows if those need launch-facing plan visibility.
 - Expand admin controls to capability-level toggles if needed beyond module and approval policy scope.
 - Move Vendor OS write paths behind Worker or RLS-backed enforcement for stronger server-side guarantees beyond app-level hook guards.
 

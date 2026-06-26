@@ -331,6 +331,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
         ) : activeModule === 'crm' || activeModule === 'inbox' ? (
           <CrmInboxWorkspace
             mode={activeModule}
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />
@@ -359,6 +360,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           />
         ) : activeModule === 'accounting' ? (
           <AccountingWorkspace
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />
@@ -395,6 +397,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           />
         ) : activeModule === 'settings' ? (
           <SettingsWorkspace
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />
