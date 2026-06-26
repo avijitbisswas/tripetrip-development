@@ -258,6 +258,89 @@ export function getAccommodationModuleInsights(
     };
   }
 
+  if (module === 'team') {
+    return {
+      title: 'Accommodation controls',
+      summary,
+      items: [
+        {
+          label: 'Shift scheduling',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['staff.shift_scheduling']
+              ? 'Enabled'
+              : 'Upgrade to unlock',
+        },
+        {
+          label: 'Biometric attendance',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['staff.biometric_attendance']
+              ? 'Enabled'
+              : 'Locked',
+        },
+        {
+          label: 'Approval changes',
+          status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.payout_actions),
+        },
+      ],
+    };
+  }
+
+  if (module === 'documents') {
+    return {
+      title: 'Accommodation controls',
+      summary,
+      items: [
+        {
+          label: 'Expiry automation',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['guest.automated_confirmations']
+              ? 'Enabled'
+              : 'Locked',
+        },
+        {
+          label: 'WhatsApp automation',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['guest.whatsapp_automation']
+              ? 'Enabled'
+              : 'Advanced only',
+        },
+        {
+          label: 'Document approvals',
+          status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.marketplace_publishing),
+        },
+      ],
+    };
+  }
+
+  if (module === 'subscriptions') {
+    return {
+      title: 'Accommodation controls',
+      summary,
+      items: [
+        {
+          label: 'Current plan',
+          status: titleCasePlan(access.planTier),
+        },
+        {
+          label: 'Dynamic pricing',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['inventory.dynamic_pricing']
+              ? 'Enabled'
+              : 'Advanced only',
+        },
+        {
+          label: 'Refund actions',
+          status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.refund_actions),
+        },
+      ],
+    };
+  }
+
   return null;
 }
 

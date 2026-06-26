@@ -13,11 +13,15 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorDocumentDownload, useVendorDocumentUpload, useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { AccommodationInsightPanel } from './AccommodationInsightPanel';
 
 interface DocumentWorkspaceProps {
   organizationId?: string;
   branchId?: string | null;
+  accommodationAccess?: ResolvedVendorAccommodationAccess | null;
 }
 
 const vaultDocuments = [
@@ -101,11 +105,12 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspaceProps) {
+export function DocumentWorkspace({ organizationId, branchId, accommodationAccess }: DocumentWorkspaceProps) {
   const records = useVendorOSRecords('documents', organizationId);
   const mutations = useVendorOSRecordMutations('documents', organizationId, branchId);
   const uploads = useVendorDocumentUpload(organizationId, branchId);
   const downloads = useVendorDocumentDownload();
+  const accommodationInsight = getAccommodationModuleInsights('documents', accommodationAccess);
   const [documentForm, setDocumentForm] = useState({
     name: '',
     document_type: '',
@@ -247,6 +252,8 @@ export function DocumentWorkspace({ organizationId, branchId }: DocumentWorkspac
           </div>
         </div>
       </section>
+
+      <AccommodationInsightPanel insight={accommodationInsight} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">

@@ -14,10 +14,14 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { AccommodationInsightPanel } from './AccommodationInsightPanel';
 
 interface SubscriptionWorkspaceProps {
   organizationId?: string;
+  accommodationAccess?: ResolvedVendorAccommodationAccess | null;
 }
 
 const usageMeters = [
@@ -100,9 +104,10 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
-export function SubscriptionWorkspace({ organizationId }: SubscriptionWorkspaceProps) {
+export function SubscriptionWorkspace({ organizationId, accommodationAccess }: SubscriptionWorkspaceProps) {
   const records = useVendorOSRecords('subscriptions', organizationId);
   const mutations = useVendorOSRecordMutations('subscriptions', organizationId, null);
+  const accommodationInsight = getAccommodationModuleInsights('subscriptions', accommodationAccess);
   const [subscriptionForm, setSubscriptionForm] = useState({
     plan_code: 'growth',
     billing_cycle: 'monthly',
@@ -174,6 +179,8 @@ export function SubscriptionWorkspace({ organizationId }: SubscriptionWorkspaceP
           </div>
         </div>
       </section>
+
+      <AccommodationInsightPanel insight={accommodationInsight} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">

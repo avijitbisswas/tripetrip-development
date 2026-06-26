@@ -376,7 +376,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
             branchId={tenant.activeBranch?.id || null}
           />
         ) : activeModule === 'subscriptions' ? (
-          <SubscriptionWorkspace organizationId={tenant.selectedOrganization?.id} />
+          <SubscriptionWorkspace accommodationAccess={accommodationAccess} organizationId={tenant.selectedOrganization?.id} />
         ) : activeModule === 'analytics' ? (
           <AnalyticsWorkspace
             accommodationAccess={accommodationAccess}
@@ -385,6 +385,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           />
         ) : activeModule === 'team' ? (
           <TeamWorkspace
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />
@@ -392,6 +393,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <BranchWorkspace organizationId={tenant.selectedOrganization?.id} />
         ) : activeModule === 'documents' ? (
           <DocumentWorkspace
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />

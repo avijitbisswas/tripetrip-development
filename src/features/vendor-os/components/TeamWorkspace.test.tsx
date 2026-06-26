@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 import { TeamWorkspace } from './TeamWorkspace';
 
 const hookMocks = vi.hoisted(() => ({
@@ -9,6 +10,75 @@ const hookMocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   records: [] as Record<string, unknown>[],
 }));
+
+const accommodationAccess: ResolvedVendorAccommodationAccess = {
+  vendorProfileId: 'vendor-1',
+  businessType: 'hotel',
+  providerFamily: 'accommodation',
+  planTier: 'paid',
+  enforcementMode: 'enforced',
+  moduleOverrides: {},
+  capabilityOverrides: {},
+  approvalOverrides: {},
+  updatedAt: '2026-06-25T10:00:00.000Z',
+  isAccommodationProvider: true,
+  visibleModules: ['dashboard', 'team', 'documents', 'subscriptions'],
+  moduleVisibility: {
+    dashboard: true,
+    crm: true,
+    calendar: true,
+    inbox: true,
+    accounting: true,
+    team: true,
+    pms: true,
+    tours: false,
+    activities: false,
+    fleet: false,
+    ai_assistant: true,
+    marketplace: true,
+    subscriptions: true,
+    analytics: true,
+    branches: true,
+    documents: true,
+    settings: true,
+  },
+  resolvedCapabilities: {
+    'bookings.manual_entry': true,
+    'bookings.online_engine': true,
+    'bookings.group_bookings': true,
+    'bookings.ai_chatbot': false,
+    'inventory.manual_updates': true,
+    'inventory.ota_sync': true,
+    'inventory.rule_based_rates': true,
+    'inventory.dynamic_pricing': false,
+    'checkin.manual': true,
+    'checkin.mobile': true,
+    'checkin.digital_keys': true,
+    'billing.manual_folios': true,
+    'billing.gst_invoice': true,
+    'billing.integrated_payments': true,
+    'housekeeping.room_status': true,
+    'housekeeping.mobile_tasks': true,
+    'housekeeping.predictive_scheduling': false,
+    'staff.manual_attendance': true,
+    'staff.shift_scheduling': true,
+    'staff.biometric_attendance': false,
+    'analytics.occupancy_reports': true,
+    'analytics.operational_dashboards': true,
+    'analytics.ai_forecasting': false,
+    'guest.manual_communication': true,
+    'guest.automated_confirmations': true,
+    'guest.whatsapp_automation': false,
+  },
+  resolvedApprovals: {
+    pricing_changes: 'vendor_owner_only',
+    marketplace_publishing: 'admin_approval_required',
+    payout_actions: 'vendor_owner_only',
+    refund_actions: 'vendor_owner_only',
+    guest_automation: 'admin_approval_required',
+    ai_recommendations: 'admin_approval_required',
+  },
+};
 
 vi.mock('../hooks', () => ({
   useVendorOSRecords: () => ({
@@ -116,5 +186,16 @@ describe('TeamWorkspace', () => {
       title: 'Approved for Manali operations coverage',
     });
     expect(hookMocks.refresh).toHaveBeenCalled();
+  });
+
+  it('shows accommodation staffing guidance for attendance and approval workflows', () => {
+    render(<TeamWorkspace accommodationAccess={accommodationAccess} />);
+
+    expect(screen.getByText('Accommodation controls')).toBeInTheDocument();
+    expect(screen.getByText('Shift scheduling')).toBeInTheDocument();
+    expect(screen.getByText('Biometric attendance')).toBeInTheDocument();
+    expect(screen.getByText('Approval changes')).toBeInTheDocument();
+    expect(screen.getByText('Owner approval')).toBeInTheDocument();
+    expect(screen.getByText('Locked')).toBeInTheDocument();
   });
 });

@@ -154,4 +154,29 @@ describe('getAccommodationModuleInsights', () => {
       ]),
     );
   });
+
+  it('describes staffing, document, and subscription controls for accommodation vendors', () => {
+    const teamInsight = getAccommodationModuleInsights('team', buildAccess());
+    const documentsInsight = getAccommodationModuleInsights('documents', buildAccess());
+    const subscriptionsInsight = getAccommodationModuleInsights('subscriptions', buildAccess());
+
+    expect(teamInsight?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Shift scheduling', status: 'Upgrade to unlock' }),
+        expect.objectContaining({ label: 'Biometric attendance', status: 'Locked' }),
+      ]),
+    );
+    expect(documentsInsight?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'WhatsApp automation', status: 'Advanced only' }),
+        expect.objectContaining({ label: 'Document approvals', status: 'Admin approval' }),
+      ]),
+    );
+    expect(subscriptionsInsight?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Current plan', status: 'Basic' }),
+        expect.objectContaining({ label: 'Refund actions', status: 'Open' }),
+      ]),
+    );
+  });
 });
