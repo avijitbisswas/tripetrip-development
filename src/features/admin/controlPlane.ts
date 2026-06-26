@@ -521,6 +521,19 @@ async function listLatestVendorAccessMessages(supabase: SupabaseLike) {
   return (data || []) as Array<Record<string, unknown>>;
 }
 
+async function getLatestVendorAccommodationAccessRecord(
+  supabase: SupabaseLike,
+  vendorProfileId: string,
+) {
+  const rows = await listLatestVendorAccessMessages(supabase);
+
+  return (
+    rows
+      .map((row) => parsePrefixedJson<VendorAccommodationAccessRecord>(row.content, ADMIN_VENDOR_ACCESS_PREFIX))
+      .find((entry) => entry?.vendorProfileId === vendorProfileId) || null
+  );
+}
+
 export async function listAdminAccommodationAccess(supabase: SupabaseLike) {
   const vendors = await listAdminVendors(supabase);
   const rows = await listLatestVendorAccessMessages(supabase);
@@ -585,10 +598,7 @@ export async function getVendorAccommodationAccess(
 
   const vendorId = safeString(vendor.id);
   const businessType = safeString(vendor.business_type);
-  const rows = await listLatestVendorAccessMessages(supabase);
-  const saved = rows
-    .map((row) => parsePrefixedJson<VendorAccommodationAccessRecord>(row.content, ADMIN_VENDOR_ACCESS_PREFIX))
-    .find((entry) => entry?.vendorProfileId === vendorId);
+  const saved = await getLatestVendorAccommodationAccessRecord(supabase, vendorId);
 
   return resolveVendorAccommodationAccess(
     saved || buildDefaultVendorAccommodationAccess({ vendorProfileId: vendorId, businessType }),
@@ -609,20 +619,23 @@ export async function saveAdminAccommodationAccess(
     approvalOverrides?: Record<string, ApprovalMode>;
   },
 ) {
-  const current = buildDefaultVendorAccommodationAccess({
+  const baseDefault = buildDefaultVendorAccommodationAccess({
     vendorProfileId: input.vendorProfileId,
     businessType: input.businessType,
   });
+  const current =
+    (await getLatestVendorAccommodationAccessRecord(supabase, input.vendorProfileId)) ||
+    baseDefault;
 
   const payload: VendorAccommodationAccessRecord = {
     vendorProfileId: input.vendorProfileId,
     businessType: input.businessType,
-    providerFamily: input.providerFamily || current.providerFamily,
-    planTier: input.planTier || current.planTier,
-    enforcementMode: input.enforcementMode || current.enforcementMode,
-    moduleOverrides: input.moduleOverrides || {},
-    capabilityOverrides: input.capabilityOverrides || {},
-    approvalOverrides: input.approvalOverrides || {},
+    providerFamily: input.providerFamily || current.providerFamily || baseDefault.providerFamily,
+    planTier: input.planTier || current.planTier || baseDefault.planTier,
+    enforcementMode: input.enforcementMode || current.enforcementMode || baseDefault.enforcementMode,
+    moduleOverrides: input.moduleOverrides || current.moduleOverrides || {},
+    capabilityOverrides: input.capabilityOverrides || current.capabilityOverrides || {},
+    approvalOverrides: input.approvalOverrides || current.approvalOverrides || {},
     updatedAt: new Date().toISOString(),
   };
 

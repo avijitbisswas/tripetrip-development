@@ -13,6 +13,8 @@
 - PMS, calendar, marketplace, and analytics workspaces now surface accommodation plan, capability, and approval guidance directly in the vendor UI.
 - CRM, inbox, accounting, and settings workspaces now surface accommodation plan, capability, and approval guidance directly in the vendor UI.
 - Team, documents, and subscriptions workspaces now surface accommodation plan, capability, and approval guidance directly in the vendor UI.
+- Admin accommodation controls now support capability-level overrides in addition to plan tier, module visibility, and approval policies.
+- Admin accommodation saves now preserve existing override state when only one part of the access policy is updated.
 
 ## In Progress
 
@@ -20,7 +22,6 @@
 
 ## Next
 
-- Expand admin controls to capability-level toggles if needed beyond module and approval policy scope.
 - Move Vendor OS write paths behind Worker or RLS-backed enforcement for stronger server-side guarantees beyond app-level hook guards.
 
 ## Deferred

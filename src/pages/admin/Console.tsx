@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { getCurrentSession, signOut } from '@/src/services/auth';
 import { getProfile } from '@/src/services/profiles';
+import type { AccommodationCapabilityKey, ApprovalMode, VendorAccessEnforcementMode, VendorPlanTier, VendorProviderFamily } from '@/src/features/vendor-os/accommodationAccess';
 import {
   getAdminContentConfig,
   getAdminOverview,
@@ -47,6 +48,44 @@ const navItems = [
   { path: '/admin/audit', label: 'Audit', icon: FileText },
 ] as const;
 
+const accommodationPlanOptions = ['advanced', 'paid', 'basic'] as const satisfies readonly VendorPlanTier[];
+const accommodationEnforcementOptions = ['open', 'enforced'] as const satisfies readonly VendorAccessEnforcementMode[];
+const accommodationApprovalModes = ['open', 'vendor_owner_only', 'admin_approval_required'] as const satisfies readonly ApprovalMode[];
+const accommodationCapabilityGroups: Array<{ title: string; capabilities: AccommodationCapabilityKey[] }> = [
+  {
+    title: 'Bookings',
+    capabilities: ['bookings.manual_entry', 'bookings.online_engine', 'bookings.group_bookings', 'bookings.ai_chatbot'],
+  },
+  {
+    title: 'Inventory',
+    capabilities: ['inventory.manual_updates', 'inventory.ota_sync', 'inventory.rule_based_rates', 'inventory.dynamic_pricing'],
+  },
+  {
+    title: 'Check-in',
+    capabilities: ['checkin.manual', 'checkin.mobile', 'checkin.digital_keys'],
+  },
+  {
+    title: 'Billing',
+    capabilities: ['billing.manual_folios', 'billing.gst_invoice', 'billing.integrated_payments'],
+  },
+  {
+    title: 'Housekeeping',
+    capabilities: ['housekeeping.room_status', 'housekeeping.mobile_tasks', 'housekeeping.predictive_scheduling'],
+  },
+  {
+    title: 'Staff',
+    capabilities: ['staff.manual_attendance', 'staff.shift_scheduling', 'staff.biometric_attendance'],
+  },
+  {
+    title: 'Analytics',
+    capabilities: ['analytics.occupancy_reports', 'analytics.operational_dashboards', 'analytics.ai_forecasting'],
+  },
+  {
+    title: 'Guest',
+    capabilities: ['guest.manual_communication', 'guest.automated_confirmations', 'guest.whatsapp_automation'],
+  },
+];
+
 function formatAmount(amount: unknown) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(amount || 0));
 }
@@ -54,6 +93,14 @@ function formatAmount(amount: unknown) {
 function formatDate(value: unknown) {
   if (typeof value !== 'string' || !value) return '-';
   return new Date(value).toLocaleString();
+}
+
+function formatAdminLabel(value: string) {
+  return value
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
 }
 
 function AdminSection({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -415,8 +462,12 @@ export default function AdminConsole() {
                 {accommodationVendors.map((vendor) => {
                   const access = (vendor.access as Record<string, unknown> | undefined) || {};
                   const moduleVisibility = (access.moduleVisibility as Record<string, boolean> | undefined) || {};
+                  const capabilityVisibility = (access.resolvedCapabilities as Record<string, boolean> | undefined) || {};
+                  const capabilityOverrides = (access.capabilityOverrides as Record<string, boolean> | undefined) || {};
                   const approvalPolicies = (access.resolvedApprovals as Record<string, string> | undefined) || {};
-                  const providerFamily = String(access.providerFamily || 'generic');
+                  const planTier = String(access.planTier || 'advanced') as VendorPlanTier;
+                  const enforcementMode = String(access.enforcementMode || 'open') as VendorAccessEnforcementMode;
+                  const providerFamily = String(access.providerFamily || 'generic') as VendorProviderFamily;
                   const isAccommodation = providerFamily === 'accommodation';
 
                   return (
@@ -435,39 +486,41 @@ export default function AdminConsole() {
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          {(['advanced', 'paid', 'basic'] as const).map((planTier) => (
+                          {accommodationPlanOptions.map((candidatePlanTier) => (
                             <Button
-                              key={planTier}
+                              key={candidatePlanTier}
                               size="sm"
-                              variant="outline"
+                              variant={planTier === candidatePlanTier ? 'default' : 'outline'}
                               onClick={() =>
                                 saveAdminAccommodationAccess({
                                   vendorProfileId: vendor.vendorId,
                                   businessType: vendor.businessType,
-                                  providerFamily: access.providerFamily,
-                                  planTier,
-                                  enforcementMode: access.enforcementMode,
+                                  providerFamily,
+                                  planTier: candidatePlanTier,
+                                  enforcementMode,
                                   moduleOverrides: access.moduleOverrides || {},
+                                  capabilityOverrides: access.capabilityOverrides || {},
                                   approvalOverrides: access.approvalOverrides || {},
                                 }).then(() => loadModule())
                               }
                             >
-                              {planTier}
+                              {candidatePlanTier}
                             </Button>
                           ))}
-                          {(['open', 'enforced'] as const).map((mode) => (
+                          {accommodationEnforcementOptions.map((mode) => (
                             <Button
                               key={mode}
                               size="sm"
-                              variant="outline"
+                              variant={enforcementMode === mode ? 'default' : 'outline'}
                               onClick={() =>
                                 saveAdminAccommodationAccess({
                                   vendorProfileId: vendor.vendorId,
                                   businessType: vendor.businessType,
-                                  providerFamily: access.providerFamily,
-                                  planTier: access.planTier,
+                                  providerFamily,
+                                  planTier,
                                   enforcementMode: mode,
                                   moduleOverrides: access.moduleOverrides || {},
+                                  capabilityOverrides: access.capabilityOverrides || {},
                                   approvalOverrides: access.approvalOverrides || {},
                                 }).then(() => loadModule())
                               }
@@ -491,13 +544,14 @@ export default function AdminConsole() {
                                   saveAdminAccommodationAccess({
                                     vendorProfileId: vendor.vendorId,
                                     businessType: vendor.businessType,
-                                    providerFamily: access.providerFamily,
-                                    planTier: access.planTier,
-                                    enforcementMode: access.enforcementMode,
+                                    providerFamily,
+                                    planTier,
+                                    enforcementMode,
                                     moduleOverrides: {
                                       ...((access.moduleOverrides as Record<string, boolean> | undefined) || {}),
                                       [moduleKey]: !enabled,
                                     },
+                                    capabilityOverrides: access.capabilityOverrides || {},
                                     approvalOverrides: access.approvalOverrides || {},
                                   }).then(() => loadModule())
                                 }
@@ -507,24 +561,127 @@ export default function AdminConsole() {
                               </button>
                             ))}
                           </div>
+                          <div className="mt-4 space-y-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-black text-slate-950">Capability Wall</div>
+                                <div className="mt-1 text-xs font-semibold text-slate-500">
+                                  Override plan-derived feature access for specific accommodation vendors.
+                                </div>
+                              </div>
+                              <Badge className="bg-indigo-50 text-indigo-700">Capability Overrides</Badge>
+                            </div>
+                            {accommodationCapabilityGroups.map((group) => (
+                              <div key={group.title} className="rounded-2xl border border-slate-200 p-4">
+                                <div className="mb-3 text-[11px] font-black uppercase tracking-widest text-slate-400">{group.title}</div>
+                                <div className="grid gap-3 xl:grid-cols-2">
+                                  {group.capabilities.map((capabilityKey) => {
+                                    const effective = Boolean(capabilityVisibility[capabilityKey]);
+                                    const overrideValue = capabilityOverrides[capabilityKey];
+                                    const overrideState =
+                                      overrideValue === true ? 'force_on' : overrideValue === false ? 'force_off' : 'default';
+
+                                    return (
+                                      <div key={capabilityKey} className="rounded-2xl bg-slate-50 px-4 py-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <div className="font-bold text-slate-900">{formatAdminLabel(capabilityKey)}</div>
+                                          <Badge className={effective ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-700'}>
+                                            {effective ? 'Enabled' : 'Locked'}
+                                          </Badge>
+                                        </div>
+                                        <div className="mt-2 text-xs font-semibold text-slate-500">
+                                          Override: {overrideState === 'default' ? 'Plan default' : overrideState === 'force_on' ? 'Forced on' : 'Forced off'}
+                                        </div>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                          <Button
+                                            size="sm"
+                                            variant={overrideState === 'default' ? 'default' : 'outline'}
+                                            onClick={() => {
+                                              const nextOverrides = { ...capabilityOverrides };
+                                              delete nextOverrides[capabilityKey];
+                                              return saveAdminAccommodationAccess({
+                                                vendorProfileId: vendor.vendorId,
+                                                businessType: vendor.businessType,
+                                                providerFamily,
+                                                planTier,
+                                                enforcementMode,
+                                                moduleOverrides: access.moduleOverrides || {},
+                                                capabilityOverrides: nextOverrides,
+                                                approvalOverrides: access.approvalOverrides || {},
+                                              }).then(() => loadModule());
+                                            }}
+                                          >
+                                            Default
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant={overrideState === 'force_on' ? 'default' : 'outline'}
+                                            onClick={() =>
+                                              saveAdminAccommodationAccess({
+                                                vendorProfileId: vendor.vendorId,
+                                                businessType: vendor.businessType,
+                                                providerFamily,
+                                                planTier,
+                                                enforcementMode,
+                                                moduleOverrides: access.moduleOverrides || {},
+                                                capabilityOverrides: {
+                                                  ...capabilityOverrides,
+                                                  [capabilityKey]: true,
+                                                },
+                                                approvalOverrides: access.approvalOverrides || {},
+                                              }).then(() => loadModule())
+                                            }
+                                          >
+                                            Force On
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant={overrideState === 'force_off' ? 'default' : 'outline'}
+                                            onClick={() =>
+                                              saveAdminAccommodationAccess({
+                                                vendorProfileId: vendor.vendorId,
+                                                businessType: vendor.businessType,
+                                                providerFamily,
+                                                planTier,
+                                                enforcementMode,
+                                                moduleOverrides: access.moduleOverrides || {},
+                                                capabilityOverrides: {
+                                                  ...capabilityOverrides,
+                                                  [capabilityKey]: false,
+                                                },
+                                                approvalOverrides: access.approvalOverrides || {},
+                                              }).then(() => loadModule())
+                                            }
+                                          >
+                                            Force Off
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                             {Object.entries(approvalPolicies).map(([policyKey, value]) => (
                               <div key={policyKey} className="rounded-2xl bg-slate-50 px-4 py-3">
-                                <div className="text-[11px] font-black uppercase tracking-widest text-slate-400">{policyKey}</div>
+                                <div className="text-[11px] font-black uppercase tracking-widest text-slate-400">{formatAdminLabel(policyKey)}</div>
                                 <div className="mt-2 flex flex-wrap gap-2">
-                                  {(['open', 'vendor_owner_only', 'admin_approval_required'] as const).map((mode) => (
+                                  {accommodationApprovalModes.map((mode) => (
                                     <Button
                                       key={mode}
                                       size="sm"
-                                      variant="outline"
+                                      variant={String(value) === mode ? 'default' : 'outline'}
                                       onClick={() =>
                                         saveAdminAccommodationAccess({
                                           vendorProfileId: vendor.vendorId,
                                           businessType: vendor.businessType,
-                                          providerFamily: access.providerFamily,
-                                          planTier: access.planTier,
-                                          enforcementMode: access.enforcementMode,
+                                          providerFamily,
+                                          planTier,
+                                          enforcementMode,
                                           moduleOverrides: access.moduleOverrides || {},
+                                          capabilityOverrides: access.capabilityOverrides || {},
                                           approvalOverrides: {
                                             ...((access.approvalOverrides as Record<string, string> | undefined) || {}),
                                             [policyKey]: mode,
