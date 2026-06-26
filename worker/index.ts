@@ -56,6 +56,7 @@ import {
   updateAdminUser,
   updateAdminVendor,
 } from "../src/features/admin/controlPlane";
+import { getVendorOSOperation } from "../src/features/vendor-os/operations";
 
 type AssetsBinding = {
   fetch: (request: Request) => Promise<Response>;
@@ -1305,6 +1306,36 @@ async function handleVendorOSAccess(request: Request, env: WorkerEnv) {
   return json({ access });
 }
 
+async function handleVendorOSMutationAuthorization(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedProfile(request, env);
+  if ("error" in auth) return auth.error;
+
+  const body = await readJsonBody(request);
+  const module = String(body.module || "").trim();
+  const action = String(body.action || "").trim();
+  const organizationId = String(body.organizationId || "").trim();
+
+  if (!module || !organizationId || !["create", "update", "delete", "upload"].includes(action)) {
+    return json({ error: "Invalid vendor-os mutation authorization request" }, { status: 400 });
+  }
+
+  const operation = getVendorOSOperation(module as Parameters<typeof getVendorOSOperation>[0]);
+  if (!operation) {
+    return json({ error: "Unsupported vendor-os module" }, { status: 400 });
+  }
+
+  const access = await getVendorAccommodationAccess(auth.supabase, {
+    organizationId,
+    userId: auth.profile.id,
+  });
+
+  if (!access || access.moduleVisibility[operation.module]) {
+    return json({ allowed: true });
+  }
+
+  return json({ error: "This module is not enabled for this vendor account." }, { status: 403 });
+}
+
 async function handlePublicSiteConfig(env: WorkerEnv) {
   const { supabase } = createRepositories(env);
   if (!supabase) {
@@ -1341,6 +1372,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleEmailSend(request, env);
   if (request.method === "POST" && pathname === "/api/vendor-os/ai/brief")
     return handleVendorAIBrief(request, env);
+  if (request.method === "POST" && pathname === "/api/vendor-os/mutations/authorize")
+    return handleVendorOSMutationAuthorization(request, env);
   if (request.method === "POST" && pathname === "/api/auth/login")
     return handleLogin(request, env);
   if (request.method === "POST" && pathname === "/api/auth/register/request-otp")

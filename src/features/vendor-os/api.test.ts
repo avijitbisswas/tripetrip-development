@@ -26,6 +26,7 @@ vi.mock('@/src/lib/supabase', () => ({
     },
     auth: {
       getUser: vi.fn(),
+      getSession: vi.fn(),
     },
   },
 }));
@@ -51,6 +52,73 @@ describe('Vendor OS record API', () => {
       data: { user: { id: 'user-1' } },
       error: null,
     } as never);
+    vi.mocked(supabase.auth.getSession).mockResolvedValue({
+      data: { session: { access_token: 'vendor-token' } },
+      error: null,
+    } as never);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ allowed: true }), { status: 200 })),
+    );
+  });
+
+  it('rejects record creation when worker-side mutation authorization blocks the module', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: 'This module is not enabled for this vendor account.' }), { status: 403 })),
+    );
+
+    await expect(createVendorOSRecord(operation, 'org-1', 'branch-1', { title: 'Goa group trip' })).rejects.toThrow(
+      'This module is not enabled for this vendor account.',
+    );
+
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/mutations/authorize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        module: 'crm',
+        action: 'create',
+        organizationId: 'org-1',
+      }),
+    });
+    expect(supabase.from).not.toHaveBeenCalledWith('vendor_leads');
+  });
+
+  it('rejects document upload when worker-side mutation authorization blocks uploads', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: 'This module is not enabled for this vendor account.' }), { status: 403 })),
+    );
+    const file = new File(['license'], 'Hotel Trade License.pdf', { type: 'application/pdf' });
+
+    await expect(
+      uploadVendorDocumentFile({
+        organizationId: 'org-1',
+        branchId: 'branch-1',
+        module: 'documents',
+        name: 'Hotel Trade License',
+        documentType: 'license',
+        status: 'active',
+        file,
+      }),
+    ).rejects.toThrow('This module is not enabled for this vendor account.');
+
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/mutations/authorize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        module: 'documents',
+        action: 'upload',
+        organizationId: 'org-1',
+      }),
+    });
+    expect(supabase.storage.from).not.toHaveBeenCalled();
   });
 
   it('updates a module record in its mapped table', async () => {
@@ -72,7 +140,7 @@ describe('Vendor OS record API', () => {
       .mockReturnValueOnce({ update } as never)
       .mockReturnValueOnce({ insert: auditInsert } as never);
 
-    await expect(updateVendorOSRecord(operation, 'lead-1', { stage: 'won' })).resolves.toEqual(row);
+    await expect(updateVendorOSRecord(operation, 'org-1', 'lead-1', { stage: 'won' })).resolves.toEqual(row);
     expect(supabase.from).toHaveBeenCalledWith('vendor_leads');
     expect(update).toHaveBeenCalledWith({ stage: 'won' });
     expect(eq).toHaveBeenCalledWith('id', 'lead-1');
@@ -114,7 +182,7 @@ describe('Vendor OS record API', () => {
       .mockReturnValueOnce({ delete: deleteRecord } as never)
       .mockReturnValueOnce({ insert: auditInsert } as never);
 
-    await expect(deleteVendorOSRecord(operation, 'lead-1')).resolves.toEqual({ id: 'lead-1' });
+    await expect(deleteVendorOSRecord(operation, 'org-1', 'lead-1')).resolves.toEqual({ id: 'lead-1' });
     expect(supabase.from).toHaveBeenCalledWith('vendor_leads');
     expect(deleteRecord).toHaveBeenCalled();
     expect(eq).toHaveBeenCalledWith('id', 'lead-1');
@@ -556,7 +624,7 @@ describe('Vendor OS record API', () => {
 
     vi.mocked(supabase.from).mockReturnValueOnce({ update } as never);
 
-    await expect(updateVendorOSRecord(operation, 'lead-1', { stage: 'won' })).resolves.toEqual(row);
+    await expect(updateVendorOSRecord(operation, 'org-1', 'lead-1', { stage: 'won' })).resolves.toEqual(row);
     expect(supabase.from).toHaveBeenCalledTimes(1);
   });
 

@@ -367,6 +367,7 @@ export function useVendorOSRecordMutations(
 
   const updateRecord = useCallback(
     async (recordId: string, input: Record<string, unknown>) => {
+      if (!organizationId) throw new Error('Select an organization before updating records');
       if (accommodationAccess === undefined) {
         const message = 'Checking module access. Please try again.';
         setError(message);
@@ -380,7 +381,7 @@ export function useVendorOSRecordMutations(
       setSubmitting(true);
       setError(null);
       try {
-        return await updateVendorOSRecord(operation, recordId, input);
+        return await updateVendorOSRecord(operation, organizationId, recordId, input);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unable to update module record';
         setError(message);
@@ -389,11 +390,12 @@ export function useVendorOSRecordMutations(
         setSubmitting(false);
       }
     },
-    [accommodationAccess, module, operation],
+    [accommodationAccess, module, operation, organizationId],
   );
 
   const deleteRecord = useCallback(
     async (recordId: string) => {
+      if (!organizationId) throw new Error('Select an organization before deleting records');
       if (accommodationAccess === undefined) {
         const message = 'Checking module access. Please try again.';
         setError(message);
@@ -407,7 +409,7 @@ export function useVendorOSRecordMutations(
       setSubmitting(true);
       setError(null);
       try {
-        return await deleteVendorOSRecord(operation, recordId);
+        return await deleteVendorOSRecord(operation, organizationId, recordId);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unable to delete module record';
         setError(message);
@@ -416,7 +418,7 @@ export function useVendorOSRecordMutations(
         setSubmitting(false);
       }
     },
-    [accommodationAccess, module, operation],
+    [accommodationAccess, module, operation, organizationId],
   );
 
   return {

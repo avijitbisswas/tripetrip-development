@@ -635,6 +635,200 @@ describe("cloudflare worker runtime", () => {
     });
   });
 
+  it("authorizes vendor-os mutations for enabled accommodation modules", async () => {
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "user-1" } },
+          error: null,
+        })),
+        admin: {
+          createUser: vi.fn(),
+          deleteUser: vi.fn(),
+        },
+      },
+      from: vi.fn((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: "user-1", full_name: "Vendor User", role: "vendor", avatar_url: null },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "vendor_organizations") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "org-1", primary_vendor_profile_id: "vendor-1" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "vendor_profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "vendor-1", user_id: "user-1", business_type: "hotel" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "messages") {
+          return {
+            select: vi.fn(() =>
+              createSelectQuery({
+                data: [],
+                error: null,
+              }),
+            ),
+          };
+        }
+
+        return {};
+      }),
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/vendor-os/mutations/authorize", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vendor-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          module: "crm",
+          action: "create",
+          organizationId: "org-1",
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ allowed: true });
+  });
+
+  it("rejects vendor-os mutations for disabled accommodation modules", async () => {
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "user-1" } },
+          error: null,
+        })),
+        admin: {
+          createUser: vi.fn(),
+          deleteUser: vi.fn(),
+        },
+      },
+      from: vi.fn((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: "user-1", full_name: "Vendor User", role: "vendor", avatar_url: null },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "vendor_organizations") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "org-1", primary_vendor_profile_id: "vendor-1" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "vendor_profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "vendor-1", user_id: "user-1", business_type: "hotel" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "messages") {
+          return {
+            select: vi.fn(() =>
+              createSelectQuery({
+                data: [
+                  {
+                    id: "msg-1",
+                    sender_id: "admin-1",
+                    content:
+                      '__tripetrip_vendor_access__:{"vendorProfileId":"vendor-1","businessType":"hotel","providerFamily":"accommodation","planTier":"advanced","enforcementMode":"enforced","moduleOverrides":{"fleet":false},"capabilityOverrides":{},"approvalOverrides":{},"updatedAt":"2026-06-26T12:00:00.000Z"}',
+                    created_at: "2026-06-26T12:00:00.000Z",
+                  },
+                ],
+                error: null,
+              }),
+            ),
+          };
+        }
+
+        return {};
+      }),
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/vendor-os/mutations/authorize", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vendor-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          module: "fleet",
+          action: "create",
+          organizationId: "org-1",
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "This module is not enabled for this vendor account.",
+    });
+  });
+
   it("stores and returns structured community metadata while keeping profile-only scheduled posts out of the main feed", async () => {
     const insertSingle = vi.fn(async () => ({
       data: {

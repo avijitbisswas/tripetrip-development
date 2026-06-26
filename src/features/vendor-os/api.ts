@@ -97,6 +97,44 @@ async function getCurrentAuditActorId() {
   return data.user?.id || null;
 }
 
+async function getCurrentAccessToken() {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new ServiceError('Log in before updating Vendor OS records', 'VENDOR_OS_AUTH_REQUIRED', 401);
+  }
+
+  return data.session.access_token;
+}
+
+async function authorizeVendorOSMutation(input: {
+  module: VendorOSModule;
+  action: 'create' | 'update' | 'delete' | 'upload';
+  organizationId: string;
+}) {
+  const token = await getCurrentAccessToken();
+  const response = await fetch('/api/vendor-os/mutations/authorize', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => ({}))) as { allowed?: boolean; error?: string };
+
+  if (!response.ok) {
+    throw new ServiceError(
+      payload.error || 'This module is not enabled for this vendor account.',
+      'VENDOR_OS_MUTATION_NOT_ALLOWED',
+      response.status,
+    );
+  }
+
+  if (!payload.allowed) {
+    throw new ServiceError('This module is not enabled for this vendor account.', 'VENDOR_OS_MUTATION_NOT_ALLOWED', 403);
+  }
+}
+
 async function getRequiredCurrentUserId() {
   const userId = await getCurrentAuditActorId();
   if (!userId) {
@@ -401,6 +439,11 @@ export async function createVendorDocumentRecord(input: DocumentInput) {
 }
 
 export async function uploadVendorDocumentFile(input: UploadVendorDocumentInput) {
+  await authorizeVendorOSMutation({
+    module: input.module,
+    action: 'upload',
+    organizationId: input.organizationId,
+  });
   const uploadedBy = await getRequiredCurrentUserId();
   const fileMetadata = getFileMetadata(input.file, input.fileName || input.name);
   const storagePath = buildVendorDocumentStoragePath({
@@ -472,6 +515,11 @@ export async function createVendorOSRecord(
   branchId: string | null,
   input: Record<string, unknown>,
 ) {
+  await authorizeVendorOSMutation({
+    module: operation.module,
+    action: 'create',
+    organizationId,
+  });
   const documentDefaults: Record<string, unknown> =
     operation.module === 'documents'
       ? {
@@ -497,9 +545,15 @@ export async function createVendorOSRecord(
 
 export async function updateVendorOSRecord(
   operation: VendorOSOperation,
+  organizationId: string,
   recordId: string,
   input: Record<string, unknown>,
 ) {
+  await authorizeVendorOSMutation({
+    module: operation.module,
+    action: 'update',
+    organizationId,
+  });
   const { data, error } = await supabase
     .from(operation.table)
     .update(input)
@@ -512,7 +566,12 @@ export async function updateVendorOSRecord(
   return data;
 }
 
-export async function deleteVendorOSRecord(operation: VendorOSOperation, recordId: string) {
+export async function deleteVendorOSRecord(operation: VendorOSOperation, organizationId: string, recordId: string) {
+  await authorizeVendorOSMutation({
+    module: operation.module,
+    action: 'delete',
+    organizationId,
+  });
   const { data, error } = await supabase
     .from(operation.table)
     .delete()

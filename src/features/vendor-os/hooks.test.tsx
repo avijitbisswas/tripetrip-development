@@ -392,10 +392,10 @@ describe('Vendor OS hooks', () => {
       title: 'Goa group trip',
       stage: 'new',
     });
-    expect(updateVendorOSRecord).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendor_leads' }), 'lead-1', {
+    expect(updateVendorOSRecord).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendor_leads' }), 'org-1', 'lead-1', {
       stage: 'won',
     });
-    expect(deleteVendorOSRecord).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendor_leads' }), 'lead-1');
+    expect(deleteVendorOSRecord).toHaveBeenCalledWith(expect.objectContaining({ table: 'vendor_leads' }), 'org-1', 'lead-1');
     expect(result.current.submitting).toBe(false);
   });
 
