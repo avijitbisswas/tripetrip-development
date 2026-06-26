@@ -1,5 +1,6 @@
 import { supabase } from '@/src/lib/supabase';
 import { ServiceError } from '@/src/services/errors';
+import { getVendorOSOperation, type VendorOSOperation } from './operations';
 import type {
   VendorAuditLog,
   VendorBranch,
@@ -12,7 +13,6 @@ import type {
   VendorTeamMember,
   VendorTeamMemberStatus,
 } from './types';
-import type { VendorOSOperation } from './operations';
 
 type OrganizationInput = Pick<VendorOrganization, 'owner_user_id' | 'name' | 'slug'> &
   Partial<
@@ -133,6 +133,25 @@ async function authorizeVendorOSMutation(input: {
   if (!payload.allowed) {
     throw new ServiceError('This module is not enabled for this vendor account.', 'VENDOR_OS_MUTATION_NOT_ALLOWED', 403);
   }
+}
+
+async function vendorOSMutationFetch<T>(path: string, init: RequestInit = {}) {
+  const token = await getCurrentAccessToken();
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...init.headers,
+    },
+  });
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+
+  if (!response.ok) {
+    throw new ServiceError(payload.error || 'Unable to update Vendor OS records', 'VENDOR_OS_RECORD_WRITE_FAILED', response.status);
+  }
+
+  return payload;
 }
 
 async function getRequiredCurrentUserId() {
@@ -462,11 +481,9 @@ export async function uploadVendorDocumentFile(input: UploadVendorDocumentInput)
 
   if (uploadError) throw toServiceError(uploadError, 'VENDOR_OS_DOCUMENT_UPLOAD_FAILED');
 
-  return createVendorDocumentRecord({
-    organization_id: input.organizationId,
-    branch_id: input.branchId || null,
-    uploaded_by: uploadedBy,
+  return createVendorOSRecord(getVendorOSOperation('documents'), input.organizationId, input.branchId || null, {
     module: input.module,
+    uploaded_by: uploadedBy,
     entity_type: input.entityType || null,
     entity_id: input.entityId || null,
     name: input.name,
@@ -515,11 +532,6 @@ export async function createVendorOSRecord(
   branchId: string | null,
   input: Record<string, unknown>,
 ) {
-  await authorizeVendorOSMutation({
-    module: operation.module,
-    action: 'create',
-    organizationId,
-  });
   const documentDefaults: Record<string, unknown> =
     operation.module === 'documents'
       ? {
@@ -530,17 +542,19 @@ export async function createVendorOSRecord(
   const teamDefaults = operation.module === 'team' ? await buildTeamMemberPayload(input) : {};
   const marketplacePayload = operation.module === 'marketplace' ? buildMarketplaceSyncPayload(input) : null;
   const payload: Record<string, unknown> = {
-    organization_id: organizationId,
-    ...(operation.branchScoped === false ? {} : { branch_id: branchId }),
     ...documentDefaults,
     ...(operation.module === 'team' ? teamDefaults : marketplacePayload || input),
   };
-
-  const { data, error } = await supabase.from(operation.table).insert(payload).select().single<VendorOSRecordRow>();
-
-  if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_WRITE_FAILED');
-  await writeVendorOSRecordAudit(operation, 'created', data, { fields: Object.keys(input) });
-  return data;
+  const response = await vendorOSMutationFetch<{ record: VendorOSRecordRow }>('/api/vendor-os/records', {
+    method: 'POST',
+    body: JSON.stringify({
+      module: operation.module,
+      organizationId,
+      branchId: operation.branchScoped === false ? null : branchId,
+      payload,
+    }),
+  });
+  return response.record;
 }
 
 export async function updateVendorOSRecord(
@@ -549,37 +563,26 @@ export async function updateVendorOSRecord(
   recordId: string,
   input: Record<string, unknown>,
 ) {
-  await authorizeVendorOSMutation({
-    module: operation.module,
-    action: 'update',
-    organizationId,
+  const response = await vendorOSMutationFetch<{ record: VendorOSRecordRow }>('/api/vendor-os/records', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      module: operation.module,
+      organizationId,
+      recordId,
+      input,
+    }),
   });
-  const { data, error } = await supabase
-    .from(operation.table)
-    .update(input)
-    .eq('id', recordId)
-    .select()
-    .single<VendorOSRecordRow>();
-
-  if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_UPDATE_FAILED');
-  await writeVendorOSRecordAudit(operation, 'updated', data, { changed_fields: Object.keys(input) });
-  return data;
+  return response.record;
 }
 
 export async function deleteVendorOSRecord(operation: VendorOSOperation, organizationId: string, recordId: string) {
-  await authorizeVendorOSMutation({
-    module: operation.module,
-    action: 'delete',
-    organizationId,
+  await vendorOSMutationFetch<{ id: string }>('/api/vendor-os/records', {
+    method: 'DELETE',
+    body: JSON.stringify({
+      module: operation.module,
+      organizationId,
+      recordId,
+    }),
   });
-  const { data, error } = await supabase
-    .from(operation.table)
-    .delete()
-    .eq('id', recordId)
-    .select()
-    .single<VendorOSRecordRow>();
-
-  if (error) throw toServiceError(error, 'VENDOR_OS_RECORD_DELETE_FAILED');
-  await writeVendorOSRecordAudit(operation, 'deleted', data);
   return { id: recordId };
 }

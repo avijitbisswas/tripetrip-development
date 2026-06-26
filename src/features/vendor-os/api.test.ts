@@ -72,7 +72,7 @@ describe('Vendor OS record API', () => {
       'This module is not enabled for this vendor account.',
     );
 
-    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/mutations/authorize', {
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/records', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -80,8 +80,11 @@ describe('Vendor OS record API', () => {
       },
       body: JSON.stringify({
         module: 'crm',
-        action: 'create',
         organizationId: 'org-1',
+        branchId: 'branch-1',
+        payload: {
+          title: 'Goa group trip',
+        },
       }),
     });
     expect(supabase.from).not.toHaveBeenCalledWith('vendor_leads');
@@ -128,77 +131,43 @@ describe('Vendor OS record API', () => {
       title: 'Goa group trip',
       stage: 'won',
     };
-    const single = vi.fn().mockResolvedValue({ data: row, error: null });
-    const select = vi.fn(() => ({ single }));
-    const eq = vi.fn(() => ({ select }));
-    const update = vi.fn(() => ({ eq }));
-    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
-    const auditSelect = vi.fn(() => ({ single: auditSingle }));
-    const auditInsert = vi.fn(() => ({ select: auditSelect }));
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({ update } as never)
-      .mockReturnValueOnce({ insert: auditInsert } as never);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ record: row }), { status: 200 }),
+    );
 
     await expect(updateVendorOSRecord(operation, 'org-1', 'lead-1', { stage: 'won' })).resolves.toEqual(row);
-    expect(supabase.from).toHaveBeenCalledWith('vendor_leads');
-    expect(update).toHaveBeenCalledWith({ stage: 'won' });
-    expect(eq).toHaveBeenCalledWith('id', 'lead-1');
-    expect(supabase.from).toHaveBeenCalledWith('vendor_audit_logs');
-    expect(auditInsert).toHaveBeenCalledWith({
-      organization_id: 'org-1',
-      branch_id: null,
-      actor_user_id: 'user-1',
-      module: 'crm',
-      action: 'crm.updated',
-      entity_type: 'vendor_leads',
-      entity_id: 'lead-1',
-      severity: 'info',
-      metadata: {
-        changed_fields: ['stage'],
-        table: 'vendor_leads',
-        title_field: 'title',
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/records', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
       },
+      body: JSON.stringify({
+        module: 'crm',
+        organizationId: 'org-1',
+        recordId: 'lead-1',
+        input: { stage: 'won' },
+      }),
     });
   });
 
   it('deletes a module record in its mapped table', async () => {
-    const row: VendorOSRecordRow = {
-      id: 'lead-1',
-      organization_id: 'org-1',
-      branch_id: 'branch-1',
-      title: 'Goa group trip',
-      stage: 'lost',
-    };
-    const deleteSingle = vi.fn().mockResolvedValue({ data: row, error: null });
-    const deleteSelect = vi.fn(() => ({ single: deleteSingle }));
-    const eq = vi.fn(() => ({ select: deleteSelect }));
-    const deleteRecord = vi.fn(() => ({ eq }));
-    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
-    const auditSelect = vi.fn(() => ({ single: auditSingle }));
-    const auditInsert = vi.fn(() => ({ select: auditSelect }));
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({ delete: deleteRecord } as never)
-      .mockReturnValueOnce({ insert: auditInsert } as never);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: 'lead-1' }), { status: 200 }),
+    );
 
     await expect(deleteVendorOSRecord(operation, 'org-1', 'lead-1')).resolves.toEqual({ id: 'lead-1' });
-    expect(supabase.from).toHaveBeenCalledWith('vendor_leads');
-    expect(deleteRecord).toHaveBeenCalled();
-    expect(eq).toHaveBeenCalledWith('id', 'lead-1');
-    expect(auditInsert).toHaveBeenCalledWith({
-      organization_id: 'org-1',
-      branch_id: 'branch-1',
-      actor_user_id: 'user-1',
-      module: 'crm',
-      action: 'crm.deleted',
-      entity_type: 'vendor_leads',
-      entity_id: 'lead-1',
-      severity: 'info',
-      metadata: {
-        table: 'vendor_leads',
-        title_field: 'title',
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/records', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
       },
+      body: JSON.stringify({
+        module: 'crm',
+        organizationId: 'org-1',
+        recordId: 'lead-1',
+      }),
     });
   });
 
@@ -216,33 +185,23 @@ describe('Vendor OS record API', () => {
       organization_id: 'org-1',
       name: 'Goa Office',
     };
-    const single = vi.fn().mockResolvedValue({ data: row, error: null });
-    const select = vi.fn(() => ({ single }));
-    const insert = vi.fn(() => ({ select }));
-    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
-    const auditSelect = vi.fn(() => ({ single: auditSingle }));
-    const auditInsert = vi.fn(() => ({ select: auditSelect }));
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({ insert } as never)
-      .mockReturnValueOnce({ insert: auditInsert } as never);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ record: row }), { status: 200 }),
+    );
 
     await expect(createVendorOSRecord(branchOperation, 'org-1', 'branch-1', { name: 'Goa Office' })).resolves.toEqual(row);
-    expect(insert).toHaveBeenCalledWith({ organization_id: 'org-1', name: 'Goa Office' });
-    expect(auditInsert).toHaveBeenCalledWith({
-      organization_id: 'org-1',
-      branch_id: null,
-      actor_user_id: 'user-1',
-      module: 'branches',
-      action: 'branches.created',
-      entity_type: 'vendor_branches',
-      entity_id: 'branch-2',
-      severity: 'info',
-      metadata: {
-        fields: ['name'],
-        table: 'vendor_branches',
-        title_field: 'name',
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/records', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
       },
+      body: JSON.stringify({
+        module: 'branches',
+        organizationId: 'org-1',
+        branchId: null,
+        payload: { name: 'Goa Office' },
+      }),
     });
   });
 
@@ -305,16 +264,9 @@ describe('Vendor OS record API', () => {
       name: 'Insurance Policy',
       status: 'active',
     };
-    const single = vi.fn().mockResolvedValue({ data: row, error: null });
-    const select = vi.fn(() => ({ single }));
-    const insert = vi.fn(() => ({ select }));
-    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
-    const auditSelect = vi.fn(() => ({ single: auditSingle }));
-    const auditInsert = vi.fn(() => ({ select: auditSelect }));
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({ insert } as never)
-      .mockReturnValueOnce({ insert: auditInsert } as never);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ record: row }), { status: 200 }),
+    );
 
     await expect(
       createVendorOSRecord(documentOperation, 'org-1', 'branch-1', {
@@ -325,15 +277,25 @@ describe('Vendor OS record API', () => {
       }),
     ).resolves.toEqual(row);
 
-    expect(insert).toHaveBeenCalledWith({
-      organization_id: 'org-1',
-      branch_id: 'branch-1',
-      module: 'documents',
-      uploaded_by: 'user-1',
-      name: 'Insurance Policy',
-      document_type: 'insurance',
-      storage_path: 'vendors/org-1/insurance/policy.pdf',
-      status: 'active',
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/records', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        module: 'documents',
+        organizationId: 'org-1',
+        branchId: 'branch-1',
+        payload: {
+          module: 'documents',
+          uploaded_by: 'user-1',
+          name: 'Insurance Policy',
+          document_type: 'insurance',
+          storage_path: 'vendors/org-1/insurance/policy.pdf',
+          status: 'active',
+        },
+      }),
     });
   });
 
@@ -398,16 +360,9 @@ describe('Vendor OS record API', () => {
       status: 'invited',
       is_active: true,
     };
-    const single = vi.fn().mockResolvedValue({ data: row, error: null });
-    const select = vi.fn(() => ({ single }));
-    const insert = vi.fn(() => ({ select }));
-    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
-    const auditSelect = vi.fn(() => ({ single: auditSingle }));
-    const auditInsert = vi.fn(() => ({ select: auditSelect }));
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({ insert } as never)
-      .mockReturnValueOnce({ insert: auditInsert } as never);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ record: row }), { status: 200 }),
+    );
 
     await expect(
       createVendorOSRecord(teamOperation, 'org-1', 'branch-1', {
@@ -418,16 +373,26 @@ describe('Vendor OS record API', () => {
       }),
     ).resolves.toEqual(row);
 
-    expect(insert).toHaveBeenCalledWith({
-      organization_id: 'org-1',
-      branch_id: 'branch-1',
-      invited_by: 'user-1',
-      invited_email: 'ops@example.com',
-      role: 'manager',
-      status: 'invited',
-      display_name: 'Ops Manager',
-      is_active: true,
-      accepted_at: null,
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer vendor-token',
+    });
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      module: 'team',
+      organizationId: 'org-1',
+      branchId: 'branch-1',
+      payload: {
+        invited_by: 'user-1',
+        invited_email: 'ops@example.com',
+        role: 'manager',
+        status: 'invited',
+        display_name: 'Ops Manager',
+        is_active: true,
+        accepted_at: null,
+      },
     });
   });
 
@@ -446,16 +411,9 @@ describe('Vendor OS record API', () => {
       module: 'pms',
       is_enabled: false,
     };
-    const single = vi.fn().mockResolvedValue({ data: row, error: null });
-    const select = vi.fn(() => ({ single }));
-    const insert = vi.fn(() => ({ select }));
-    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
-    const auditSelect = vi.fn(() => ({ single: auditSingle }));
-    const auditInsert = vi.fn(() => ({ select: auditSelect }));
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({ insert } as never)
-      .mockReturnValueOnce({ insert: auditInsert } as never);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ record: row }), { status: 200 }),
+    );
 
     await expect(
       createVendorOSRecord(settingsOperation, 'org-1', 'branch-1', {
@@ -465,12 +423,22 @@ describe('Vendor OS record API', () => {
       }),
     ).resolves.toEqual(row);
 
-    expect(insert).toHaveBeenCalledWith({
-      organization_id: 'org-1',
-      branch_id: 'branch-1',
-      module: 'pms',
-      is_enabled: false,
-      settings: { policy_note: 'Disable PMS during renovation' },
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/records', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        module: 'settings',
+        organizationId: 'org-1',
+        branchId: 'branch-1',
+        payload: {
+          module: 'pms',
+          is_enabled: false,
+          settings: { policy_note: 'Disable PMS during renovation' },
+        },
+      }),
     });
   });
 
@@ -489,16 +457,9 @@ describe('Vendor OS record API', () => {
       module: 'pms',
       sync_status: 'synced',
     };
-    const single = vi.fn().mockResolvedValue({ data: row, error: null });
-    const select = vi.fn(() => ({ single }));
-    const insert = vi.fn(() => ({ select }));
-    const auditSingle = vi.fn().mockResolvedValue({ data: { id: 'audit-1' }, error: null });
-    const auditSelect = vi.fn(() => ({ single: auditSingle }));
-    const auditInsert = vi.fn(() => ({ select: auditSelect }));
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({ insert } as never)
-      .mockReturnValueOnce({ insert: auditInsert } as never);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ record: row }), { status: 200 }),
+    );
 
     await expect(
       createVendorOSRecord(marketplaceOperation, 'org-1', 'branch-1', {
@@ -512,21 +473,31 @@ describe('Vendor OS record API', () => {
       }),
     ).resolves.toEqual(row);
 
-    expect(insert).toHaveBeenCalledWith({
-      organization_id: 'org-1',
-      branch_id: 'branch-1',
-      module: 'pms',
-      sync_status: 'synced',
-      conversion_rate: 8.4,
-      last_synced_at: expect.any(String),
-      metadata: {
-        listing_title: 'Private Villa Goa',
-        public_slug: 'private-villa-goa',
-        direct_deal_enabled: true,
-        deal_badge: '30% off',
-        source: 'marketplace_workspace',
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer vendor-token',
+    });
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      module: 'marketplace',
+      organizationId: 'org-1',
+      branchId: 'branch-1',
+      payload: {
+        module: 'pms',
+        sync_status: 'synced',
+        conversion_rate: 8.4,
+        metadata: {
+          listing_title: 'Private Villa Goa',
+          public_slug: 'private-villa-goa',
+          direct_deal_enabled: true,
+          deal_badge: '30% off',
+          source: 'marketplace_workspace',
+        },
       },
     });
+    expect(JSON.parse(String(init.body)).payload.last_synced_at).toEqual(expect.any(String));
   });
 
   it('uploads a vendor document file to storage and creates its document record', async () => {
@@ -549,12 +520,10 @@ describe('Vendor OS record API', () => {
       file_size_bytes: file.size,
       status: 'active',
     };
-    const single = vi.fn().mockResolvedValue({ data: row, error: null });
-    const select = vi.fn(() => ({ single }));
-    const insert = vi.fn(() => ({ select }));
-
     vi.mocked(supabase.storage.from).mockReturnValue({ upload } as never);
-    vi.mocked(supabase.from).mockReturnValueOnce({ insert } as never);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ allowed: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ record: row }), { status: 200 }));
 
     await expect(
       uploadVendorDocumentFile({
@@ -574,20 +543,42 @@ describe('Vendor OS record API', () => {
       file,
       { contentType: 'application/pdf', upsert: false },
     );
-    expect(insert).toHaveBeenCalledWith({
-      organization_id: 'org-1',
-      branch_id: 'branch-1',
-      uploaded_by: 'user-1',
-      module: 'documents',
-      entity_type: null,
-      entity_id: null,
-      name: 'Hotel Trade License',
-      document_type: 'license',
-      storage_path: 'organizations/org-1/branches/branch-1/license/123456-hotel-trade-license.pdf',
-      mime_type: 'application/pdf',
-      file_size_bytes: file.size,
-      status: 'active',
-      metadata: {},
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/vendor-os/mutations/authorize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        module: 'documents',
+        action: 'upload',
+        organizationId: 'org-1',
+      }),
+    });
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/vendor-os/records', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        module: 'documents',
+        organizationId: 'org-1',
+        branchId: 'branch-1',
+        payload: {
+          module: 'documents',
+          uploaded_by: 'user-1',
+          entity_type: null,
+          entity_id: null,
+          name: 'Hotel Trade License',
+          document_type: 'license',
+          storage_path: 'organizations/org-1/branches/branch-1/license/123456-hotel-trade-license.pdf',
+          mime_type: 'application/pdf',
+          file_size_bytes: file.size,
+          status: 'active',
+          metadata: {},
+        },
+      }),
     });
   });
 
@@ -606,7 +597,7 @@ describe('Vendor OS record API', () => {
     expect(createSignedUrl).toHaveBeenCalledWith('organizations/org-1/license/file.pdf', 300);
   });
 
-  it('skips audit writes when no authenticated user is available', async () => {
+  it('still updates through the worker route even when direct client audit identity is unavailable', async () => {
     vi.mocked(supabase.auth.getUser).mockResolvedValueOnce({
       data: { user: null },
       error: null,
@@ -617,15 +608,12 @@ describe('Vendor OS record API', () => {
       title: 'Goa group trip',
       stage: 'won',
     };
-    const single = vi.fn().mockResolvedValue({ data: row, error: null });
-    const select = vi.fn(() => ({ single }));
-    const eq = vi.fn(() => ({ select }));
-    const update = vi.fn(() => ({ eq }));
-
-    vi.mocked(supabase.from).mockReturnValueOnce({ update } as never);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ record: row }), { status: 200 }),
+    );
 
     await expect(updateVendorOSRecord(operation, 'org-1', 'lead-1', { stage: 'won' })).resolves.toEqual(row);
-    expect(supabase.from).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('marks a notification as read in Supabase', async () => {

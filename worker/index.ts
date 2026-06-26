@@ -1336,6 +1336,171 @@ async function handleVendorOSMutationAuthorization(request: Request, env: Worker
   return json({ error: "This module is not enabled for this vendor account." }, { status: 403 });
 }
 
+async function handleVendorOSRecords(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedProfile(request, env);
+  if ("error" in auth) return auth.error;
+
+  const body = await readJsonBody(request);
+  const module = String(body.module || "").trim();
+  const organizationId = String(body.organizationId || "").trim();
+  const recordId = String(body.recordId || "").trim();
+  const input = body.input && typeof body.input === "object" ? body.input : {};
+  const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+  const operation = module ? getVendorOSOperation(module as Parameters<typeof getVendorOSOperation>[0]) : null;
+
+  if (!operation || !organizationId) {
+    return json({ error: "Invalid vendor-os record request" }, { status: 400 });
+  }
+
+  const access = await getVendorAccommodationAccess(auth.supabase, {
+    organizationId,
+    userId: auth.profile.id,
+  });
+
+  if (access && !access.moduleVisibility[operation.module]) {
+    return json({ error: "This module is not enabled for this vendor account." }, { status: 403 });
+  }
+
+  if (request.method === "POST") {
+    const insertPayload = {
+      organization_id: organizationId,
+      ...(operation.branchScoped === false ? {} : { branch_id: body.branchId || null }),
+      ...(payload as Record<string, unknown>),
+    };
+    const vendorTable = auth.supabase.from(operation.table) as unknown as {
+      insert: (row: Record<string, unknown>) => {
+        select: () => {
+          single: () => Promise<{ data: Record<string, unknown> | null; error: { message?: string } | null }>;
+        };
+      };
+    };
+    const auditTable = auth.supabase.from("vendor_audit_logs") as unknown as {
+      insert: (row: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: string } | null }>;
+    };
+    const { data, error } = await vendorTable
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error || !data) {
+      return json({ error: error?.message || "Unable to create vendor-os record" }, { status: 500 });
+    }
+
+    await auditTable.insert({
+      organization_id: data.organization_id,
+      branch_id: data.branch_id || null,
+      actor_user_id: auth.profile.id,
+      module: operation.module,
+      action: `${operation.module}.created`,
+      entity_type: operation.table,
+      entity_id: data.id,
+      severity: "info",
+      metadata: {
+        fields: Object.keys(payload as Record<string, unknown>),
+        table: operation.table,
+        title_field: operation.titleField,
+      },
+    });
+
+    return json({ record: data });
+  }
+
+  if (!recordId) {
+    return json({ error: "Record id is required" }, { status: 400 });
+  }
+
+  if (request.method === "PATCH") {
+    const vendorTable = auth.supabase.from(operation.table) as unknown as {
+      update: (row: Record<string, unknown>) => {
+        eq: (column: string, value: string) => {
+          eq: (column: string, value: string) => {
+            select: () => {
+              single: () => Promise<{ data: Record<string, unknown> | null; error: { message?: string } | null }>;
+            };
+          };
+        };
+      };
+    };
+    const auditTable = auth.supabase.from("vendor_audit_logs") as unknown as {
+      insert: (row: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: string } | null }>;
+    };
+    const { data, error } = await vendorTable
+      .update(input)
+      .eq("id", recordId)
+      .eq("organization_id", organizationId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      return json({ error: error?.message || "Unable to update vendor-os record" }, { status: 500 });
+    }
+
+    await auditTable.insert({
+      organization_id: data.organization_id,
+      branch_id: data.branch_id || null,
+      actor_user_id: auth.profile.id,
+      module: operation.module,
+      action: `${operation.module}.updated`,
+      entity_type: operation.table,
+      entity_id: data.id,
+      severity: "info",
+      metadata: {
+        changed_fields: Object.keys(input as Record<string, unknown>),
+        table: operation.table,
+        title_field: operation.titleField,
+      },
+    });
+
+    return json({ record: data });
+  }
+
+  if (request.method === "DELETE") {
+    const vendorTable = auth.supabase.from(operation.table) as unknown as {
+      delete: () => {
+        eq: (column: string, value: string) => {
+          eq: (column: string, value: string) => {
+            select: () => {
+              single: () => Promise<{ data: Record<string, unknown> | null; error: { message?: string } | null }>;
+            };
+          };
+        };
+      };
+    };
+    const auditTable = auth.supabase.from("vendor_audit_logs") as unknown as {
+      insert: (row: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: string } | null }>;
+    };
+    const { data, error } = await vendorTable
+      .delete()
+      .eq("id", recordId)
+      .eq("organization_id", organizationId)
+      .select()
+      .single();
+
+    if (error || !data) {
+      return json({ error: error?.message || "Unable to delete vendor-os record" }, { status: 500 });
+    }
+
+    await auditTable.insert({
+      organization_id: data.organization_id,
+      branch_id: data.branch_id || null,
+      actor_user_id: auth.profile.id,
+      module: operation.module,
+      action: `${operation.module}.deleted`,
+      entity_type: operation.table,
+      entity_id: data.id,
+      severity: "info",
+      metadata: {
+        table: operation.table,
+        title_field: operation.titleField,
+      },
+    });
+
+    return json({ id: recordId });
+  }
+
+  return json({ error: "Method not allowed" }, { status: 405 });
+}
+
 async function handlePublicSiteConfig(env: WorkerEnv) {
   const { supabase } = createRepositories(env);
   if (!supabase) {
@@ -1374,6 +1539,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleVendorAIBrief(request, env);
   if (request.method === "POST" && pathname === "/api/vendor-os/mutations/authorize")
     return handleVendorOSMutationAuthorization(request, env);
+  if ((request.method === "POST" || request.method === "PATCH" || request.method === "DELETE") && pathname === "/api/vendor-os/records")
+    return handleVendorOSRecords(request, env);
   if (request.method === "POST" && pathname === "/api/auth/login")
     return handleLogin(request, env);
   if (request.method === "POST" && pathname === "/api/auth/register/request-otp")

@@ -15,7 +15,8 @@
 - Team, documents, and subscriptions workspaces now surface accommodation plan, capability, and approval guidance directly in the vendor UI.
 - Admin accommodation controls now support capability-level overrides in addition to plan tier, module visibility, and approval policies.
 - Admin accommodation saves now preserve existing override state when only one part of the access policy is updated.
-- Vendor OS create, update, delete, and document-upload flows now perform Worker-backed accommodation authorization before client-side Supabase writes.
+- Vendor OS create, update, and delete flows now execute through Worker-backed mutation routes with accommodation access enforcement and tenant scoping.
+- Vendor document uploads still use direct storage upload, but the metadata record creation path now runs through the Worker-backed Vendor OS mutation route.
 
 ## In Progress
 

@@ -829,6 +829,150 @@ describe("cloudflare worker runtime", () => {
     });
   });
 
+  it("creates vendor-os records through the worker with tenant scoping", async () => {
+    const insertSingle = vi.fn(async () => ({
+      data: {
+        id: "lead-1",
+        organization_id: "org-1",
+        branch_id: "branch-1",
+        title: "Goa group trip",
+        stage: "new",
+      },
+      error: null,
+    }));
+    const insertSelect = vi.fn(() => ({ single: insertSingle }));
+    const insert = vi.fn(() => ({ select: insertSelect }));
+    const auditInsert = vi.fn(async () => ({ data: { id: "audit-1" }, error: null }));
+
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "user-1" } },
+          error: null,
+        })),
+        admin: {
+          createUser: vi.fn(),
+          deleteUser: vi.fn(),
+        },
+      },
+      from: vi.fn((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: "user-1", full_name: "Vendor User", role: "vendor", avatar_url: null },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "vendor_organizations") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "org-1", primary_vendor_profile_id: "vendor-1" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "vendor_profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "vendor-1", user_id: "user-1", business_type: "hotel" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "messages") {
+          return {
+            select: vi.fn(() =>
+              createSelectQuery({
+                data: [],
+                error: null,
+              }),
+            ),
+          };
+        }
+
+        if (table === "vendor_leads") {
+          return { insert };
+        }
+
+        if (table === "vendor_audit_logs") {
+          return { insert: auditInsert };
+        }
+
+        return {};
+      }),
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/vendor-os/records", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vendor-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          module: "crm",
+          organizationId: "org-1",
+          branchId: "branch-1",
+          payload: {
+            title: "Goa group trip",
+            stage: "new",
+          },
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: "org-1",
+      branch_id: "branch-1",
+      title: "Goa group trip",
+      stage: "new",
+    });
+    expect(auditInsert).toHaveBeenCalledWith({
+      organization_id: "org-1",
+      branch_id: "branch-1",
+      actor_user_id: "user-1",
+      module: "crm",
+      action: "crm.created",
+      entity_type: "vendor_leads",
+      entity_id: "lead-1",
+      severity: "info",
+      metadata: {
+        fields: ["title", "stage"],
+        table: "vendor_leads",
+        title_field: "title",
+      },
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      record: {
+        id: "lead-1",
+        organization_id: "org-1",
+      },
+    });
+  });
+
   it("stores and returns structured community metadata while keeping profile-only scheduled posts out of the main feed", async () => {
     const insertSingle = vi.fn(async () => ({
       data: {
