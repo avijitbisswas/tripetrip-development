@@ -1,11 +1,15 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { BedDouble, CalendarCheck, ClipboardCheck, DoorOpen, FileBadge, Hotel, IndianRupee, KeyRound, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { AccommodationInsightPanel } from './AccommodationInsightPanel';
 
 interface PmsWorkspaceProps {
   organizationId?: string;
   branchId?: string | null;
+  accommodationAccess?: ResolvedVendorAccommodationAccess | null;
 }
 
 const rooms = [
@@ -68,9 +72,10 @@ function StatePill({ state }: { state: string }) {
   );
 }
 
-export function PmsWorkspace({ organizationId, branchId }: PmsWorkspaceProps) {
+export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: PmsWorkspaceProps) {
   const records = useVendorOSRecords('pms', organizationId);
   const mutations = useVendorOSRecordMutations('pms', organizationId, branchId);
+  const accommodationInsight = getAccommodationModuleInsights('pms', accommodationAccess);
   const [propertyForm, setPropertyForm] = useState({
     name: '',
     property_type: 'hotel',
@@ -132,6 +137,8 @@ export function PmsWorkspace({ organizationId, branchId }: PmsWorkspaceProps) {
           </div>
         </div>
       </section>
+
+      <AccommodationInsightPanel insight={accommodationInsight} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">

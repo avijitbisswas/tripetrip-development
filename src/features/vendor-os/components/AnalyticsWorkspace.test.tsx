@@ -2,12 +2,81 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnalyticsWorkspace } from './AnalyticsWorkspace';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
   refresh: vi.fn(),
   records: [] as Record<string, unknown>[],
 }));
+
+const accommodationAccess: ResolvedVendorAccommodationAccess = {
+  vendorProfileId: 'vendor-1',
+  businessType: 'hotel',
+  providerFamily: 'accommodation',
+  planTier: 'basic',
+  enforcementMode: 'enforced',
+  moduleOverrides: {},
+  capabilityOverrides: {},
+  approvalOverrides: {},
+  isAccommodationProvider: true,
+  visibleModules: ['dashboard', 'crm', 'calendar', 'inbox', 'team', 'pms', 'documents', 'settings'],
+  moduleVisibility: {
+    dashboard: true,
+    crm: true,
+    calendar: true,
+    inbox: true,
+    accounting: false,
+    team: true,
+    pms: true,
+    tours: false,
+    activities: false,
+    fleet: false,
+    ai_assistant: false,
+    marketplace: false,
+    subscriptions: false,
+    analytics: true,
+    branches: false,
+    documents: true,
+    settings: true,
+  },
+  resolvedCapabilities: {
+    'bookings.manual_entry': true,
+    'bookings.online_engine': false,
+    'bookings.group_bookings': false,
+    'bookings.ai_chatbot': false,
+    'inventory.manual_updates': true,
+    'inventory.ota_sync': false,
+    'inventory.rule_based_rates': false,
+    'inventory.dynamic_pricing': false,
+    'checkin.manual': true,
+    'checkin.mobile': false,
+    'checkin.digital_keys': false,
+    'billing.manual_folios': true,
+    'billing.gst_invoice': false,
+    'billing.integrated_payments': false,
+    'housekeeping.room_status': true,
+    'housekeeping.mobile_tasks': false,
+    'housekeeping.predictive_scheduling': false,
+    'staff.manual_attendance': true,
+    'staff.shift_scheduling': false,
+    'staff.biometric_attendance': false,
+    'analytics.occupancy_reports': true,
+    'analytics.operational_dashboards': false,
+    'analytics.ai_forecasting': false,
+    'guest.manual_communication': true,
+    'guest.automated_confirmations': false,
+    'guest.whatsapp_automation': false,
+  },
+  resolvedApprovals: {
+    pricing_changes: 'vendor_owner_only',
+    marketplace_publishing: 'admin_approval_required',
+    payout_actions: 'open',
+    refund_actions: 'open',
+    guest_automation: 'open',
+    ai_recommendations: 'admin_approval_required',
+  },
+};
 
 vi.mock('../hooks', () => ({
   useVendorOSRecords: () => ({
@@ -85,5 +154,15 @@ describe('AnalyticsWorkspace', () => {
     expect(screen.getByText('Conversion')).toBeInTheDocument();
     expect(screen.getByText('9.2%')).toBeInTheDocument();
     expect(screen.getByText('2026-06-05')).toBeInTheDocument();
+  });
+
+  it('shows accommodation analytics guidance for dashboards and AI approvals', () => {
+    render(<AnalyticsWorkspace accommodationAccess={accommodationAccess} />);
+
+    expect(screen.getByText('Accommodation controls')).toBeInTheDocument();
+    expect(screen.getByText('Operational dashboards')).toBeInTheDocument();
+    expect(screen.getByText('AI forecasting')).toBeInTheDocument();
+    expect(screen.getByText('AI recommendations')).toBeInTheDocument();
+    expect(screen.getByText('Admin approval')).toBeInTheDocument();
   });
 });

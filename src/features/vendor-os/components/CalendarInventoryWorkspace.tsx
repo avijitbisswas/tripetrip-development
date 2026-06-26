@@ -1,11 +1,15 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { AlertTriangle, CalendarDays, CheckCircle2, Hotel, Map, Mountain, Plus, RefreshCw, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { AccommodationInsightPanel } from './AccommodationInsightPanel';
 
 interface CalendarInventoryWorkspaceProps {
   organizationId?: string;
   branchId?: string | null;
+  accommodationAccess?: ResolvedVendorAccommodationAccess | null;
 }
 
 const calendarDays = [
@@ -85,9 +89,10 @@ function formatEventDate(value: unknown) {
   });
 }
 
-export function CalendarInventoryWorkspace({ organizationId, branchId }: CalendarInventoryWorkspaceProps) {
+export function CalendarInventoryWorkspace({ organizationId, branchId, accommodationAccess }: CalendarInventoryWorkspaceProps) {
   const records = useVendorOSRecords('calendar', organizationId);
   const mutations = useVendorOSRecordMutations('calendar', organizationId, branchId);
+  const accommodationInsight = getAccommodationModuleInsights('calendar', accommodationAccess);
   const [eventForm, setEventForm] = useState({
     title: '',
     event_type: 'booking',
@@ -152,6 +157,8 @@ export function CalendarInventoryWorkspace({ organizationId, branchId }: Calenda
           </div>
         </div>
       </section>
+
+      <AccommodationInsightPanel insight={accommodationInsight} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">

@@ -2,12 +2,81 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CalendarInventoryWorkspace } from './CalendarInventoryWorkspace';
+import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
   refresh: vi.fn(),
   records: [] as Record<string, unknown>[],
 }));
+
+const accommodationAccess: ResolvedVendorAccommodationAccess = {
+  vendorProfileId: 'vendor-1',
+  businessType: 'hotel',
+  providerFamily: 'accommodation',
+  planTier: 'basic',
+  enforcementMode: 'enforced',
+  moduleOverrides: {},
+  capabilityOverrides: {},
+  approvalOverrides: {},
+  isAccommodationProvider: true,
+  visibleModules: ['dashboard', 'crm', 'calendar', 'inbox', 'team', 'pms', 'documents', 'settings'],
+  moduleVisibility: {
+    dashboard: true,
+    crm: true,
+    calendar: true,
+    inbox: true,
+    accounting: false,
+    team: true,
+    pms: true,
+    tours: false,
+    activities: false,
+    fleet: false,
+    ai_assistant: false,
+    marketplace: false,
+    subscriptions: false,
+    analytics: false,
+    branches: false,
+    documents: true,
+    settings: true,
+  },
+  resolvedCapabilities: {
+    'bookings.manual_entry': true,
+    'bookings.online_engine': false,
+    'bookings.group_bookings': false,
+    'bookings.ai_chatbot': false,
+    'inventory.manual_updates': true,
+    'inventory.ota_sync': false,
+    'inventory.rule_based_rates': false,
+    'inventory.dynamic_pricing': false,
+    'checkin.manual': true,
+    'checkin.mobile': false,
+    'checkin.digital_keys': false,
+    'billing.manual_folios': true,
+    'billing.gst_invoice': false,
+    'billing.integrated_payments': false,
+    'housekeeping.room_status': true,
+    'housekeeping.mobile_tasks': false,
+    'housekeeping.predictive_scheduling': false,
+    'staff.manual_attendance': true,
+    'staff.shift_scheduling': false,
+    'staff.biometric_attendance': false,
+    'analytics.occupancy_reports': true,
+    'analytics.operational_dashboards': false,
+    'analytics.ai_forecasting': false,
+    'guest.manual_communication': true,
+    'guest.automated_confirmations': false,
+    'guest.whatsapp_automation': false,
+  },
+  resolvedApprovals: {
+    pricing_changes: 'vendor_owner_only',
+    marketplace_publishing: 'admin_approval_required',
+    payout_actions: 'open',
+    refund_actions: 'open',
+    guest_automation: 'open',
+    ai_recommendations: 'admin_approval_required',
+  },
+};
 
 vi.mock('../hooks', () => ({
   useVendorOSRecords: () => ({
@@ -93,5 +162,15 @@ describe('CalendarInventoryWorkspace', () => {
     expect(screen.getByText('Dubai departure hold')).toBeInTheDocument();
     expect(screen.getAllByText('departure').length).toBeGreaterThan(0);
     expect(screen.getByText('18 capacity')).toBeInTheDocument();
+  });
+
+  it('shows accommodation inventory guidance for sync and pricing controls', () => {
+    render(<CalendarInventoryWorkspace accommodationAccess={accommodationAccess} />);
+
+    expect(screen.getByText('Accommodation controls')).toBeInTheDocument();
+    expect(screen.getByText('OTA sync')).toBeInTheDocument();
+    expect(screen.getAllByText('Upgrade to unlock').length).toBeGreaterThan(0);
+    expect(screen.getByText('Dynamic pricing')).toBeInTheDocument();
+    expect(screen.getByText('Advanced only')).toBeInTheDocument();
   });
 });

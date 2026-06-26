@@ -336,11 +336,13 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           />
         ) : activeModule === 'calendar' ? (
           <CalendarInventoryWorkspace
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />
         ) : activeModule === 'pms' ? (
           <PmsWorkspace
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />
@@ -362,6 +364,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           />
         ) : activeModule === 'marketplace' ? (
           <MarketplaceWorkspace
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />
@@ -374,6 +377,7 @@ export default function Dashboard({ initialUserId }: VendorOSDashboardProps) {
           <SubscriptionWorkspace organizationId={tenant.selectedOrganization?.id} />
         ) : activeModule === 'analytics' ? (
           <AnalyticsWorkspace
+            accommodationAccess={accommodationAccess}
             organizationId={tenant.selectedOrganization?.id}
             branchId={tenant.activeBranch?.id || null}
           />
