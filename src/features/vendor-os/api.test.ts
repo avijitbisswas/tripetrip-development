@@ -1,13 +1,18 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { supabase } from '@/src/lib/supabase';
 import {
+  createVendorAccountingRecord,
   createVendorDocumentRecord,
   createVendorDocumentSignedUrl,
   createVendorOSRecord,
+  createVendorPmsRecord,
   deleteVendorOSRecord,
+  listVendorAccountingRecords,
+  listVendorPmsRecords,
   markVendorNotificationRead,
   subscribeVendorOSRecords,
   subscribeVendorNotifications,
+  updateVendorPmsRecord,
   uploadVendorDocumentFile,
   upsertVendorTeamMember,
   VENDOR_DOCUMENTS_BUCKET,
@@ -147,6 +152,152 @@ describe('Vendor OS record API', () => {
         organizationId: 'org-1',
         recordId: 'lead-1',
         input: { stage: 'won' },
+      }),
+    });
+  });
+
+  it('lists PMS resource records through the dedicated PMS route', async () => {
+    const rows = [
+      {
+        id: 'reservation-1',
+        organization_id: 'org-1',
+        property_id: 'property-1',
+        guest_name: 'Aarav Mehta',
+        status: 'reserved',
+      },
+    ];
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ records: rows }), { status: 200 }));
+
+    await expect(listVendorPmsRecords('reservations', 'org-1')).resolves.toEqual(rows);
+
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/pms?resource=reservations&organizationId=org-1', {
+      headers: {
+        Authorization: 'Bearer vendor-token',
+      },
+    });
+  });
+
+  it('creates PMS resource records through the dedicated PMS route', async () => {
+    const row = {
+      id: 'folio-1',
+      organization_id: 'org-1',
+      property_id: 'property-1',
+      reservation_id: 'reservation-1',
+      entry_type: 'room_charge',
+      amount: 5400,
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ record: row }), { status: 200 }));
+
+    await expect(
+      createVendorPmsRecord('folios', 'org-1', 'branch-1', {
+        property_id: 'property-1',
+        reservation_id: 'reservation-1',
+        title: 'Nightly room charge',
+        amount: 5400,
+      }),
+    ).resolves.toEqual(row);
+
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/pms', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        resource: 'folios',
+        organizationId: 'org-1',
+        branchId: 'branch-1',
+        payload: {
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          title: 'Nightly room charge',
+          amount: 5400,
+        },
+      }),
+    });
+  });
+
+  it('updates PMS resource records through the dedicated PMS route', async () => {
+    const row = {
+      id: 'task-1',
+      organization_id: 'org-1',
+      status: 'done',
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ record: row }), { status: 200 }));
+
+    await expect(updateVendorPmsRecord('housekeeping', 'org-1', 'task-1', { status: 'done' })).resolves.toEqual(row);
+
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/pms', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        resource: 'housekeeping',
+        organizationId: 'org-1',
+        recordId: 'task-1',
+        input: {
+          status: 'done',
+        },
+      }),
+    });
+  });
+
+  it('lists accounting resource records through the dedicated accounting route', async () => {
+    const rows = [
+      {
+        id: 'payment-1',
+        organization_id: 'org-1',
+        reservation_id: 'reservation-1',
+        amount: 5400,
+        status: 'recorded',
+      },
+    ];
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ records: rows }), { status: 200 }));
+
+    await expect(listVendorAccountingRecords('payments', 'org-1')).resolves.toEqual(rows);
+
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/accounting?resource=payments&organizationId=org-1', {
+      headers: {
+        Authorization: 'Bearer vendor-token',
+      },
+    });
+  });
+
+  it('creates accounting resource records through the dedicated accounting route', async () => {
+    const row = {
+      id: 'payment-1',
+      organization_id: 'org-1',
+      reservation_id: 'reservation-1',
+      amount: 5400,
+      status: 'initiated',
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ record: row }), { status: 200 }));
+
+    await expect(
+      createVendorAccountingRecord('payments', 'org-1', 'branch-1', {
+        reservation_id: 'reservation-1',
+        amount: 5400,
+        payment_method: 'upi',
+      }),
+    ).resolves.toEqual(row);
+
+    expect(fetch).toHaveBeenCalledWith('/api/vendor-os/accounting', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer vendor-token',
+      },
+      body: JSON.stringify({
+        resource: 'payments',
+        organizationId: 'org-1',
+        branchId: 'branch-1',
+        payload: {
+          reservation_id: 'reservation-1',
+          amount: 5400,
+          payment_method: 'upi',
+        },
       }),
     });
   });

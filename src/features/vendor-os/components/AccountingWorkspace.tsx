@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   ArrowDownUp,
   Banknote,
@@ -12,7 +12,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { createVendorAccountingRecord, listVendorAccountingRecords } from '../api';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import type { VendorPaymentRecord } from '../types';
 import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
 import { AccommodationInsightPanel } from './AccommodationInsightPanel';
@@ -122,6 +124,12 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
     status: 'due',
   });
   const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [paymentForm, setPaymentForm] = useState({
+    reservation_id: '',
+    amount: '',
+    payment_method: 'upi',
+  });
+  const [payments, setPayments] = useState<VendorPaymentRecord[]>([]);
   const liveInvoices = useMemo(
     () =>
       records.records
@@ -135,6 +143,17 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
         })),
     [records.records],
   );
+  const paymentTotals = useMemo(() => {
+    const pending = payments.filter((payment) => payment.status === 'pending_approval').reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const recorded = payments.filter((payment) => payment.status === 'recorded').reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    return { pending, recorded };
+  }, [payments]);
+
+  useEffect(() => {
+    if (organizationId) {
+      void listVendorAccountingRecords('payments', organizationId).then(setPayments).catch(() => undefined);
+    }
+  }, [organizationId]);
 
   async function handleInvoiceSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -158,6 +177,26 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
       setFormMessage('Invoice created');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to create invoice');
+    }
+  }
+
+  async function handlePaymentSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+    if (!organizationId) return;
+
+    try {
+      await createVendorAccountingRecord('payments', organizationId, branchId || null, {
+        reservation_id: paymentForm.reservation_id,
+        amount: Number(paymentForm.amount),
+        payment_method: paymentForm.payment_method,
+        status: paymentForm.payment_method === 'upi' ? 'pending_approval' : 'recorded',
+      });
+      setPaymentForm({ reservation_id: '', amount: '', payment_method: 'upi' });
+      setPayments(await listVendorAccountingRecords('payments', organizationId));
+      setFormMessage('Payment recorded');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to record payment');
     }
   }
 
@@ -262,8 +301,74 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
       <section className="grid gap-4 md:grid-cols-4">
         <Metric label="Receivables" value="INR 4.2L" detail="12 invoices" />
         <Metric label="Expenses" value="INR 82K" detail="This month" />
-        <Metric label="Payouts" value="INR 2.1L" detail="Pending" />
+        <Metric label="Payouts" value={formatCurrency(paymentTotals.pending)} detail="Pending approval" />
         <Metric label="Ledger Health" value="98%" detail="Reconciled" />
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Settlement Desk</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Payment records tied to reservations and folio settlement</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Live Payment API
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[1fr_0.6fr_0.6fr_auto]" onSubmit={handlePaymentSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Reservation reference *</span>
+            <input
+              aria-label="Reservation reference *"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="reservation-1"
+              required
+              value={paymentForm.reservation_id}
+              onChange={(inputEvent) => setPaymentForm((current) => ({ ...current, reservation_id: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Payment amount *</span>
+            <input
+              aria-label="Payment amount *"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              type="number"
+              min="1"
+              value={paymentForm.amount}
+              onChange={(inputEvent) => setPaymentForm((current) => ({ ...current, amount: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Payment method *</span>
+            <select
+              aria-label="Payment method *"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              value={paymentForm.payment_method}
+              onChange={(inputEvent) => setPaymentForm((current) => ({ ...current, payment_method: inputEvent.target.value }))}
+            >
+              <option value="upi">UPI</option>
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="bank_transfer">Bank Transfer</option>
+            </select>
+          </label>
+          <Button className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60" disabled={!organizationId} type="submit">
+            Record Payment
+          </Button>
+        </form>
+        <div className="mt-4 space-y-3">
+          {payments.map((payment) => (
+            <div key={payment.id} className="grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 md:grid-cols-[1fr_auto_auto] md:items-center">
+              <div>
+                <div className="text-sm font-black text-slate-950">{payment.reservation_id || 'Unlinked reservation'}</div>
+                <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{payment.payment_method}</div>
+              </div>
+              <div className="text-sm font-black text-slate-950">{formatCurrency(payment.amount)}</div>
+              <StatePill state={titleCase(payment.status)} />
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">

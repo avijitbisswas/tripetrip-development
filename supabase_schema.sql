@@ -1027,6 +1027,60 @@ CREATE TABLE IF NOT EXISTS vendor_housekeeping_tasks (
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS vendor_pms_reservations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  property_id UUID REFERENCES vendor_properties(id) ON DELETE CASCADE NOT NULL,
+  room_id UUID REFERENCES vendor_rooms(id) ON DELETE SET NULL,
+  guest_name TEXT NOT NULL,
+  guest_email TEXT,
+  guest_phone TEXT,
+  check_in_date DATE NOT NULL,
+  check_out_date DATE NOT NULL,
+  adults INTEGER DEFAULT 1 NOT NULL CHECK (adults > 0),
+  children INTEGER DEFAULT 0 NOT NULL CHECK (children >= 0),
+  status TEXT DEFAULT 'reserved' NOT NULL,
+  payment_status TEXT DEFAULT 'pending' NOT NULL,
+  total_amount NUMERIC(12, 2) DEFAULT 0 NOT NULL CHECK (total_amount >= 0),
+  source TEXT DEFAULT 'manual' NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_folio_entries (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  property_id UUID REFERENCES vendor_properties(id) ON DELETE CASCADE NOT NULL,
+  reservation_id UUID REFERENCES vendor_pms_reservations(id) ON DELETE CASCADE,
+  entry_type TEXT DEFAULT 'room_charge' NOT NULL,
+  title TEXT NOT NULL,
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
+  quantity INTEGER DEFAULT 1 NOT NULL CHECK (quantity > 0),
+  payment_state TEXT DEFAULT 'open' NOT NULL,
+  notes TEXT,
+  posted_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_payment_records (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
+  branch_id UUID REFERENCES vendor_branches(id) ON DELETE SET NULL,
+  reservation_id UUID REFERENCES vendor_pms_reservations(id) ON DELETE SET NULL,
+  folio_entry_id UUID REFERENCES vendor_folio_entries(id) ON DELETE SET NULL,
+  manual_payment_intent_id TEXT REFERENCES manual_payment_intents(id) ON DELETE SET NULL,
+  payment_method TEXT DEFAULT 'cash' NOT NULL,
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
+  status TEXT DEFAULT 'initiated' NOT NULL,
+  reference_number TEXT,
+  collected_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  collected_by TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS vendor_tour_itineraries (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   organization_id UUID REFERENCES vendor_organizations(id) ON DELETE CASCADE NOT NULL,
@@ -1211,6 +1265,9 @@ CREATE INDEX IF NOT EXISTS idx_vendor_ledger_entries_org_posted ON vendor_ledger
 CREATE INDEX IF NOT EXISTS idx_vendor_properties_org ON vendor_properties(organization_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_vendor_rooms_property_status ON vendor_rooms(property_id, status, housekeeping_status);
 CREATE INDEX IF NOT EXISTS idx_vendor_housekeeping_tasks_property_status ON vendor_housekeeping_tasks(property_id, status, due_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_pms_reservations_property_dates ON vendor_pms_reservations(property_id, check_in_date, check_out_date);
+CREATE INDEX IF NOT EXISTS idx_vendor_folio_entries_reservation_state ON vendor_folio_entries(reservation_id, payment_state, posted_at);
+CREATE INDEX IF NOT EXISTS idx_vendor_payment_records_reservation_status ON vendor_payment_records(reservation_id, status, collected_at);
 CREATE INDEX IF NOT EXISTS idx_vendor_tour_departures_org_starts ON vendor_tour_departures(organization_id, starts_on);
 CREATE INDEX IF NOT EXISTS idx_vendor_activity_slots_org_starts ON vendor_activity_slots(organization_id, starts_at);
 CREATE INDEX IF NOT EXISTS idx_vendor_equipment_items_org_condition ON vendor_equipment_items(organization_id, condition);
@@ -1239,10 +1296,13 @@ AS $$
     WHEN 'vendor_invoices' THEN 'accounting'
     WHEN 'vendor_expenses' THEN 'accounting'
     WHEN 'vendor_ledger_entries' THEN 'accounting'
+    WHEN 'vendor_payment_records' THEN 'accounting'
     WHEN 'vendor_properties' THEN 'pms'
     WHEN 'vendor_room_types' THEN 'pms'
     WHEN 'vendor_rooms' THEN 'pms'
     WHEN 'vendor_housekeeping_tasks' THEN 'pms'
+    WHEN 'vendor_pms_reservations' THEN 'pms'
+    WHEN 'vendor_folio_entries' THEN 'pms'
     WHEN 'vendor_tour_itineraries' THEN 'tours'
     WHEN 'vendor_tour_departures' THEN 'tours'
     WHEN 'vendor_activity_slots' THEN 'activities'
@@ -1343,10 +1403,13 @@ DECLARE
     'vendor_invoices',
     'vendor_expenses',
     'vendor_ledger_entries',
+    'vendor_payment_records',
     'vendor_properties',
     'vendor_room_types',
     'vendor_rooms',
     'vendor_housekeeping_tasks',
+    'vendor_pms_reservations',
+    'vendor_folio_entries',
     'vendor_tour_itineraries',
     'vendor_tour_departures',
     'vendor_activity_slots',

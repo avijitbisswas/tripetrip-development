@@ -6,12 +6,20 @@ import type {
   VendorBranch,
   DocumentStatus,
   VendorDocument,
+  VendorAccountingResource,
+  VendorPaymentRecord,
+  VendorFolioEntryRecord,
   VendorNotification,
   VendorOrganization,
   VendorOSModule,
+  VendorPmsReservationRecord,
+  VendorPmsResource,
   VendorRolePermission,
+  VendorRoomRecord,
+  VendorRoomTypeRecord,
   VendorTeamMember,
   VendorTeamMemberStatus,
+  VendorHousekeepingTaskRecord,
 } from './types';
 
 type OrganizationInput = Pick<VendorOrganization, 'owner_user_id' | 'name' | 'slug'> &
@@ -149,6 +157,24 @@ async function vendorOSMutationFetch<T>(path: string, init: RequestInit = {}) {
 
   if (!response.ok) {
     throw new ServiceError(payload.error || 'Unable to update Vendor OS records', 'VENDOR_OS_RECORD_WRITE_FAILED', response.status);
+  }
+
+  return payload;
+}
+
+async function vendorOSAuthorizedFetch<T>(path: string, init: RequestInit = {}) {
+  const token = await getCurrentAccessToken();
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...init.headers,
+    },
+  });
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+
+  if (!response.ok) {
+    throw new ServiceError(payload.error || 'Unable to load Vendor OS records', 'VENDOR_OS_RECORDS_READ_FAILED', response.status);
   }
 
   return payload;
@@ -512,6 +538,18 @@ export type VendorOSRecordRow = Record<string, unknown> & {
   created_at?: string;
 };
 
+export type VendorPmsRecordMap = {
+  room_types: VendorRoomTypeRecord;
+  rooms: VendorRoomRecord;
+  reservations: VendorPmsReservationRecord;
+  housekeeping: VendorHousekeepingTaskRecord;
+  folios: VendorFolioEntryRecord;
+};
+
+export type VendorAccountingRecordMap = {
+  payments: VendorPaymentRecord;
+};
+
 export async function listVendorOSRecords(operation: VendorOSOperation, organizationId?: string) {
   if (!organizationId) return [];
 
@@ -585,4 +623,76 @@ export async function deleteVendorOSRecord(operation: VendorOSOperation, organiz
     }),
   });
   return { id: recordId };
+}
+
+export async function listVendorPmsRecords<TResource extends VendorPmsResource>(resource: TResource, organizationId?: string) {
+  if (!organizationId) return [] as VendorPmsRecordMap[TResource][];
+
+  const response = await vendorOSAuthorizedFetch<{ records: VendorPmsRecordMap[TResource][] }>(
+    `/api/vendor-os/pms?resource=${resource}&organizationId=${organizationId}`,
+  );
+  return response.records || [];
+}
+
+export async function createVendorPmsRecord<TResource extends VendorPmsResource>(
+  resource: TResource,
+  organizationId: string,
+  branchId: string | null,
+  payload: Record<string, unknown>,
+) {
+  const response = await vendorOSMutationFetch<{ record: VendorPmsRecordMap[TResource] }>('/api/vendor-os/pms', {
+    method: 'POST',
+    body: JSON.stringify({
+      resource,
+      organizationId,
+      branchId,
+      payload,
+    }),
+  });
+  return response.record;
+}
+
+export async function updateVendorPmsRecord<TResource extends VendorPmsResource>(
+  resource: TResource,
+  organizationId: string,
+  recordId: string,
+  input: Record<string, unknown>,
+) {
+  const response = await vendorOSMutationFetch<{ record: VendorPmsRecordMap[TResource] }>('/api/vendor-os/pms', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      resource,
+      organizationId,
+      recordId,
+      input,
+    }),
+  });
+  return response.record;
+}
+
+export async function listVendorAccountingRecords<TResource extends VendorAccountingResource>(resource: TResource, organizationId?: string) {
+  if (!organizationId) return [] as VendorAccountingRecordMap[TResource][];
+
+  const response = await vendorOSAuthorizedFetch<{ records: VendorAccountingRecordMap[TResource][] }>(
+    `/api/vendor-os/accounting?resource=${resource}&organizationId=${organizationId}`,
+  );
+  return response.records || [];
+}
+
+export async function createVendorAccountingRecord<TResource extends VendorAccountingResource>(
+  resource: TResource,
+  organizationId: string,
+  branchId: string | null,
+  payload: Record<string, unknown>,
+) {
+  const response = await vendorOSMutationFetch<{ record: VendorAccountingRecordMap[TResource] }>('/api/vendor-os/accounting', {
+    method: 'POST',
+    body: JSON.stringify({
+      resource,
+      organizationId,
+      branchId,
+      payload,
+    }),
+  });
+  return response.record;
 }

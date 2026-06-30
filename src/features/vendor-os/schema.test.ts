@@ -77,4 +77,26 @@ describe('Vendor OS database schema', () => {
     expect(schema).toContain("WHEN 'vendor_leads' THEN 'crm'");
     expect(schema).toContain("vendor_os_module_write_allowed(organization_id, vendor_os_module_name_for_table(''%s''))");
   });
+
+  it('persists PMS reservations and folio entries for accommodation operations', () => {
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS vendor_pms_reservations');
+    expect(schema).toContain("source TEXT DEFAULT 'manual' NOT NULL");
+    expect(schema).toContain("payment_status TEXT DEFAULT 'pending' NOT NULL");
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS vendor_folio_entries');
+    expect(schema).toContain("entry_type TEXT DEFAULT 'room_charge' NOT NULL");
+    expect(schema).toContain("payment_state TEXT DEFAULT 'open' NOT NULL");
+    expect(schema).toContain('CREATE INDEX IF NOT EXISTS idx_vendor_pms_reservations_property_dates');
+    expect(schema).toContain('CREATE INDEX IF NOT EXISTS idx_vendor_folio_entries_reservation_state');
+    expect(schema).toContain("WHEN 'vendor_pms_reservations' THEN 'pms'");
+    expect(schema).toContain("WHEN 'vendor_folio_entries' THEN 'pms'");
+  });
+
+  it('persists vendor payment records for folio settlement and reconciliation', () => {
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS vendor_payment_records');
+    expect(schema).toContain("payment_method TEXT DEFAULT 'cash' NOT NULL");
+    expect(schema).toContain("status TEXT DEFAULT 'initiated' NOT NULL");
+    expect(schema).toContain('manual_payment_intent_id TEXT REFERENCES manual_payment_intents(id) ON DELETE SET NULL');
+    expect(schema).toContain('CREATE INDEX IF NOT EXISTS idx_vendor_payment_records_reservation_status');
+    expect(schema).toContain("WHEN 'vendor_payment_records' THEN 'accounting'");
+  });
 });

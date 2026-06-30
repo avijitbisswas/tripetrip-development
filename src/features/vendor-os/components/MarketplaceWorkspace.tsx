@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   BadgePercent,
   BarChart3,
@@ -14,9 +14,11 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { listVendorPmsRecords } from '../api';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import type { VendorPmsReservationRecord, VendorRoomRecord, VendorRoomTypeRecord } from '../types';
 import { AccommodationInsightPanel } from './AccommodationInsightPanel';
 
 interface MarketplaceWorkspaceProps {
@@ -77,6 +79,7 @@ const syncSignals: Array<{ title: string; detail: string; icon: LucideIcon }> = 
 
 const sourceModuleOptions = ['pms', 'tours', 'activities', 'fleet'];
 const syncStatusOptions = ['pending', 'synced', 'failed'];
+const listingStateOptions = ['draft', 'live', 'paused'];
 
 function titleCase(value: string) {
   return value
@@ -113,50 +116,210 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 
 export function MarketplaceWorkspace({ organizationId, branchId, accommodationAccess }: MarketplaceWorkspaceProps) {
   const records = useVendorOSRecords('marketplace', organizationId);
+  const propertyRecords = useVendorOSRecords('pms', organizationId);
   const mutations = useVendorOSRecordMutations('marketplace', organizationId, branchId);
   const accommodationInsight = getAccommodationModuleInsights('marketplace', accommodationAccess);
   const [syncForm, setSyncForm] = useState({
     listing_title: '',
     public_slug: '',
+    property_id: '',
+    room_type_id: '',
     module: 'pms',
     sync_status: 'pending',
+    listing_state: 'draft',
+    nightly_rate: '',
     conversion_rate: '',
     direct_deal_enabled: false,
     deal_badge: '',
   });
   const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [pmsLoading, setPmsLoading] = useState(false);
+  const [pmsError, setPmsError] = useState<string | null>(null);
+  const [roomTypes, setRoomTypes] = useState<VendorRoomTypeRecord[]>([]);
+  const [rooms, setRooms] = useState<VendorRoomRecord[]>([]);
+  const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPmsInventory() {
+      if (!organizationId) {
+        if (active) {
+          setRoomTypes([]);
+          setRooms([]);
+          setReservations([]);
+          setPmsError(null);
+          setPmsLoading(false);
+        }
+        return;
+      }
+
+      setPmsLoading(true);
+      setPmsError(null);
+
+      try {
+        const [roomTypeRows, roomRows, reservationRows] = await Promise.all([
+          listVendorPmsRecords('room_types', organizationId),
+          listVendorPmsRecords('rooms', organizationId),
+          listVendorPmsRecords('reservations', organizationId),
+        ]);
+
+        if (!active) return;
+        setRoomTypes(roomTypeRows);
+        setRooms(roomRows);
+        setReservations(reservationRows);
+      } catch (error) {
+        if (!active) return;
+        setPmsError(error instanceof Error ? error.message : 'Unable to load PMS availability');
+      } finally {
+        if (active) setPmsLoading(false);
+      }
+    }
+
+    void loadPmsInventory();
+
+    return () => {
+      active = false;
+    };
+  }, [organizationId]);
+
+  const propertyMap = useMemo(
+    () =>
+      new Map(
+        propertyRecords.records.map((record) => [
+          String(record.id),
+          {
+            id: String(record.id),
+            name: String(record.name || 'Untitled property'),
+          },
+        ]),
+      ),
+    [propertyRecords.records],
+  );
+
+  const roomTypeMap = useMemo(() => new Map(roomTypes.map((roomType) => [roomType.id, roomType])), [roomTypes]);
+
+  const activeReservationStatuses = new Set(['reserved', 'confirmed', 'checked_in']);
+  const inventorySummaries = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayValue = today.getTime();
+
+    return roomTypes
+      .map((roomType) => {
+        const roomRows = rooms.filter((room) => room.property_id === roomType.property_id && room.room_type_id === roomType.id);
+        const activeReservationsCount = reservations.filter((reservation) => {
+          if (reservation.property_id !== roomType.property_id || !activeReservationStatuses.has(reservation.status)) return false;
+          const roomMatches = reservation.room_id ? roomRows.some((room) => room.id === reservation.room_id) : true;
+          if (!roomMatches) return false;
+
+          const checkInValue = new Date(reservation.check_in_date).getTime();
+          const checkOutValue = new Date(reservation.check_out_date).getTime();
+          if (Number.isNaN(checkInValue) || Number.isNaN(checkOutValue)) return false;
+          return checkInValue <= todayValue && checkOutValue > todayValue;
+        }).length;
+
+        const totalInventory = roomRows.length;
+        const availableInventory = Math.max(totalInventory - activeReservationsCount, 0);
+        const occupancyRate = totalInventory > 0 ? Number((((totalInventory - availableInventory) / totalInventory) * 100).toFixed(1)) : 0;
+
+        return {
+          propertyId: roomType.property_id,
+          roomTypeId: roomType.id,
+          propertyName: propertyMap.get(roomType.property_id)?.name || 'Untitled property',
+          roomTypeName: roomType.name,
+          totalInventory,
+          availableInventory,
+          occupiedInventory: totalInventory - availableInventory,
+          occupancyRate,
+          baseRate: Number(roomType.base_rate || 0),
+          housekeepingAttention: roomRows.filter((room) => room.housekeeping_status !== 'clean').length,
+        };
+      })
+      .filter((summary) => summary.totalInventory > 0);
+  }, [propertyMap, reservations, roomTypes, rooms]);
+
+  const selectedSummary = useMemo(
+    () =>
+      inventorySummaries.find(
+        (summary) => summary.propertyId === syncForm.property_id && summary.roomTypeId === syncForm.room_type_id,
+      ) || null,
+    [inventorySummaries, syncForm.property_id, syncForm.room_type_id],
+  );
+
   const liveListings = useMemo(
     () =>
       records.records.map((record) => {
         const metadata =
           record.metadata && typeof record.metadata === 'object' ? (record.metadata as Record<string, unknown>) : {};
+        const availableInventory = Number(metadata.available_inventory || 0);
+        const totalInventory = Number(metadata.total_inventory || 0);
+        const nightlyRate = Number(metadata.nightly_rate || 0);
         return {
           id: String(record.id),
           title: String(metadata.listing_title || record.title || 'Untitled listing'),
           slug: String(metadata.public_slug || 'Slug pending'),
           dealBadge: metadata.direct_deal_enabled ? `${String(metadata.deal_badge || 'Direct deal')} direct deal` : 'No direct deal',
-          source: `${String(record.module || 'marketplace').toUpperCase()} source`,
+          propertyId: metadata.property_id ? String(metadata.property_id) : '',
+          roomTypeId: metadata.room_type_id ? String(metadata.room_type_id) : '',
+          source: `${String(record.module || 'marketplace').toUpperCase()} / ${String(metadata.room_type_name || 'Room inventory')}`,
           sync: String(record.last_synced_at ? `Synced ${record.last_synced_at}` : 'Awaiting marketplace sync'),
-          state: titleCase(String(record.sync_status || 'pending')),
+          state: titleCase(String(metadata.listing_state || record.sync_status || 'pending')),
           metric:
             record.conversion_rate === null || record.conversion_rate === undefined
               ? 'Conversion pending'
               : `${record.conversion_rate}% conversion`,
+          inventory: totalInventory > 0 ? `${availableInventory}/${totalInventory} rooms available` : 'Inventory pending',
+          nightlyRate: nightlyRate > 0 ? `INR ${Math.round(nightlyRate).toLocaleString('en-IN')}/night` : 'Rate pending',
         };
       }),
     [records.records],
   );
 
+  async function refreshInventory() {
+    await Promise.all([
+      records.refresh(),
+      propertyRecords.refresh(),
+      organizationId
+        ? Promise.all([
+            listVendorPmsRecords('room_types', organizationId),
+            listVendorPmsRecords('rooms', organizationId),
+            listVendorPmsRecords('reservations', organizationId),
+          ]).then(([roomTypeRows, roomRows, reservationRows]) => {
+            setRoomTypes(roomTypeRows);
+            setRooms(roomRows);
+            setReservations(reservationRows);
+          })
+        : Promise.resolve(),
+    ]);
+  }
+
   async function handleSyncSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormMessage(null);
 
+    if (!selectedSummary) {
+      setFormMessage('Choose a property and room type with live PMS inventory before publishing.');
+      return;
+    }
+
     try {
       await mutations.createRecord({
-        listing_title: syncForm.listing_title,
-        public_slug: syncForm.public_slug,
+        listing_title: syncForm.listing_title || `${selectedSummary.propertyName} ${selectedSummary.roomTypeName}`,
+        public_slug:
+          syncForm.public_slug ||
+          `${selectedSummary.propertyName}-${selectedSummary.roomTypeName}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        property_id: selectedSummary.propertyId,
+        room_type_id: selectedSummary.roomTypeId,
+        room_type_name: selectedSummary.roomTypeName,
         module: syncForm.module,
         sync_status: syncForm.sync_status,
+        listing_state: syncForm.listing_state,
+        nightly_rate: syncForm.nightly_rate ? Number(syncForm.nightly_rate) : selectedSummary.baseRate,
+        total_inventory: selectedSummary.totalInventory,
+        available_inventory: selectedSummary.availableInventory,
+        occupied_inventory: selectedSummary.occupiedInventory,
+        occupancy_rate: selectedSummary.occupancyRate,
         conversion_rate: syncForm.conversion_rate ? Number(syncForm.conversion_rate) : null,
         direct_deal_enabled: syncForm.direct_deal_enabled,
         deal_badge: syncForm.deal_badge,
@@ -164,18 +327,76 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
       setSyncForm({
         listing_title: '',
         public_slug: '',
+        property_id: '',
+        room_type_id: '',
         module: 'pms',
         sync_status: 'pending',
+        listing_state: 'draft',
+        nightly_rate: '',
         conversion_rate: '',
         direct_deal_enabled: false,
         deal_badge: '',
       });
-      await records.refresh();
-      setFormMessage('Listing sync created');
+      await refreshInventory();
+      setFormMessage('Inventory published to marketplace sync');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to create listing sync');
     }
   }
+
+  async function handleRefreshListing(listingId: string, propertyId: string, roomTypeId: string) {
+    const summary = inventorySummaries.find((item) => item.propertyId === propertyId && item.roomTypeId === roomTypeId);
+    if (!summary) {
+      setFormMessage('Live PMS availability is missing for this listing.');
+      return;
+    }
+
+    try {
+      await mutations.updateRecord(listingId, {
+        sync_status: 'synced',
+        last_synced_at: new Date().toISOString(),
+        metadata: {
+          property_id: summary.propertyId,
+          room_type_id: summary.roomTypeId,
+          room_type_name: summary.roomTypeName,
+          total_inventory: summary.totalInventory,
+          available_inventory: summary.availableInventory,
+          occupied_inventory: summary.occupiedInventory,
+          occupancy_rate: summary.occupancyRate,
+          nightly_rate: summary.baseRate,
+        },
+      });
+      await refreshInventory();
+      setFormMessage('Listing availability refreshed from PMS.');
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : 'Unable to refresh listing availability');
+    }
+  }
+
+  const liveMetricCards = useMemo(() => {
+    const listingsLive = liveListings.filter((listing) => listing.state.toLowerCase() === 'live').length;
+    const dealsActive = liveListings.filter((listing) => listing.dealBadge !== 'No direct deal').length;
+    const averageConversion =
+      liveListings.length > 0
+        ? (
+            liveListings.reduce((total, listing) => {
+              const numeric = Number.parseFloat(listing.metric);
+              return Number.isFinite(numeric) ? total + numeric : total;
+            }, 0) / liveListings.filter((listing) => Number.isFinite(Number.parseFloat(listing.metric))).length || 0
+          ).toFixed(1)
+        : '0.0';
+    const syncHealth =
+      liveListings.length > 0
+        ? `${Math.round((liveListings.filter((listing) => listing.state.toLowerCase() !== 'failed').length / liveListings.length) * 100)}%`
+        : '100%';
+
+    return [
+      ['Listings Live', String(listingsLive), 'Published inventory'],
+      ['Deals Active', String(dealsActive), 'Direct deal enabled'],
+      ['Conversion', `${averageConversion}%`, 'Average tracked'],
+      ['Sync Health', syncHealth, 'PMS connected'],
+    ];
+  }, [liveListings]);
 
   return (
     <div className="space-y-6">
@@ -191,7 +412,12 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button className="rounded-xl bg-emerald-600 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700">
+            <Button
+              className="rounded-xl bg-emerald-600 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700"
+              disabled={pmsLoading || records.loading}
+              onClick={() => void refreshInventory()}
+              type="button"
+            >
               <RefreshCw className="mr-2 h-4 w-4" />
               Sync Listing
             </Button>
@@ -217,11 +443,46 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
         </div>
         <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_0.8fr_0.6fr_0.6fr_0.55fr_auto]" onSubmit={handleSyncSubmit}>
           <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Property *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={syncForm.property_id}
+              onChange={(inputEvent) =>
+                setSyncForm((current) => ({ ...current, property_id: inputEvent.target.value, room_type_id: '' }))
+              }
+            >
+              <option value="">Select property</option>
+              {Array.from(propertyMap.values()).map((property) => (
+                <option key={property.id} value={property.id}>
+                  {property.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Room type *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={syncForm.room_type_id}
+              onChange={(inputEvent) => setSyncForm((current) => ({ ...current, room_type_id: inputEvent.target.value }))}
+            >
+              <option value="">Select room type</option>
+              {inventorySummaries
+                .filter((summary) => !syncForm.property_id || summary.propertyId === syncForm.property_id)
+                .map((summary) => (
+                  <option key={summary.roomTypeId} value={summary.roomTypeId}>
+                    {summary.roomTypeName}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Listing title *</span>
             <input
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
               placeholder="Marketplace listing"
-              required
               value={syncForm.listing_title}
               onChange={(inputEvent) => setSyncForm((current) => ({ ...current, listing_title: inputEvent.target.value }))}
             />
@@ -251,6 +512,21 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
             </select>
           </label>
           <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Listing state *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={syncForm.listing_state}
+              onChange={(inputEvent) => setSyncForm((current) => ({ ...current, listing_state: inputEvent.target.value }))}
+            >
+              {listingStateOptions.map((status) => (
+                <option key={status} value={status}>
+                  {titleCase(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Sync status *</span>
             <select
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
@@ -264,6 +540,17 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
                 </option>
               ))}
             </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Nightly rate</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              min="0"
+              step="0.01"
+              type="number"
+              value={syncForm.nightly_rate}
+              onChange={(inputEvent) => setSyncForm((current) => ({ ...current, nightly_rate: inputEvent.target.value }))}
+            />
           </label>
           <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Conversion rate</span>
@@ -301,19 +588,33 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
             disabled={mutations.submitting || !organizationId}
             type="submit"
           >
-            Create Listing Sync
+            Publish Inventory
           </Button>
         </form>
-        {(formMessage || mutations.error || records.error) && (
-          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        {selectedSummary && (
+          <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+            <div className="text-sm font-black text-slate-950">
+              {selectedSummary.propertyName} / {selectedSummary.roomTypeName}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold uppercase tracking-widest text-emerald-700">
+              <span>{selectedSummary.availableInventory}/{selectedSummary.totalInventory} rooms available</span>
+              <span>{selectedSummary.occupancyRate}% occupied</span>
+              <span>INR {Math.round(selectedSummary.baseRate).toLocaleString('en-IN')} base rate</span>
+              <span>{selectedSummary.housekeepingAttention} rooms need housekeeping review</span>
+            </div>
+          </div>
+        )}
+        {(formMessage || mutations.error || records.error || pmsError || propertyRecords.error) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">
+            {formMessage || mutations.error || records.error || pmsError || propertyRecords.error}
+          </p>
         )}
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <Metric label="Listings Live" value="24" detail="Synced" />
-        <Metric label="Deals Active" value="9" detail="Flash sale" />
-        <Metric label="Conversion" value="7.8%" detail="+1.4%" />
-        <Metric label="Sync Health" value="98%" detail="Inventory guarded" />
+        {liveMetricCards.map(([label, value, detail]) => (
+          <Metric key={label} label={label} value={value} detail={detail} />
+        ))}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -337,12 +638,22 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
                   <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                   {listing.sync}
                 </div>
+                <div className="mt-3 text-sm font-bold text-slate-800">{listing.inventory}</div>
+                <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-500">{listing.nightlyRate}</div>
                 <div className="mt-3 flex flex-wrap gap-2 text-sm font-bold text-slate-800">
                   <span>{listing.metric}</span>
                   <span className="rounded-full bg-white px-2 py-1 text-[10px] uppercase tracking-widest text-emerald-700">
                     {listing.dealBadge}
                   </span>
                 </div>
+                <Button
+                  className="mt-4 h-9 rounded-xl bg-slate-950 px-4 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800"
+                  disabled={!organizationId || !listing.propertyId || !listing.roomTypeId || mutations.submitting}
+                  onClick={() => void handleRefreshListing(listing.id, listing.propertyId, listing.roomTypeId)}
+                  type="button"
+                >
+                  Refresh Availability
+                </Button>
               </div>
             ))}
             {listings.map((listing) => (
@@ -393,7 +704,27 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Inventory Mapping</h3>
           </div>
           <div className="space-y-3">
-            {mappings.map((mapping) => (
+            {inventorySummaries.slice(0, 6).map((summary) => (
+              <div
+                key={`${summary.propertyId}-${summary.roomTypeId}`}
+                className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{summary.propertyName}</div>
+                    <div className="mt-1 text-xs text-slate-500">{summary.roomTypeName}</div>
+                  </div>
+                  <StatePill state={summary.availableInventory > 0 ? 'Live' : 'Attention'} />
+                </div>
+                <div className="mt-3 text-sm font-bold text-slate-800">
+                  {summary.availableInventory}/{summary.totalInventory} rooms available
+                </div>
+                <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">
+                  {summary.occupancyRate}% occupied
+                </div>
+              </div>
+            ))}
+            {inventorySummaries.length === 0 && mappings.map((mapping) => (
               <div key={mapping.source} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>

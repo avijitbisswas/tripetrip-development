@@ -18,14 +18,20 @@
 - Vendor OS create, update, and delete flows now execute through Worker-backed mutation routes with accommodation access enforcement and tenant scoping.
 - Vendor document uploads still use direct storage upload, but the metadata record creation path now runs through the Worker-backed Vendor OS mutation route.
 - Supabase schema now includes accommodation-aware RLS write checks for Vendor OS operational tables, matching the Worker and app-layer module enforcement for direct database writes.
+- PMS Core slice now includes real schema and Worker/API plumbing for PMS reservations and folio entries.
+- PMS workspace now supports live room type, room, reservation, housekeeping task, and folio entry creation against dedicated PMS resources.
+- PMS arrivals, housekeeping, folio panels, and operational metrics now derive from live PMS records instead of relying only on static demo arrays.
+- Payment operations slice now includes vendor payment record schema, Worker/API plumbing, and a live accounting settlement desk for reservation-linked payment capture.
 
 ## In Progress
 
-- Verification, polish, and test stabilization for phase-one accommodation rollout.
+- Inventory and marketplace sync slice: live PMS availability now powers marketplace publishing, sync refresh, and room-type inventory mapping for accommodation providers.
 
 ## Next
 
-- Apply the updated `supabase_schema.sql` to the live Supabase project so direct database writes inherit the new accommodation-aware RLS policies in production.
+- Apply the latest PMS migration to the live Supabase project so `vendor_pms_reservations` and `vendor_folio_entries` exist in production before relying on the deployed PMS workspace.
+- Apply the payment operations migration so `vendor_payment_records` exists in production before deploying the new settlement desk.
+- Extend marketplace inventory sync into OTA/channel distribution and admin-controlled publishing approvals.
 
 ## Deferred
 

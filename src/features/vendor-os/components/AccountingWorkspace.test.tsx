@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import { createVendorAccountingRecord, listVendorAccountingRecords } from '../api';
 import { AccountingWorkspace } from './AccountingWorkspace';
 
 const hookMocks = vi.hoisted(() => ({
@@ -94,11 +95,23 @@ vi.mock('../hooks', () => ({
   }),
 }));
 
+vi.mock('../api', async () => {
+  const actual = await vi.importActual('../api');
+  return {
+    ...actual,
+    listVendorAccountingRecords: vi.fn(),
+    createVendorAccountingRecord: vi.fn(),
+  };
+});
+
 describe('AccountingWorkspace', () => {
   beforeEach(() => {
     hookMocks.createRecord.mockReset();
     hookMocks.refresh.mockReset();
     hookMocks.records = [];
+    vi.mocked(listVendorAccountingRecords).mockReset();
+    vi.mocked(createVendorAccountingRecord).mockReset();
+    vi.mocked(listVendorAccountingRecords).mockResolvedValue([]);
   });
 
   it('renders invoices, expenses, payouts, tax, ledger, and export controls', () => {
@@ -164,5 +177,45 @@ describe('AccountingWorkspace', () => {
     expect(screen.getByText('Upgrade to unlock')).toBeInTheDocument();
     expect(screen.getByText('Payout actions')).toBeInTheDocument();
     expect(screen.getAllByText('Open').length).toBeGreaterThan(0);
+  });
+
+  it('creates live payment records and renders settlement activity', async () => {
+    vi.mocked(listVendorAccountingRecords).mockResolvedValueOnce([
+      {
+        id: 'payment-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        reservation_id: 'reservation-1',
+        folio_entry_id: null,
+        manual_payment_intent_id: 'manual_1',
+        payment_method: 'upi',
+        amount: 5400,
+        status: 'pending_approval',
+        reference_number: 'RES-1-UPI',
+        collected_at: '2026-07-02T10:00:00.000Z',
+        collected_by: 'Front Desk',
+        notes: 'Awaiting finance approval',
+        created_at: '2026-07-02T10:00:00.000Z',
+      } as never,
+    ]);
+    vi.mocked(createVendorAccountingRecord).mockResolvedValue({ id: 'payment-2' } as never);
+
+    render(<AccountingWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await userEvent.type(screen.getByLabelText('Reservation reference *'), 'reservation-1');
+    await userEvent.type(screen.getByLabelText('Payment amount *'), '5400');
+    await userEvent.selectOptions(screen.getByLabelText('Payment method *'), 'upi');
+    await userEvent.click(screen.getByRole('button', { name: 'Record Payment' }));
+
+    expect(createVendorAccountingRecord).toHaveBeenCalledWith(
+      'payments',
+      'org-1',
+      'branch-1',
+      expect.objectContaining({
+        reservation_id: 'reservation-1',
+        amount: 5400,
+        payment_method: 'upi',
+      }),
+    );
   });
 });

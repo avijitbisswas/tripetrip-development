@@ -172,3 +172,97 @@ export interface VendorOSContext {
   role: VendorOSRole;
   can: (module: VendorOSModule, action?: PermissionAction) => boolean;
 }
+
+export type VendorPmsResource = 'room_types' | 'rooms' | 'reservations' | 'housekeeping' | 'folios';
+
+export interface VendorRoomTypeRecord {
+  id: string;
+  organization_id: string;
+  property_id: string;
+  name: string;
+  occupancy: number;
+  base_rate: number;
+  amenities: string[];
+  created_at: string;
+}
+
+export interface VendorRoomRecord {
+  id: string;
+  organization_id: string;
+  property_id: string;
+  room_type_id: string | null;
+  room_number: string;
+  floor: string | null;
+  status: string;
+  housekeeping_status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface VendorPmsReservationRecord {
+  id: string;
+  organization_id: string;
+  branch_id: string | null;
+  property_id: string;
+  room_id: string | null;
+  guest_name: string;
+  guest_email: string | null;
+  guest_phone: string | null;
+  check_in_date: string;
+  check_out_date: string;
+  adults: number;
+  children: number;
+  status: string;
+  payment_status: string;
+  total_amount: number;
+  source: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface VendorHousekeepingTaskRecord {
+  id: string;
+  organization_id: string;
+  property_id: string;
+  room_id: string | null;
+  title: string;
+  status: string;
+  assigned_to: string | null;
+  due_at: string | null;
+  created_at: string;
+}
+
+export interface VendorFolioEntryRecord {
+  id: string;
+  organization_id: string;
+  branch_id: string | null;
+  property_id: string;
+  reservation_id: string | null;
+  entry_type: string;
+  title: string;
+  amount: number;
+  quantity: number;
+  payment_state: string;
+  notes: string | null;
+  posted_at: string;
+  created_at: string;
+}
+
+export type VendorAccountingResource = 'payments';
+
+export interface VendorPaymentRecord {
+  id: string;
+  organization_id: string;
+  branch_id: string | null;
+  reservation_id: string | null;
+  folio_entry_id: string | null;
+  manual_payment_intent_id: string | null;
+  payment_method: string;
+  amount: number;
+  status: string;
+  reference_number: string | null;
+  collected_at: string;
+  collected_by: string | null;
+  notes: string | null;
+  created_at: string;
+}

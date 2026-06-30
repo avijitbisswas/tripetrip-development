@@ -118,6 +118,59 @@ type ServerSupabaseClient = ManualPaymentSupabaseClient &
     from: (table: string) => unknown;
   };
 
+type VendorPmsResource = "room_types" | "rooms" | "reservations" | "housekeeping" | "folios";
+type VendorAccountingResource = "payments";
+
+const vendorPmsResources: Record<
+  VendorPmsResource,
+  {
+    table: string;
+    branchScoped: boolean;
+    orderBy: string;
+  }
+> = {
+  room_types: {
+    table: "vendor_room_types",
+    branchScoped: false,
+    orderBy: "created_at",
+  },
+  rooms: {
+    table: "vendor_rooms",
+    branchScoped: false,
+    orderBy: "created_at",
+  },
+  reservations: {
+    table: "vendor_pms_reservations",
+    branchScoped: true,
+    orderBy: "check_in_date",
+  },
+  housekeeping: {
+    table: "vendor_housekeeping_tasks",
+    branchScoped: false,
+    orderBy: "due_at",
+  },
+  folios: {
+    table: "vendor_folio_entries",
+    branchScoped: true,
+    orderBy: "posted_at",
+  },
+};
+
+const vendorAccountingResources: Record<
+  VendorAccountingResource,
+  {
+    table: string;
+    branchScoped: boolean;
+    orderBy: string;
+  }
+> = {
+  payments: {
+    table: "vendor_payment_records",
+    branchScoped: true,
+    orderBy: "collected_at",
+  },
+};
+
 const CONFIG_HEALTH_VERSION = "2026-06-15";
 const COMMUNITY_MESSAGE_PREFIX = "__tripetrip_community__:";
 const COMMUNITY_AUDIENCES = new Set(["everyone", "circle", "mentions"]);
@@ -1521,6 +1574,242 @@ async function handleVendorOSRecords(request: Request, env: WorkerEnv) {
   return json({ error: "Method not allowed" }, { status: 405 });
 }
 
+async function handleVendorPmsRecords(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedProfile(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    const url = new URL(request.url);
+    const resourceKey = String(url.searchParams.get("resource") || "").trim() as VendorPmsResource;
+    const organizationId = String(url.searchParams.get("organizationId") || "").trim();
+    const resource = vendorPmsResources[resourceKey];
+
+    if (!resource || !organizationId) {
+      return json({ error: "Invalid vendor PMS read request" }, { status: 400 });
+    }
+
+    const access = await getVendorAccommodationAccess(auth.supabase, {
+      organizationId,
+      userId: auth.profile.id,
+    });
+
+    if (access && !access.moduleVisibility.pms) {
+      return json({ error: "This module is not enabled for this vendor account." }, { status: 403 });
+    }
+
+    const query = (auth.supabase.from(resource.table) as {
+      select: (columns: string) => {
+        eq: (column: string, value: string) => {
+          order: (column: string, options: { ascending: boolean }) => {
+            limit: (count: number) => Promise<{ data: Array<Record<string, unknown>> | null; error?: { message?: string } | null }>;
+          };
+        };
+      };
+    })
+      .select("*")
+      .eq("organization_id", organizationId)
+      .order(resource.orderBy, { ascending: false });
+
+    const { data, error } = await query.limit(100);
+    if (error) {
+      return json({ error: error.message || "Unable to load PMS records" }, { status: 500 });
+    }
+
+    return json({ records: data || [] });
+  }
+
+  const body = await readJsonBody(request);
+  const resourceKey = String(body.resource || "").trim() as VendorPmsResource;
+  const organizationId = String(body.organizationId || "").trim();
+  const recordId = String(body.recordId || "").trim();
+  const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+  const input = body.input && typeof body.input === "object" ? body.input : {};
+  const resource = vendorPmsResources[resourceKey];
+
+  if (!resource || !organizationId) {
+    return json({ error: "Invalid vendor PMS record request" }, { status: 400 });
+  }
+
+  const access = await getVendorAccommodationAccess(auth.supabase, {
+    organizationId,
+    userId: auth.profile.id,
+  });
+
+  if (access && !access.moduleVisibility.pms) {
+    return json({ error: "This module is not enabled for this vendor account." }, { status: 403 });
+  }
+
+  if (request.method === "POST") {
+    const insertPayload = {
+      organization_id: organizationId,
+      ...(resource.branchScoped ? { branch_id: body.branchId || null } : {}),
+      ...(payload as Record<string, unknown>),
+    };
+    const vendorTable = auth.supabase.from(resource.table) as unknown as {
+      insert: (row: Record<string, unknown>) => {
+        select: () => {
+          single: () => Promise<{ data: Record<string, unknown> | null; error: { message?: string } | null }>;
+        };
+      };
+    };
+    const auditTable = auth.supabase.from("vendor_audit_logs") as unknown as {
+      insert: (row: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: string } | null }>;
+    };
+    const { data, error } = await vendorTable.insert(insertPayload).select().single();
+
+    if (error || !data) {
+      return json({ error: error?.message || "Unable to create PMS record" }, { status: 500 });
+    }
+
+    await auditTable.insert({
+      organization_id: data.organization_id,
+      branch_id: data.branch_id || null,
+      actor_user_id: auth.profile.id,
+      module: "pms",
+      action: `pms.${resourceKey}.created`,
+      entity_type: resource.table,
+      entity_id: data.id,
+      severity: "info",
+      metadata: {
+        fields: Object.keys(payload as Record<string, unknown>),
+        table: resource.table,
+      },
+    });
+
+    return json({ record: data });
+  }
+
+  if (request.method === "PATCH") {
+    if (!recordId) {
+      return json({ error: "Record id is required" }, { status: 400 });
+    }
+    const vendorTable = auth.supabase.from(resource.table) as unknown as {
+      update: (row: Record<string, unknown>) => {
+        eq: (column: string, value: string) => {
+          eq: (column: string, value: string) => {
+            select: () => {
+              single: () => Promise<{ data: Record<string, unknown> | null; error: { message?: string } | null }>;
+            };
+          };
+        };
+      };
+    };
+    const auditTable = auth.supabase.from("vendor_audit_logs") as unknown as {
+      insert: (row: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: string } | null }>;
+    };
+    const { data, error } = await vendorTable.update(input).eq("id", recordId).eq("organization_id", organizationId).select().single();
+    if (error || !data) {
+      return json({ error: error?.message || "Unable to update PMS record" }, { status: 500 });
+    }
+
+    await auditTable.insert({
+      organization_id: data.organization_id,
+      branch_id: data.branch_id || null,
+      actor_user_id: auth.profile.id,
+      module: "pms",
+      action: `pms.${resourceKey}.updated`,
+      entity_type: resource.table,
+      entity_id: data.id,
+      severity: "info",
+      metadata: {
+        changed_fields: Object.keys(input as Record<string, unknown>),
+        table: resource.table,
+      },
+    });
+
+    return json({ record: data });
+  }
+
+  return json({ error: "Method not allowed" }, { status: 405 });
+}
+
+async function handleVendorAccountingRecords(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedProfile(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    const url = new URL(request.url);
+    const resourceKey = String(url.searchParams.get("resource") || "").trim() as VendorAccountingResource;
+    const organizationId = String(url.searchParams.get("organizationId") || "").trim();
+    const resource = vendorAccountingResources[resourceKey];
+
+    if (!resource || !organizationId) {
+      return json({ error: "Invalid vendor accounting read request" }, { status: 400 });
+    }
+
+    const query = (auth.supabase.from(resource.table) as {
+      select: (columns: string) => {
+        eq: (column: string, value: string) => {
+          order: (column: string, options: { ascending: boolean }) => {
+            limit: (count: number) => Promise<{ data: Array<Record<string, unknown>> | null; error?: { message?: string } | null }>;
+          };
+        };
+      };
+    })
+      .select("*")
+      .eq("organization_id", organizationId)
+      .order(resource.orderBy, { ascending: false });
+
+    const { data, error } = await query.limit(100);
+    if (error) {
+      return json({ error: error.message || "Unable to load accounting records" }, { status: 500 });
+    }
+
+    return json({ records: data || [] });
+  }
+
+  const body = await readJsonBody(request);
+  const resourceKey = String(body.resource || "").trim() as VendorAccountingResource;
+  const organizationId = String(body.organizationId || "").trim();
+  const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+  const resource = vendorAccountingResources[resourceKey];
+
+  if (!resource || !organizationId) {
+    return json({ error: "Invalid vendor accounting record request" }, { status: 400 });
+  }
+
+  if (request.method === "POST") {
+    const insertPayload = {
+      organization_id: organizationId,
+      ...(resource.branchScoped ? { branch_id: body.branchId || null } : {}),
+      ...(payload as Record<string, unknown>),
+    };
+    const vendorTable = auth.supabase.from(resource.table) as unknown as {
+      insert: (row: Record<string, unknown>) => {
+        select: () => {
+          single: () => Promise<{ data: Record<string, unknown> | null; error: { message?: string } | null }>;
+        };
+      };
+    };
+    const auditTable = auth.supabase.from("vendor_audit_logs") as unknown as {
+      insert: (row: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: string } | null }>;
+    };
+    const { data, error } = await vendorTable.insert(insertPayload).select().single();
+    if (error || !data) {
+      return json({ error: error?.message || "Unable to create accounting record" }, { status: 500 });
+    }
+
+    await auditTable.insert({
+      organization_id: data.organization_id,
+      branch_id: data.branch_id || null,
+      actor_user_id: auth.profile.id,
+      module: "accounting",
+      action: `accounting.${resourceKey}.created`,
+      entity_type: resource.table,
+      entity_id: data.id,
+      severity: "info",
+      metadata: {
+        fields: Object.keys(payload as Record<string, unknown>),
+        table: resource.table,
+      },
+    });
+
+    return json({ record: data });
+  }
+
+  return json({ error: "Method not allowed" }, { status: 405 });
+}
+
 async function handlePublicSiteConfig(env: WorkerEnv) {
   const { supabase } = createRepositories(env);
   if (!supabase) {
@@ -1559,6 +1848,10 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleVendorAIBrief(request, env);
   if (request.method === "POST" && pathname === "/api/vendor-os/mutations/authorize")
     return handleVendorOSMutationAuthorization(request, env);
+  if ((request.method === "GET" || request.method === "POST") && pathname === "/api/vendor-os/accounting")
+    return handleVendorAccountingRecords(request, env);
+  if ((request.method === "GET" || request.method === "POST" || request.method === "PATCH") && pathname === "/api/vendor-os/pms")
+    return handleVendorPmsRecords(request, env);
   if ((request.method === "POST" || request.method === "PATCH" || request.method === "DELETE") && pathname === "/api/vendor-os/records")
     return handleVendorOSRecords(request, env);
   if (request.method === "POST" && pathname === "/api/auth/login")

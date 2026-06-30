@@ -1123,6 +1123,267 @@ describe("cloudflare worker runtime", () => {
     });
   });
 
+  it("creates PMS reservation records through the worker with tenant scoping", async () => {
+    const insertSingle = vi.fn(async () => ({
+      data: {
+        id: "reservation-1",
+        organization_id: "org-1",
+        branch_id: "branch-1",
+        property_id: "property-1",
+        room_id: "room-201",
+        guest_name: "Aarav Mehta",
+        status: "reserved",
+      },
+      error: null,
+    }));
+    const insertSelect = vi.fn(() => ({ single: insertSingle }));
+    const insert = vi.fn(() => ({ select: insertSelect }));
+    const auditInsert = vi.fn(async () => ({ data: { id: "audit-2" }, error: null }));
+
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "user-1" } },
+          error: null,
+        })),
+        admin: {
+          createUser: vi.fn(),
+          deleteUser: vi.fn(),
+        },
+      },
+      from: vi.fn((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: "user-1", full_name: "Vendor User", role: "vendor", avatar_url: null },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "vendor_organizations") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "org-1", primary_vendor_profile_id: "vendor-1" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "vendor_profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "vendor-1", user_id: "user-1", business_type: "hotel" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+
+        if (table === "messages") {
+          return {
+            select: vi.fn(() =>
+              createSelectQuery({
+                data: [],
+                error: null,
+              }),
+            ),
+          };
+        }
+
+        if (table === "vendor_pms_reservations") {
+          return { insert };
+        }
+
+        if (table === "vendor_audit_logs") {
+          return { insert: auditInsert };
+        }
+
+        return {};
+      }),
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/vendor-os/pms", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vendor-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          resource: "reservations",
+          organizationId: "org-1",
+          branchId: "branch-1",
+          payload: {
+            property_id: "property-1",
+            room_id: "room-201",
+            guest_name: "Aarav Mehta",
+            status: "reserved",
+          },
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: "org-1",
+      branch_id: "branch-1",
+      property_id: "property-1",
+      room_id: "room-201",
+      guest_name: "Aarav Mehta",
+      status: "reserved",
+    });
+    expect(auditInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organization_id: "org-1",
+        module: "pms",
+        action: "pms.reservations.created",
+        entity_type: "vendor_pms_reservations",
+      }),
+    );
+  });
+
+  it("creates accounting payment records through the worker with tenant scoping", async () => {
+    const insertSingle = vi.fn(async () => ({
+      data: {
+        id: "payment-1",
+        organization_id: "org-1",
+        branch_id: "branch-1",
+        reservation_id: "reservation-1",
+        payment_method: "upi",
+        amount: 5400,
+        status: "initiated",
+      },
+      error: null,
+    }));
+    const insertSelect = vi.fn(() => ({ single: insertSingle }));
+    const insert = vi.fn(() => ({ select: insertSelect }));
+    const auditInsert = vi.fn(async () => ({ data: { id: "audit-3" }, error: null }));
+
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "user-1" } },
+          error: null,
+        })),
+        admin: {
+          createUser: vi.fn(),
+          deleteUser: vi.fn(),
+        },
+      },
+      from: vi.fn((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: "user-1", full_name: "Vendor User", role: "vendor", avatar_url: null },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === "vendor_organizations") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "org-1", primary_vendor_profile_id: "vendor-1" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === "vendor_profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "vendor-1", user_id: "user-1", business_type: "hotel" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === "messages") {
+          return {
+            select: vi.fn(() => createSelectQuery({ data: [], error: null })),
+          };
+        }
+        if (table === "vendor_payment_records") {
+          return { insert };
+        }
+        if (table === "vendor_audit_logs") {
+          return { insert: auditInsert };
+        }
+        return {};
+      }),
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/vendor-os/accounting", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vendor-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          resource: "payments",
+          organizationId: "org-1",
+          branchId: "branch-1",
+          payload: {
+            reservation_id: "reservation-1",
+            payment_method: "upi",
+            amount: 5400,
+          },
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(insert).toHaveBeenCalledWith({
+      organization_id: "org-1",
+      branch_id: "branch-1",
+      reservation_id: "reservation-1",
+      payment_method: "upi",
+      amount: 5400,
+    });
+    expect(auditInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organization_id: "org-1",
+        module: "accounting",
+        action: "accounting.payments.created",
+        entity_type: "vendor_payment_records",
+      }),
+    );
+  });
+
   it("stores and returns structured community metadata while keeping profile-only scheduled posts out of the main feed", async () => {
     const insertSingle = vi.fn(async () => ({
       data: {
