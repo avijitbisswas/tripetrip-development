@@ -139,6 +139,8 @@ export async function getSiteConfig(supabase: SupabaseLike) {
   const rows = await listLatestConfigMessages(supabase);
   let content = { ...DEFAULT_CONTENT_CONFIG };
   let system = { ...DEFAULT_SYSTEM_CONFIG };
+  let contentResolved = false;
+  let systemResolved = false;
 
   for (const row of rows) {
     const parsed = parsePrefixedJson<{ key?: 'content' | 'system'; value?: Record<string, unknown> }>(
@@ -146,7 +148,7 @@ export async function getSiteConfig(supabase: SupabaseLike) {
       ADMIN_CONFIG_PREFIX,
     );
     if (!parsed?.key || !parsed.value) continue;
-    if (parsed.key === 'content') {
+    if (parsed.key === 'content' && !contentResolved) {
       content = {
         ...content,
         ...parsed.value,
@@ -160,13 +162,19 @@ export async function getSiteConfig(supabase: SupabaseLike) {
           ? parsed.value.featuredDealSlugs.map((item) => String(item))
           : content.featuredDealSlugs,
       };
+      contentResolved = true;
     }
 
-    if (parsed.key === 'system') {
+    if (parsed.key === 'system' && !systemResolved) {
       system = {
         ...system,
         ...parsed.value,
       };
+      systemResolved = true;
+    }
+
+    if (contentResolved && systemResolved) {
+      break;
     }
   }
 

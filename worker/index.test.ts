@@ -128,6 +128,39 @@ function createSiteConfigSupabaseMock(systemOverrides: Record<string, unknown>) 
   };
 }
 
+function createSiteConfigHistorySupabaseMock(entries: Array<{ createdAt: string; system: Record<string, unknown> }>) {
+  return {
+    auth: {
+      admin: {
+        createUser: vi.fn(),
+        deleteUser: vi.fn(),
+      },
+    },
+    from: vi.fn((table: string) => {
+      if (table === "messages") {
+        return {
+          select: vi.fn(() =>
+            createSelectQuery({
+              data: entries.map((entry, index) => ({
+                id: `config-${index + 1}`,
+                sender_id: "admin-1",
+                content: `__tripetrip_admin_config__:${JSON.stringify({
+                  key: "system",
+                  value: entry.system,
+                })}`,
+                created_at: entry.createdAt,
+              })),
+              error: null,
+            }),
+          ),
+        };
+      }
+
+      return {};
+    }),
+  };
+}
+
 describe("cloudflare worker runtime", () => {
   beforeEach(() => {
     createClientMock.mockReset();
@@ -292,6 +325,37 @@ describe("cloudflare worker runtime", () => {
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({
       error: "Deals are temporarily disabled by the Tripetrip admin team.",
+    });
+  });
+
+  it("returns the latest saved maintenance mode from site config history", async () => {
+    createClientMock.mockReturnValue(
+      createSiteConfigHistorySupabaseMock([
+        {
+          createdAt: "2026-06-30T00:00:00.000Z",
+          system: { maintenanceMode: false },
+        },
+        {
+          createdAt: "2026-06-29T00:00:00.000Z",
+          system: { maintenanceMode: true },
+        },
+      ]),
+    );
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/public/site-config"),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      system: {
+        maintenanceMode: false,
+      },
     });
   });
 
