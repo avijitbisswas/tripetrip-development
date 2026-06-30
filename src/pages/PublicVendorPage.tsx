@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import type { Listing, VendorProfile } from '@/src/types/domain';
-import { listListings } from '@/src/services/listings';
+import { getPublicListingPath, listListings } from '@/src/services/listings';
 import { getVendorBySlug } from '@/src/services/vendors';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -157,10 +157,11 @@ export default function PublicVendorPage() {
                     transition={{ delay: idx * 0.1 }}
                     className="group"
                   >
-                    <Link to={`/listing/${item.id}`} className="block">
+                    <Link to={getPublicListingPath(item)} className="block">
                       <div className="aspect-[4/3] rounded-3xl overflow-hidden mb-6 bg-slate-100 relative shadow-md group-hover:shadow-xl transition-all duration-500">
                          <img 
-                           src={item.images[0]} 
+                           src={item.images[0] || 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&q=80&w=1200'} 
+                           alt={item.title}
                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
                          />
                          <div className="absolute top-4 right-4">

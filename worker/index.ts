@@ -1038,8 +1038,18 @@ async function handleCreateDealBookingRequest(
   request: Request,
   env: WorkerEnv,
 ) {
-  const { paymentRepository, bookingRepository, inventoryRepository } =
+  const { supabase, paymentRepository, bookingRepository, inventoryRepository } =
     createRepositories(env);
+  if (supabase) {
+    const siteConfig = await getSiteConfig(supabase);
+    if (!siteConfig.system.dealsEnabled) {
+      return json(
+        { error: "Deals are temporarily disabled by the Tripetrip admin team." },
+        { status: 403 },
+      );
+    }
+  }
+
   const result = await handleCreateDealBooking(
     (await readJsonBody(request)) as {
       dealId?: string;
@@ -1058,10 +1068,20 @@ async function handleCreateDealBookingRequest(
 }
 
 async function handleGetDealBooking(pathname: string, env: WorkerEnv) {
+  const { supabase, bookingRepository } = createRepositories(env);
+  if (supabase) {
+    const siteConfig = await getSiteConfig(supabase);
+    if (!siteConfig.system.dealsEnabled) {
+      return json(
+        { error: "Deals are temporarily disabled by the Tripetrip admin team." },
+        { status: 403 },
+      );
+    }
+  }
+
   const bookingId = decodeURIComponent(
     pathname.replace("/api/deals/bookings/", ""),
   );
-  const { bookingRepository } = createRepositories(env);
   const booking = await bookingRepository.getByBookingId(bookingId);
 
   if (!booking) {

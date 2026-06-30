@@ -66,4 +66,15 @@ describe('Vendor OS database schema', () => {
     expect(schema).toContain('CREATE POLICY "Admins manage deal inventory"');
     expect(schema).toContain("('goa-beach-escape', 40, 8, 0, 342)");
   });
+
+  it('enforces accommodation module write access in RLS for operational vendor tables', () => {
+    expect(schema).toContain('CREATE OR REPLACE FUNCTION vendor_os_module_name_for_table(table_name TEXT)');
+    expect(schema).toContain('CREATE OR REPLACE FUNCTION vendor_os_module_write_allowed(');
+    expect(schema).toContain("control.content LIKE '__tripetrip_vendor_access__:%'");
+    expect(schema).toContain("saved_access->>'enforcementMode' = 'open'");
+    expect(schema).toContain("saved_access->'moduleOverrides' ? module_name");
+    expect(schema).toContain("module_name = ANY (ARRAY['dashboard', 'crm', 'calendar', 'inbox', 'accounting', 'team', 'pms', 'ai_assistant', 'marketplace', 'subscriptions', 'analytics', 'branches', 'documents', 'settings'])");
+    expect(schema).toContain("WHEN 'vendor_leads' THEN 'crm'");
+    expect(schema).toContain("vendor_os_module_write_allowed(organization_id, vendor_os_module_name_for_table(''%s''))");
+  });
 });

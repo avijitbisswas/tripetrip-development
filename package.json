@@ -14,6 +14,8 @@
     "cf:dev": "wrangler dev",
     "cf:deploy": "npm run build:client && wrangler deploy",
     "deploy": "npm run cf:deploy",
+    "supabase:db:push": "npx supabase db push",
+    "supabase:db:link": "npx supabase link",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",

@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import EnhancedSearchBar from '@/src/components/marketplace/EnhancedSearchBar';
 import MarketplaceSection from '@/src/components/marketplace/MarketplaceSection';
 import { ActivityCard, DealCard, PackageCard, PropertyCard, TransportCard } from '@/src/components/marketplace/cards';
-import { getPublicSiteConfig } from '@/src/services/admin';
+import { usePublicSiteConfig } from '@/src/hooks/usePublicSiteConfig';
 import { ArrowRight, BadgeCheck, Handshake, ShieldCheck, Sparkles, Tags } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
@@ -50,25 +49,8 @@ const deals = [
 ];
 
 export default function Home() {
-  const [announcement, setAnnouncement] = useState('');
-
-  useEffect(() => {
-    let mounted = true;
-
-    getPublicSiteConfig()
-      .then((payload) => {
-        if (!mounted) return;
-        const content = (payload.content as Record<string, unknown> | undefined) || {};
-        setAnnouncement(typeof content.homepageAnnouncement === 'string' ? content.homepageAnnouncement : '');
-      })
-      .catch(() => {
-        if (mounted) setAnnouncement('');
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const { content, system } = usePublicSiteConfig();
+  const announcement = typeof content.homepageAnnouncement === 'string' ? content.homepageAnnouncement : '';
 
   return (
     <main className="bg-slate-50">
@@ -79,6 +61,11 @@ export default function Home() {
 
         <div className="relative mx-auto max-w-7xl px-4">
           <motion.div initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }} className="max-w-2xl pb-10 pt-6 text-white md:pt-14">
+            {system.maintenanceMode ? (
+              <div className="mb-4 inline-flex max-w-xl rounded-2xl border border-amber-300/30 bg-amber-400/15 px-4 py-3 text-sm font-bold text-amber-50 backdrop-blur">
+                Tripetrip is in maintenance mode. Core browsing is available while admin updates are in progress.
+              </div>
+            ) : null}
             {announcement ? (
               <div className="mb-4 inline-flex max-w-xl rounded-2xl border border-emerald-300/30 bg-emerald-400/15 px-4 py-3 text-sm font-bold text-emerald-50 backdrop-blur">
                 {announcement}

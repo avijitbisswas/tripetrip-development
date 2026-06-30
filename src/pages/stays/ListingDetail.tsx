@@ -1,15 +1,76 @@
-import type { ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { findPackage as findStay, formatRupees, inclusions, packages as stays } from '@/src/data/tripetripStays';
+import { formatRupees, inclusions, packages as stays } from '@/src/data/tripetripStays';
+import { getCurrentSession } from '@/src/services/auth';
+import { createBooking } from '@/src/services/bookings';
 import { ArrowLeft, BadgeCheck, Calendar, Check, Heart, MapPin, MessageCircle, Share2, Star, Users, X } from 'lucide-react';
+import { getListingById } from '@/src/services/listings';
+import { getProfile } from '@/src/services/profiles';
+import type { Listing } from '@/src/types/domain';
+import { toast } from 'sonner';
 
 export default function StayListingDetail() {
   const { id } = useParams();
-  const stay = findStay(id);
-  const similar = stays.filter((item) => item.id !== stay.id).slice(0, 4);
+  const stay = id ? stays.find((item) => item.id === id) ?? null : null;
+  const [dynamicListing, setDynamicListing] = useState<Listing | null>(null);
+  const [loading, setLoading] = useState(false);
+  const similar = stay ? stays.filter((item) => item.id !== stay.id).slice(0, 4) : [];
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (stay || !id) {
+      setDynamicListing(null);
+      setLoading(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    setLoading(true);
+    getListingById(id)
+      .then((listing) => {
+        if (mounted) setDynamicListing(listing);
+      })
+      .catch(() => {
+        if (mounted) setDynamicListing(null);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [id, stay]);
+
+  if (!stay) {
+    if (loading) {
+      return (
+        <main className="grid min-h-[60vh] place-items-center bg-white px-4">
+          <p className="text-sm font-bold uppercase tracking-[0.3em] text-slate-400">Loading stay</p>
+        </main>
+      );
+    }
+
+    if (!dynamicListing) {
+      return (
+        <main className="grid min-h-[60vh] place-items-center bg-white px-4">
+          <div className="text-center">
+            <h1 className="text-3xl font-extrabold text-slate-900">Stay not found</h1>
+            <Link to="/stays" className="mt-6 inline-flex">
+              <Button variant="outline" className="rounded-xl font-bold">Back to stays</Button>
+            </Link>
+          </div>
+        </main>
+      );
+    }
+
+    return <DynamicStayListingDetail listing={dynamicListing} />;
+  }
 
   return (
     <main className="bg-white pb-24 text-slate-950 lg:pb-12">
@@ -136,6 +197,157 @@ export default function StayListingDetail() {
   );
 }
 
+function DynamicStayListingDetail({ listing }: { listing: Listing }) {
+  const navigate = useNavigate();
+  const propertyType = String(listing.specifics?.property_type || listing.category || 'Stay');
+  const heroImage = listing.images[0] || 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&q=80&w=1600';
+  const amenities = listing.amenities.length ? listing.amenities : ['Verified host', 'Direct booking support', 'Tripetrip assistance'];
+  const nightlyPrice = Number(listing.base_price || 0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkInDate, setCheckInDate] = useState(() => getTomorrowDateInput());
+  const [guestCount, setGuestCount] = useState(() => Math.min(Math.max(listing.max_capacity || 2, 1), 2));
+  const guestOptions = useMemo(
+    () => Array.from({ length: Math.max(listing.max_capacity || 2, 1) }, (_, index) => index + 1),
+    [listing.max_capacity],
+  );
+
+  const handleBooking = async () => {
+    if (!checkInDate) {
+      toast.error('Select a check-in date');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const { user } = await getCurrentSession();
+      if (!user) {
+        toast.error('Please log in as a traveler to continue');
+        navigate('/login');
+        return;
+      }
+
+      const profile = await getProfile(user.id).catch(() => null);
+      const booking = await createBooking({
+        listingId: listing.id,
+        vendorId: listing.vendor_id,
+        travelerId: user.id,
+        travelerName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Tripetrip Traveler',
+        startDate: new Date(`${checkInDate}T12:00:00.000Z`).toISOString(),
+        endDate: null,
+        guests: guestCount,
+        totalPrice: nightlyPrice * guestCount,
+      });
+
+      toast.success('Booking request created');
+      navigate(`/stays/booking-confirmed?bookingId=${booking.id}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to create booking';
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="bg-white pb-24 text-slate-950 lg:pb-12">
+      <div className="mx-auto max-w-[1500px] px-4 py-5 md:px-8">
+        <div className="mb-4 flex items-center justify-between gap-4 text-xs font-bold text-slate-600">
+          <Link to="/stays" className="flex items-center gap-2 hover:text-[#16A34A]"><ArrowLeft className="h-4 w-4" /> Back to results</Link>
+        </div>
+
+        <section className="grid gap-4 lg:grid-cols-[1fr_360px]">
+          <div>
+            <div className="relative min-h-[340px] overflow-hidden rounded-[20px] bg-slate-100 lg:min-h-[430px]">
+              <img src={heroImage} alt={listing.title} className="h-full w-full object-cover" />
+            </div>
+
+            <div className="mt-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-extrabold tracking-tight md:text-4xl">{listing.title}</h1>
+                <Badge className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-extrabold uppercase text-[#16A34A] hover:bg-emerald-50">{propertyType}</Badge>
+                <Badge className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-extrabold text-[#16A34A] hover:bg-emerald-50"><BadgeCheck className="mr-1 h-3.5 w-3.5" /> Verified Property</Badge>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-600">
+                <span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-[#16A34A]" /> {listing.location}</span>
+              </div>
+              <div className="mt-5 rounded-2xl bg-emerald-50 p-4 text-sm font-extrabold text-[#16A34A]">
+                Direct booking live for this vendor listing
+              </div>
+            </div>
+          </div>
+
+          <Card className="hidden rounded-[20px] border-slate-200 bg-white p-5 shadow-[0_18px_60px_rgba(15,23,42,0.12)] lg:sticky lg:top-24 lg:block">
+            <div className="text-2xl font-extrabold">{formatRupees(nightlyPrice)} <span className="text-xs font-medium text-slate-500">/ night</span></div>
+            <div className="mt-5 space-y-3">
+              <label className="block text-xs font-bold">
+                Check-in
+                <div className="mt-2 flex h-12 items-center rounded-xl border border-slate-200 px-3 text-sm font-bold">
+                  <Calendar className="mr-3 h-4 w-4 text-slate-400" />
+                  <input
+                    type="date"
+                    value={checkInDate}
+                    min={getTodayDateInput()}
+                    onChange={(event) => setCheckInDate(event.target.value)}
+                    className="w-full bg-transparent outline-none"
+                    aria-label={`Check-in date for ${listing.title}`}
+                  />
+                </div>
+              </label>
+              <label className="block text-xs font-bold">
+                Guests
+                <div className="mt-2 flex h-12 items-center rounded-xl border border-slate-200 px-3 text-sm font-bold">
+                  <Users className="mr-3 h-4 w-4 text-slate-400" />
+                  <select
+                    value={guestCount}
+                    onChange={(event) => setGuestCount(Number(event.target.value))}
+                    className="w-full bg-transparent outline-none"
+                    aria-label={`Guests for ${listing.title}`}
+                  >
+                    {guestOptions.map((count) => (
+                      <option key={count} value={count}>
+                        {count} guest{count > 1 ? 's' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+            </div>
+            <div className="mt-5 flex items-end justify-between border-t border-slate-100 pt-4">
+              <div>
+                <p className="text-sm font-extrabold">Estimated Total</p>
+                <p className="text-xs font-semibold text-slate-500">{formatRupees(nightlyPrice)} x {guestCount}</p>
+              </div>
+              <p className="text-2xl font-extrabold">{formatRupees(nightlyPrice * guestCount)}</p>
+            </div>
+            <Button
+              className="mt-5 h-12 w-full rounded-xl bg-[#16A34A] font-extrabold text-white hover:bg-emerald-700"
+              onClick={handleBooking}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Creating Booking...' : 'Send Booking Request'}
+            </Button>
+            <Button variant="outline" className="mt-3 h-12 w-full rounded-xl font-bold"><MessageCircle className="mr-2 h-4 w-4" /> Contact Host</Button>
+          </Card>
+        </section>
+
+        <section className="mt-8 grid gap-8 lg:grid-cols-[1fr_360px]">
+          <div className="space-y-8">
+            <Section title="Overview">
+              <p className="max-w-4xl text-sm font-medium leading-7 text-slate-600">{listing.description}</p>
+            </Section>
+
+            <Section title="Amenities">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {amenities.map((item) => <div key={item} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700">{item}</div>)}
+              </div>
+            </Section>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 function BookingPanel({ price, original, savings }: { price: number; original: number; savings: number }) {
   return (
     <Card className="hidden rounded-[20px] border-slate-200 bg-white p-5 shadow-[0_18px_60px_rgba(15,23,42,0.12)] lg:sticky lg:top-24 lg:block">
@@ -216,4 +428,14 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </section>
   );
+}
+
+function getTodayDateInput() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getTomorrowDateInput() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return date.toISOString().slice(0, 10);
 }

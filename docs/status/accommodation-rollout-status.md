@@ -17,6 +17,7 @@
 - Admin accommodation saves now preserve existing override state when only one part of the access policy is updated.
 - Vendor OS create, update, and delete flows now execute through Worker-backed mutation routes with accommodation access enforcement and tenant scoping.
 - Vendor document uploads still use direct storage upload, but the metadata record creation path now runs through the Worker-backed Vendor OS mutation route.
+- Supabase schema now includes accommodation-aware RLS write checks for Vendor OS operational tables, matching the Worker and app-layer module enforcement for direct database writes.
 
 ## In Progress
 
@@ -24,7 +25,7 @@
 
 ## Next
 
-- Move Vendor OS write paths behind Worker or RLS-backed enforcement for stronger server-side guarantees beyond app-level hook guards.
+- Apply the updated `supabase_schema.sql` to the live Supabase project so direct database writes inherit the new accommodation-aware RLS policies in production.
 
 ## Deferred
 
@@ -37,6 +38,6 @@
 ## Notes / Risks
 
 - Phase 1 should remain permissive by default so launch behavior does not regress.
-- Current write enforcement is app-layer protection through shared hooks; direct Supabase writes outside the app still need server-side or RLS enforcement in a later phase.
+- Worker routes and Supabase RLS now both enforce accommodation module visibility for Vendor OS writes, but capability-level approvals remain controlled by the app and Worker layer.
 - Deferred advanced features must remain documented as roadmap-backed, not falsely shipped.
 - Status file should be updated at each implementation checkpoint.

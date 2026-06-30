@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { usePublicSiteConfig } from '@/src/hooks/usePublicSiteConfig';
 import {
   createCommunityPost,
   getCommunityProfile,
@@ -218,6 +219,7 @@ function ComposerToolButton({
 
 export default function Community() {
   const { userId } = useParams();
+  const { loading: configLoading, system } = usePublicSiteConfig();
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [viewer, setViewer] = useState<CommunityProfile | null>(null);
   const [profile, setProfile] = useState<CommunityProfile | null>(null);
@@ -332,6 +334,17 @@ export default function Community() {
     let mounted = true;
 
     async function loadCommunity() {
+      if (!system.communityEnabled) {
+        if (mounted) {
+          setViewer(null);
+          setProfile(null);
+          setPosts([]);
+          setError('Community is temporarily disabled by the Tripetrip admin team.');
+          setLoading(false);
+        }
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
@@ -357,12 +370,14 @@ export default function Community() {
       }
     }
 
-    loadCommunity();
+    if (!configLoading) {
+      loadCommunity();
+    }
 
     return () => {
       mounted = false;
     };
-  }, [userId]);
+  }, [configLoading, system.communityEnabled, userId]);
 
   const handlePost = async (event: FormEvent) => {
     event.preventDefault();

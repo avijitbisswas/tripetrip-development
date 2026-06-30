@@ -93,6 +93,41 @@ function createCommunitySupabaseMock() {
   return { auth, from, insert };
 }
 
+function createSiteConfigSupabaseMock(systemOverrides: Record<string, unknown>) {
+  return {
+    auth: {
+      admin: {
+        createUser: vi.fn(),
+        deleteUser: vi.fn(),
+      },
+    },
+    from: vi.fn((table: string) => {
+      if (table === "messages") {
+        return {
+          select: vi.fn(() =>
+            createSelectQuery({
+              data: [
+                {
+                  id: "config-1",
+                  sender_id: "admin-1",
+                  content: `__tripetrip_admin_config__:${JSON.stringify({
+                    key: "system",
+                    value: systemOverrides,
+                  })}`,
+                  created_at: "2026-06-30T00:00:00.000Z",
+                },
+              ],
+              error: null,
+            }),
+          ),
+        };
+      }
+
+      return {};
+    }),
+  };
+}
+
 describe("cloudflare worker runtime", () => {
   beforeEach(() => {
     createClientMock.mockReset();
@@ -206,6 +241,57 @@ describe("cloudflare worker runtime", () => {
         dealsEnabled: true,
         maintenanceMode: false,
       },
+    });
+  });
+
+  it("blocks deal booking creation when deals are disabled in site config", async () => {
+    createClientMock.mockReturnValue(
+      createSiteConfigSupabaseMock({ dealsEnabled: false }),
+    );
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/deals/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dealId: "goa-beach-escape",
+          dealTitle: "Goa Beach Escape",
+          amount: 9999,
+          travelerName: "Guest Traveler",
+          travelDate: "2026-06-24",
+          participants: 2,
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Deals are temporarily disabled by the Tripetrip admin team.",
+    });
+  });
+
+  it("blocks deal confirmation reads when deals are disabled in site config", async () => {
+    createClientMock.mockReturnValue(
+      createSiteConfigSupabaseMock({ dealsEnabled: false }),
+    );
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/deals/bookings/TRIPLIVE123"),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Deals are temporarily disabled by the Tripetrip admin team.",
     });
   });
 

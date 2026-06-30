@@ -12,6 +12,15 @@ export interface ListingFilters {
 
 export type ListingInput = Omit<Listing, 'id' | 'created_at' | 'updated_at'>;
 
+export function isStayCategory(category?: string | null) {
+  const normalized = (category || '').trim().toLowerCase();
+  return normalized === 'stays' || normalized === 'stay' || normalized === 'hotels' || normalized === 'hotel';
+}
+
+export function getPublicListingPath(listing: Pick<Listing, 'id' | 'category'>) {
+  return isStayCategory(listing.category) ? `/stays/${listing.id}` : `/listing/${listing.id}`;
+}
+
 export function getListingRange(page = 1, pageSize = 12) {
   const safePage = Math.max(page, 1);
   const safePageSize = Math.max(Math.min(pageSize, 50), 1);
