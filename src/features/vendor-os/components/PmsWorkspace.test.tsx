@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildGuestAutomationEmail, PmsWorkspace } from './PmsWorkspace';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
-import { createVendorPmsRecord, listVendorPmsRecords, updateVendorPmsRecord } from '../api';
+import { createVendorPmsRecord, listVendorPmsRecords, listVendorTeamMembers, updateVendorPmsRecord } from '../api';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
@@ -109,6 +109,7 @@ vi.mock('../api', async () => {
   return {
     ...actual,
     listVendorPmsRecords: vi.fn(),
+    listVendorTeamMembers: vi.fn(),
     createVendorPmsRecord: vi.fn(),
     updateVendorPmsRecord: vi.fn(),
   };
@@ -123,9 +124,11 @@ describe('PmsWorkspace', () => {
     hookMocks.documents = [];
     hookMocks.uploadDocument.mockReset();
     vi.mocked(listVendorPmsRecords).mockReset();
+    vi.mocked(listVendorTeamMembers).mockReset();
     vi.mocked(createVendorPmsRecord).mockReset();
     vi.mocked(updateVendorPmsRecord).mockReset();
     vi.mocked(listVendorPmsRecords).mockResolvedValue([]);
+    vi.mocked(listVendorTeamMembers).mockResolvedValue([]);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({ id: 'email-1' }),
@@ -205,7 +208,7 @@ describe('PmsWorkspace', () => {
     expect(screen.getByText('Guest Documents')).toBeInTheDocument();
     expect(screen.getByText('Folio & Rates')).toBeInTheDocument();
     expect((await screen.findAllByText('Aarav Mehta')).length).toBeGreaterThan(0);
-    expect(await screen.findByText('Room 108 deep clean')).toBeInTheDocument();
+    expect((await screen.findAllByText('Room 108 deep clean')).length).toBeGreaterThan(0);
   });
 
   it('creates a property through the PMS workspace form', async () => {
@@ -537,7 +540,7 @@ describe('PmsWorkspace', () => {
 
     render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
 
-    const taskTitle = await screen.findByText('Post-checkout cleaning');
+    const taskTitle = (await screen.findAllByText('Post-checkout cleaning'))[0];
     const taskCard = taskTitle.closest('.rounded-xl');
 
     expect(taskCard).not.toBeNull();
@@ -553,6 +556,185 @@ describe('PmsWorkspace', () => {
       housekeeping_status: 'clean',
       status: 'available',
     });
+  });
+
+  it('prioritizes housekeeping dispatch for dirty rooms tied to upcoming arrivals', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'dirty',
+          housekeeping_status: 'dirty',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'task-1',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          title: 'Deep clean before check-in',
+          status: 'pending',
+          assigned_to: null,
+          due_at: '2026-07-02T11:00:00.000Z',
+          created_at: '2026-07-02T08:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([]);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText('Housekeeping Board')).toBeInTheDocument();
+    expect(screen.getByText('Dispatch Queue')).toBeInTheDocument();
+    expect(screen.getByText('Arrival first')).toBeInTheDocument();
+    expect(screen.getByText('1 urgent room release')).toBeInTheDocument();
+  });
+
+  it('assigns housekeeping owners and due times from the dispatch board', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'dirty',
+          housekeeping_status: 'dirty',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'task-1',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          title: 'Deep clean before check-in',
+          status: 'pending',
+          assigned_to: null,
+          due_at: null,
+          created_at: '2026-07-02T08:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(listVendorTeamMembers).mockResolvedValue([
+      {
+        id: 'member-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        user_id: 'user-1',
+        role: 'staff',
+        title: 'Housekeeping',
+        display_name: 'Priya Nair',
+        invited_email: 'priya@example.com',
+        invited_by: 'owner-1',
+        accepted_at: '2026-07-01T09:00:00.000Z',
+        status: 'active',
+        is_active: true,
+        created_at: '2026-07-01T09:00:00.000Z',
+      },
+    ] as never);
+    vi.mocked(updateVendorPmsRecord).mockResolvedValue({ id: 'task-1' } as never);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText('Dispatch Queue')).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText('Assign owner for Deep clean before check-in'), 'member-1');
+    await userEvent.type(screen.getByLabelText('Set due time for Deep clean before check-in'), '13:30');
+    await userEvent.click(screen.getByRole('button', { name: 'Save Dispatch' }));
+
+    await waitFor(() => {
+      expect(updateVendorPmsRecord).toHaveBeenCalledWith(
+        'housekeeping',
+        'org-1',
+        'task-1',
+        expect.objectContaining({
+          assigned_to: 'member-1',
+          status: 'assigned',
+        }),
+      );
+    });
+    expect(screen.getByText('Dispatch updated for Deep clean before check-in')).toBeInTheDocument();
   });
 
   it('tracks guest arrival readiness, uploads guest documents, and marks them verified', async () => {

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { sendTransactionalEmail } from '@/src/services/email';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
-import { createVendorPmsRecord, listVendorPmsRecords, updateVendorPmsRecord } from '../api';
+import { createVendorPmsRecord, listVendorPmsRecords, listVendorTeamMembers, updateVendorPmsRecord } from '../api';
 import { useVendorOSDocuments, useVendorOSRecordMutations, useVendorOSRecords, useVendorDocumentUpload } from '../hooks';
 import type {
   VendorDocument,
@@ -13,6 +13,7 @@ import type {
   VendorPmsReservationRecord,
   VendorRoomRecord,
   VendorRoomTypeRecord,
+  VendorTeamMember,
 } from '../types';
 import { AccommodationInsightPanel } from './AccommodationInsightPanel';
 
@@ -88,6 +89,24 @@ function datesOverlap(startA: string, endA: string, startB: string, endB: string
   return leftStart < rightEnd && rightStart < leftEnd;
 }
 
+function formatDateTimeLabel(value: string | null) {
+  if (!value) return 'Due when assigned';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function buildDueAtValue(baseDate: string | null, timeValue: string) {
+  if (!timeValue) return null;
+  const datePart = baseDate || new Date().toISOString().slice(0, 10);
+  return new Date(`${datePart}T${timeValue}:00`).toISOString();
+}
+
 export function buildGuestAutomationEmail(
   reservation: {
     guest: string;
@@ -149,9 +168,13 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
   const [housekeepingTasks, setHousekeepingTasks] = useState<VendorHousekeepingTaskRecord[]>([]);
   const [folioEntries, setFolioEntries] = useState<VendorFolioEntryRecord[]>([]);
+  const [teamMembers, setTeamMembers] = useState<VendorTeamMember[]>([]);
   const [guestDocuments, setGuestDocuments] = useState<VendorDocument[]>([]);
   const [guestUploadFiles, setGuestUploadFiles] = useState<Record<string, File | null>>({});
   const [guestAutomationSending, setGuestAutomationSending] = useState<Record<string, GuestAutomationAction | null>>({});
+  const [housekeepingDispatchEdits, setHousekeepingDispatchEdits] = useState<
+    Record<string, { assigned_to: string; due_time: string }>
+  >({});
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
 
   const [propertyForm, setPropertyForm] = useState({ name: '', property_type: 'hotel', address: '' });
@@ -194,12 +217,13 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   async function refreshPmsData() {
     if (!organizationId) return;
 
-    const [roomTypeRows, roomRows, reservationRows, taskRows, folioRows] = await Promise.all([
+    const [roomTypeRows, roomRows, reservationRows, taskRows, folioRows, teamMemberRows] = await Promise.all([
       listVendorPmsRecords('room_types', organizationId),
       listVendorPmsRecords('rooms', organizationId),
       listVendorPmsRecords('reservations', organizationId),
       listVendorPmsRecords('housekeeping', organizationId),
       listVendorPmsRecords('folios', organizationId),
+      listVendorTeamMembers(organizationId),
     ]);
 
     setRoomTypes(roomTypeRows);
@@ -207,6 +231,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     setReservations(reservationRows);
     setHousekeepingTasks(taskRows);
     setFolioEntries(folioRows);
+    setTeamMembers(teamMemberRows);
   }
 
   useEffect(() => {
@@ -319,6 +344,56 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       sourceMix,
     };
   }, [activeReservations, reservations, roomAvailabilityRows]);
+  const teamMemberMap = useMemo(() => new Map(teamMembers.map((member) => [member.id, member])), [teamMembers]);
+  const housekeepingDispatchRows = useMemo(
+    () =>
+      housekeepingTasks.map((task) => {
+        const room = task.room_id ? roomMap.get(task.room_id) : null;
+        const roomReservations = task.room_id
+          ? reservations.filter(
+              (reservation) =>
+                reservation.room_id === task.room_id && !['cancelled', 'checked_out', 'no_show'].includes(reservation.status),
+            )
+          : [];
+        const nextArrival = roomReservations
+          .filter((reservation) => reservation.status === 'reserved')
+          .sort((left, right) => new Date(left.check_in_date).getTime() - new Date(right.check_in_date).getTime())[0];
+        const isDirtyRoom = room?.status === 'dirty' || room?.housekeeping_status === 'dirty';
+        const priority =
+          nextArrival && isDirtyRoom
+            ? 'Arrival first'
+            : task.status === 'blocked'
+              ? 'Blocked'
+              : task.status === 'pending'
+                ? 'Ready to assign'
+                : 'Routine';
+        const assignedMember = task.assigned_to ? teamMemberMap.get(task.assigned_to) : null;
+
+        return {
+          id: task.id,
+          title: task.title,
+          task,
+          roomNumber: room?.room_number || 'Property task',
+          priority,
+          nextArrivalGuest: nextArrival?.guest_name || null,
+          nextArrivalDate: nextArrival?.check_in_date || null,
+          assignedLabel: assignedMember?.display_name || assignedMember?.invited_email || 'Unassigned',
+          dueLabel: formatDateTimeLabel(task.due_at),
+        };
+      }),
+    [housekeepingTasks, reservations, roomMap, teamMemberMap],
+  );
+  const housekeepingDispatchSummary = useMemo(() => {
+    const urgentCount = housekeepingDispatchRows.filter((row) => row.priority === 'Arrival first').length;
+    const unassignedCount = housekeepingDispatchRows.filter((row) => !row.task.assigned_to).length;
+    const blockedCount = housekeepingDispatchRows.filter((row) => row.task.status === 'blocked').length;
+
+    return {
+      urgentCount,
+      unassignedCount,
+      blockedCount,
+    };
+  }, [housekeepingDispatchRows]);
 
   const guestArrivalReadiness = useMemo(
     () =>
@@ -486,6 +561,38 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     }
 
     await refreshPmsData();
+  }
+
+  function getDispatchEdit(task: VendorHousekeepingTaskRecord) {
+    const existingDueTime = task.due_at ? new Date(task.due_at).toISOString().slice(11, 16) : '';
+    return housekeepingDispatchEdits[task.id] || { assigned_to: task.assigned_to || '', due_time: existingDueTime };
+  }
+
+  async function handleHousekeepingDispatchSave(task: VendorHousekeepingTaskRecord) {
+    if (!organizationId) return;
+
+    const edit = getDispatchEdit(task);
+    const matchingReservation = task.room_id
+      ? reservations.find(
+          (reservation) =>
+            reservation.room_id === task.room_id && !['cancelled', 'checked_out', 'no_show'].includes(reservation.status),
+        )
+      : null;
+    const dueAt = buildDueAtValue(matchingReservation?.check_in_date || null, edit.due_time);
+
+    setWorkspaceMessage(null);
+
+    try {
+      await updateVendorPmsRecord('housekeeping', organizationId, task.id, {
+        assigned_to: edit.assigned_to || null,
+        due_at: dueAt,
+        status: edit.assigned_to ? 'assigned' : task.status,
+      });
+      await refreshPmsData();
+      setWorkspaceMessage(`Dispatch updated for ${task.title}`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to update housekeeping dispatch');
+    }
   }
 
   async function handleGuestDocumentUpload(reservation: VendorPmsReservationRecord) {
@@ -980,6 +1087,25 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2"><ClipboardCheck className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Housekeeping Board</h3></div>
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Dispatch Queue</div>
+              <div className="mt-2 text-2xl font-black text-slate-950">{housekeepingDispatchRows.length}</div>
+              <div className="mt-1 text-xs text-slate-500">Live housekeeping tasks</div>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-700">Urgent Room Release</div>
+              <div className="mt-2 text-2xl font-black text-slate-950">{housekeepingDispatchSummary.urgentCount}</div>
+              <div className="mt-1 text-xs text-slate-500">{housekeepingDispatchSummary.urgentCount} urgent room release</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Coverage Gaps</div>
+              <div className="mt-2 text-2xl font-black text-slate-950">{housekeepingDispatchSummary.unassignedCount}</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {housekeepingDispatchSummary.unassignedCount} unassigned / {housekeepingDispatchSummary.blockedCount} blocked
+              </div>
+            </div>
+          </div>
           <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => {
             event.preventDefault();
             handlePmsCreate('housekeeping', {
@@ -1017,6 +1143,82 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                 </div>
               </div>
             ))}
+          </div>
+          <div className="mt-4 space-y-3">
+            {housekeepingDispatchRows.map((row) => {
+              const dispatchEdit = getDispatchEdit(row.task);
+
+              return (
+                <div key={`${row.id}-dispatch`} className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black text-slate-950">{row.title}</div>
+                      <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-400">
+                        {row.roomNumber} {row.nextArrivalDate ? `/ arrival ${formatDateLabel(row.nextArrivalDate)}` : ''}
+                      </div>
+                    </div>
+                    <StatePill state={row.priority} />
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-[1fr_0.8fr_auto]">
+                    <label className="space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Owner</span>
+                      <select
+                        aria-label={`Assign owner for ${row.title}`}
+                        className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                        value={dispatchEdit.assigned_to}
+                        onChange={(event) =>
+                          setHousekeepingDispatchEdits((current) => ({
+                            ...current,
+                            [row.id]: {
+                              ...dispatchEdit,
+                              assigned_to: event.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">Unassigned</option>
+                        {teamMembers.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.display_name || member.invited_email || member.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Due time</span>
+                      <input
+                        aria-label={`Set due time for ${row.title}`}
+                        className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                        type="time"
+                        value={dispatchEdit.due_time}
+                        onChange={(event) =>
+                          setHousekeepingDispatchEdits((current) => ({
+                            ...current,
+                            [row.id]: {
+                              ...dispatchEdit,
+                              due_time: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-10 rounded-xl bg-slate-950 px-4 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800"
+                        onClick={() => void handleHousekeepingDispatchSave(row.task)}
+                      >
+                        Save Dispatch
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">
+                    {row.assignedLabel} • {row.dueLabel} {row.nextArrivalGuest ? `• arrival guest ${row.nextArrivalGuest}` : ''}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>

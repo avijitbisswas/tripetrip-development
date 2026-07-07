@@ -29,16 +29,17 @@
 - Analytics workspace now derives live occupancy, arrivals, folio settlement, collection watch, and branch reporting signals from PMS reservations, folio entries, and payment records.
 - PMS booking controls now include room availability visibility, source-mix pulse, overlap prevention for assigned rooms, and occupancy-capacity checks before reservation creation.
 - PMS guest automation now includes real booking-confirmation and pre-arrival email payloads with reservation-aware messaging from the arrivals desk.
+- PMS housekeeping automation now includes dispatch summaries, arrival-aware urgency, live owner assignment, and due-time routing from the housekeeping board.
 
 ## In Progress
 
-- Accommodation operations expansion beyond arrival foundations: deeper booking engine features and deeper housekeeping automation.
+- Accommodation operations expansion beyond arrival foundations: deeper booking engine features.
 
 ## Next
 
 - Apply the latest PMS migration to the live Supabase project so `vendor_pms_reservations` and `vendor_folio_entries` exist in production before relying on the deployed PMS workspace.
 - Apply the payment operations migration so `vendor_payment_records` exists in production before deploying the new settlement desk.
-- Extend the accommodation stack into deeper booking engine and guest engagement layers on top of the completed PMS, payments, marketplace, channel, arrival, staff-control, reporting, booking-control, and transactional-email foundations.
+- Extend the accommodation stack into deeper booking engine and guest engagement layers on top of the completed PMS, payments, marketplace, channel, arrival, staff-control, reporting, booking-control, transactional-email, and housekeeping-dispatch foundations.
 
 ## Deferred
 
