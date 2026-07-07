@@ -12,9 +12,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { createVendorAccountingRecord, listVendorAccountingRecords } from '../api';
+import { createVendorAccountingRecord, listVendorAccountingRecords, listVendorPmsRecords, updateVendorPmsRecord } from '../api';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
-import type { VendorPaymentRecord } from '../types';
+import type { VendorFolioEntryRecord, VendorPaymentRecord, VendorPmsReservationRecord } from '../types';
 import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
 import { AccommodationInsightPanel } from './AccommodationInsightPanel';
@@ -80,12 +80,20 @@ function formatCurrency(value: unknown) {
     .replace('₹', 'INR ');
 }
 
-function titleCase(value: string) {
+function titleCase(value?: string | null) {
+  if (!value) return 'Unknown';
   return value
     .split(/[\s_-]+/)
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
+}
+
+function deriveReservationPaymentStatus(outstanding: number, billedAmount: number) {
+  if (billedAmount <= 0) return 'paid';
+  if (outstanding <= 0) return 'paid';
+  if (outstanding < billedAmount) return 'partial';
+  return 'pending';
 }
 
 function StatePill({ state }: { state: string }) {
@@ -126,10 +134,13 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState({
     reservation_id: '',
+    folio_entry_id: '',
     amount: '',
     payment_method: 'upi',
   });
   const [payments, setPayments] = useState<VendorPaymentRecord[]>([]);
+  const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
+  const [folioEntries, setFolioEntries] = useState<VendorFolioEntryRecord[]>([]);
   const liveInvoices = useMemo(
     () =>
       records.records
@@ -149,11 +160,69 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
     return { pending, recorded };
   }, [payments]);
 
+  const reservationMap = useMemo(() => new Map(reservations.map((reservation) => [reservation.id, reservation])), [reservations]);
+  const folioMap = useMemo(() => new Map(folioEntries.map((folio) => [folio.id, folio])), [folioEntries]);
+
+  const reservationBalances = useMemo(
+    () =>
+      reservations.map((reservation) => {
+        const linkedFolios = folioEntries.filter((folio) => folio.reservation_id === reservation.id);
+        const linkedPayments = payments.filter((payment) => payment.reservation_id === reservation.id && payment.status !== 'failed' && payment.status !== 'reversed');
+        const folioTotal = linkedFolios.reduce((sum, folio) => {
+          const quantity = Number(folio.quantity || 1);
+          const amount = Number(folio.amount || 0) * quantity;
+          if (folio.entry_type === 'discount' || folio.entry_type === 'payment') return sum - amount;
+          return sum + amount;
+        }, 0);
+        const recordedPayments = linkedPayments
+          .filter((payment) => payment.status === 'recorded' || payment.status === 'pending_approval')
+          .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+        const billedAmount = Math.max(folioTotal, Number(reservation.total_amount || 0));
+        const outstanding = Math.max(billedAmount - recordedPayments, 0);
+
+        return {
+          id: reservation.id,
+          guestName: reservation.guest_name,
+          stay: `${reservation.check_in_date} -> ${reservation.check_out_date}`,
+          billedAmount,
+          recordedPayments,
+          outstanding,
+          paymentStatus: reservation.payment_status,
+          folioCount: linkedFolios.length,
+        };
+      }),
+    [folioEntries, payments, reservations],
+  );
+
+  const paymentRows = useMemo(
+    () =>
+      payments.map((payment) => ({
+        ...payment,
+        reservationLabel: reservationMap.get(payment.reservation_id || '')?.guest_name || payment.reservation_id || 'Unlinked reservation',
+        folioLabel: payment.folio_entry_id ? folioMap.get(payment.folio_entry_id)?.title || payment.folio_entry_id : null,
+      })),
+    [folioMap, payments, reservationMap],
+  );
+
   useEffect(() => {
     if (organizationId) {
-      void listVendorAccountingRecords('payments', organizationId).then(setPayments).catch(() => undefined);
+      void refreshLinkedRecords().catch(() => undefined);
     }
   }, [organizationId]);
+
+  async function refreshLinkedRecords() {
+    if (!organizationId) return;
+
+    const [paymentRows, reservationRows, folioRows] = await Promise.all([
+      listVendorAccountingRecords('payments', organizationId),
+      listVendorPmsRecords('reservations', organizationId),
+      listVendorPmsRecords('folios', organizationId),
+    ]);
+
+    setPayments(paymentRows);
+    setReservations(reservationRows);
+    setFolioEntries(folioRows);
+  }
 
   async function handleInvoiceSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -186,14 +255,56 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
     if (!organizationId) return;
 
     try {
+      const paymentAmount = Number(paymentForm.amount);
+      const paymentStatus = paymentForm.payment_method === 'upi' ? 'pending_approval' : 'recorded';
+
       await createVendorAccountingRecord('payments', organizationId, branchId || null, {
         reservation_id: paymentForm.reservation_id,
-        amount: Number(paymentForm.amount),
+        folio_entry_id: paymentForm.folio_entry_id || null,
+        amount: paymentAmount,
         payment_method: paymentForm.payment_method,
-        status: paymentForm.payment_method === 'upi' ? 'pending_approval' : 'recorded',
+        status: paymentStatus,
       });
-      setPaymentForm({ reservation_id: '', amount: '', payment_method: 'upi' });
-      setPayments(await listVendorAccountingRecords('payments', organizationId));
+
+      if (paymentStatus === 'recorded') {
+        const reservation = reservations.find((entry) => entry.id === paymentForm.reservation_id);
+        const linkedFolios = folioEntries.filter((folio) => folio.reservation_id === paymentForm.reservation_id);
+        const existingRecordedPayments = payments
+          .filter(
+            (payment) =>
+              payment.reservation_id === paymentForm.reservation_id &&
+              (payment.status === 'recorded' || payment.status === 'pending_approval'),
+          )
+          .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+        const linkedFolio = paymentForm.folio_entry_id ? folioEntries.find((folio) => folio.id === paymentForm.folio_entry_id) : null;
+        const reservationBilledAmount = Math.max(
+          Number(reservation?.total_amount || 0),
+          linkedFolios.reduce((sum, folio) => {
+            const quantity = Number(folio.quantity || 1);
+            const amount = Number(folio.amount || 0) * quantity;
+            if (folio.entry_type === 'discount' || folio.entry_type === 'payment') return sum - amount;
+            return sum + amount;
+          }, 0),
+        );
+        const nextRecordedTotal = existingRecordedPayments + paymentAmount;
+        const nextOutstanding = Math.max(reservationBilledAmount - nextRecordedTotal, 0);
+
+        if (linkedFolio) {
+          const folioTarget = Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1);
+          await updateVendorPmsRecord('folios', organizationId, linkedFolio.id, {
+            payment_state: paymentAmount >= folioTarget ? 'settled' : 'partial',
+          });
+        }
+
+        if (reservation) {
+          await updateVendorPmsRecord('reservations', organizationId, reservation.id, {
+            payment_status: deriveReservationPaymentStatus(nextOutstanding, reservationBilledAmount),
+          });
+        }
+      }
+
+      setPaymentForm({ reservation_id: '', folio_entry_id: '', amount: '', payment_method: 'upi' });
+      await refreshLinkedRecords();
       setFormMessage('Payment recorded');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to record payment');
@@ -305,7 +416,36 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
         <Metric label="Ledger Health" value="98%" detail="Reconciled" />
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <ReceiptText className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Outstanding Balances</h3>
+          </div>
+          <div className="space-y-3">
+            {reservationBalances.map((reservation) => (
+              <div key={reservation.id} className="grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 md:grid-cols-[1fr_auto_auto] md:items-center">
+                <div>
+                  <div className="text-sm font-black text-slate-950">{reservation.guestName}</div>
+                  <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{reservation.stay}</div>
+                  <div className="mt-1 text-xs text-slate-500">{reservation.folioCount} folio entries</div>
+                </div>
+                <div className="text-right text-sm font-bold text-slate-700">
+                  <div>{formatCurrency(reservation.outstanding)}</div>
+                  <div className="mt-1 text-[10px] uppercase tracking-widest text-slate-400">Outstanding</div>
+                </div>
+                <StatePill state={titleCase(reservation.paymentStatus)} />
+              </div>
+            ))}
+            {reservationBalances.length === 0 ? (
+              <div className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 ring-1 ring-slate-100">
+                Reservation-linked balances will appear here after PMS bookings and folios are created.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Settlement Desk</h3>
@@ -315,17 +455,41 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
             Live Payment API
           </span>
         </div>
-        <form className="grid gap-3 md:grid-cols-[1fr_0.6fr_0.6fr_auto]" onSubmit={handlePaymentSubmit}>
+        <form className="grid gap-3 md:grid-cols-[1fr_1fr_0.6fr_0.6fr_auto]" onSubmit={handlePaymentSubmit}>
           <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Reservation reference *</span>
-            <input
+            <select
               aria-label="Reservation reference *"
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
-              placeholder="reservation-1"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
               required
               value={paymentForm.reservation_id}
-              onChange={(inputEvent) => setPaymentForm((current) => ({ ...current, reservation_id: inputEvent.target.value }))}
-            />
+              onChange={(inputEvent) => setPaymentForm((current) => ({ ...current, reservation_id: inputEvent.target.value, folio_entry_id: '' }))}
+            >
+              <option value="">Select reservation</option>
+              {reservations.map((reservation) => (
+                <option key={reservation.id} value={reservation.id}>
+                  {reservation.guest_name} ({reservation.check_in_date})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Folio entry</span>
+            <select
+              aria-label="Folio entry"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              value={paymentForm.folio_entry_id}
+              onChange={(inputEvent) => setPaymentForm((current) => ({ ...current, folio_entry_id: inputEvent.target.value }))}
+            >
+              <option value="">Link later</option>
+              {folioEntries
+                .filter((folio) => !paymentForm.reservation_id || folio.reservation_id === paymentForm.reservation_id)
+                .map((folio) => (
+                  <option key={folio.id} value={folio.id}>
+                    {folio.title}
+                  </option>
+                ))}
+            </select>
           </label>
           <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Payment amount *</span>
@@ -358,16 +522,18 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
           </Button>
         </form>
         <div className="mt-4 space-y-3">
-          {payments.map((payment) => (
+          {paymentRows.map((payment) => (
             <div key={payment.id} className="grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 md:grid-cols-[1fr_auto_auto] md:items-center">
               <div>
-                <div className="text-sm font-black text-slate-950">{payment.reservation_id || 'Unlinked reservation'}</div>
+                <div className="text-sm font-black text-slate-950">{payment.reservationLabel}</div>
                 <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{payment.payment_method}</div>
+                {payment.folioLabel ? <div className="mt-1 text-xs text-slate-500">{payment.folioLabel}</div> : null}
               </div>
               <div className="text-sm font-black text-slate-950">{formatCurrency(payment.amount)}</div>
               <StatePill state={titleCase(payment.status)} />
             </div>
           ))}
+        </div>
         </div>
       </section>
 

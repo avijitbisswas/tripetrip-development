@@ -98,6 +98,50 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function buildMarketplaceChannelDistribution(input: {
+  channelTargets: string[];
+  syncStatus?: unknown;
+  listingState?: unknown;
+  approvalStatus?: unknown;
+}) {
+  const syncStatus = safeString(input.syncStatus, 'pending');
+  const listingState = safeString(input.listingState, 'draft');
+  const approvalStatus = safeString(input.approvalStatus, 'open');
+
+  return Object.fromEntries(
+    input.channelTargets.map((channel) => {
+      const isRequestChannel = channel.endsWith('_request');
+      let status = 'draft';
+
+      if (approvalStatus === 'pending' || syncStatus === 'pending_approval') {
+        status = 'pending_approval';
+      } else if (approvalStatus === 'rejected' || syncStatus === 'rejected') {
+        status = 'rejected';
+      } else if (listingState === 'paused') {
+        status = 'paused';
+      } else if (isRequestChannel && listingState === 'live' && syncStatus === 'synced') {
+        status = 'request_only';
+      } else if (listingState === 'live' && syncStatus === 'synced') {
+        status = 'live';
+      } else if (syncStatus === 'failed') {
+        status = 'attention';
+      } else if (listingState === 'draft') {
+        status = 'draft';
+      } else {
+        status = syncStatus;
+      }
+
+      return [
+        channel,
+        {
+          status,
+          mode: isRequestChannel ? 'request' : 'direct',
+        },
+      ];
+    }),
+  );
+}
+
 function parsePrefixedJson<T>(value: unknown, prefix: string): T | null {
   if (typeof value !== 'string' || !value.startsWith(prefix)) return null;
   try {
@@ -392,6 +436,16 @@ export async function listAdminListings(supabase: SupabaseLike) {
   return data || [];
 }
 
+export async function listAdminMarketplaceSyncs(supabase: SupabaseLike) {
+  const { data, error } = await supabase
+    .from('vendor_marketplace_syncs')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(error.message || 'Unable to list marketplace publishing queue');
+  return data || [];
+}
+
 export async function updateAdminListing(
   supabase: SupabaseLike,
   viewer: AdminViewer,
@@ -418,6 +472,78 @@ export async function updateAdminListing(
     entityType: 'listing',
     entityId: input.listingId,
     summary: `Updated listing ${input.listingId}`,
+    details: input,
+  });
+}
+
+export async function updateAdminMarketplaceSync(
+  supabase: SupabaseLike,
+  viewer: AdminViewer,
+  input: {
+    syncId: string;
+    syncStatus?: string;
+    listingState?: string;
+    approvalStatus?: string;
+    approvalNote?: string;
+  },
+) {
+  const metadataQuery = await supabase
+    .from('vendor_marketplace_syncs')
+    .select('metadata')
+    .eq('id', input.syncId)
+    .single();
+
+  if (metadataQuery.error) throw new Error(metadataQuery.error.message || 'Unable to load marketplace sync');
+
+  const currentMetadata =
+    metadataQuery.data?.metadata && typeof metadataQuery.data.metadata === 'object'
+      ? (metadataQuery.data.metadata as Record<string, unknown>)
+      : {};
+
+  const requestedListingState = safeString(currentMetadata.requested_listing_state, 'live');
+  const requestedSyncStatus = safeString(currentMetadata.requested_sync_status, 'synced');
+  const nextApprovalStatus = safeString(input.approvalStatus, safeString(currentMetadata.approval_status, 'open'));
+  const channelTargets = Array.isArray(currentMetadata.channel_targets)
+    ? currentMetadata.channel_targets.map((value) => String(value)).filter(Boolean)
+    : [];
+  const nextListingState =
+    input.listingState ||
+    (nextApprovalStatus === 'approved' ? requestedListingState : nextApprovalStatus === 'rejected' ? 'paused' : safeString(currentMetadata.listing_state));
+  const nextSyncStatus =
+    input.syncStatus ||
+    (nextApprovalStatus === 'approved' ? requestedSyncStatus : nextApprovalStatus === 'rejected' ? 'rejected' : 'pending_approval');
+
+  const updates: Record<string, unknown> = {
+    sync_status: nextSyncStatus,
+    metadata: {
+      ...currentMetadata,
+      listing_state: nextListingState,
+      approval_status: nextApprovalStatus,
+      approval_note: typeof input.approvalNote === 'string' ? input.approvalNote : currentMetadata.approval_note || null,
+      approved_at: nextApprovalStatus === 'approved' ? new Date().toISOString() : currentMetadata.approved_at || null,
+      approved_by: nextApprovalStatus === 'approved' ? viewer.fullName : currentMetadata.approved_by || null,
+      channel_distribution: buildMarketplaceChannelDistribution({
+        channelTargets,
+        syncStatus: nextSyncStatus,
+        listingState: nextListingState,
+        approvalStatus: nextApprovalStatus,
+      }),
+    },
+  };
+
+  if (nextApprovalStatus === 'approved') {
+    updates.last_synced_at = new Date().toISOString();
+  }
+
+  const { error } = await supabase.from('vendor_marketplace_syncs').update(updates).eq('id', input.syncId);
+  if (error) throw new Error(error.message || 'Unable to update marketplace sync');
+
+  await logAdminAction(supabase, viewer, {
+    module: 'marketplace',
+    action: 'update',
+    entityType: 'vendor_marketplace_sync',
+    entityId: input.syncId,
+    summary: `Updated marketplace sync ${input.syncId}`,
     details: input,
   });
 }

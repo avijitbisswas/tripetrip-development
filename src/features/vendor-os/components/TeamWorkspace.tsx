@@ -22,6 +22,17 @@ interface TeamWorkspaceProps {
   accommodationAccess?: ResolvedVendorAccommodationAccess | null;
 }
 
+interface TeamMemberMetadata {
+  branch_name?: string;
+  coverage_area?: string;
+  shift_label?: string;
+  shift_start?: string;
+  shift_end?: string;
+  attendance_state?: string;
+  assigned_modules?: string[];
+  last_attendance_updated_at?: string;
+}
+
 const members = [
   { name: 'Neha Kapoor', email: 'neha@tripetrip.local', branch: 'Manali Hotel', role: 'Manager', state: 'Active' },
   { name: 'Amit Das', email: 'amit@tripetrip.local', branch: 'Fleet depot', role: 'Operations', state: 'Active' },
@@ -67,6 +78,7 @@ const teamSignals: Array<{ title: string; detail: string; icon: LucideIcon }> = 
 
 const roleOptions = ['owner', 'admin', 'manager', 'operations', 'sales', 'accountant', 'staff', 'viewer'];
 const statusOptions = ['invited', 'active', 'suspended'];
+const attendanceOptions = ['scheduled', 'checked_in', 'checked_out', 'absent'];
 
 function titleCase(value: string) {
   return value
@@ -76,8 +88,28 @@ function titleCase(value: string) {
     .join(' ');
 }
 
+function normalizeMetadata(record: Record<string, unknown>): TeamMemberMetadata {
+  const metadata = record.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {};
+  }
+
+  return metadata as TeamMemberMetadata;
+}
+
 function StatePill({ state }: { state: string }) {
-  const attention = ['Invite sent', 'Attention', 'Review', 'Needs backup', 'Limited', 'Suspended', 'Invited'].includes(state);
+  const attention = [
+    'Invite sent',
+    'Attention',
+    'Review',
+    'Needs backup',
+    'Limited',
+    'Suspended',
+    'Invited',
+    'Scheduled',
+    'Absent',
+    'Unassigned',
+  ].includes(state);
   return (
     <span
       className={
@@ -117,21 +149,134 @@ export function TeamWorkspace({ organizationId, branchId, accommodationAccess }:
     status: 'active',
     note: '',
   });
+  const [shiftForm, setShiftForm] = useState({
+    member_id: '',
+    branch_name: '',
+    coverage_area: '',
+    shift_label: '',
+    shift_start: '',
+    shift_end: '',
+    attendance_state: 'scheduled',
+  });
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const liveMembers = useMemo(
     () =>
-      records.records.map((record) => ({
-        id: String(record.id),
-        name: String(record.display_name || record.full_name || record.invited_email || 'Pending member'),
-        email: String(record.invited_email || record.email || 'Email pending'),
-        rawRole: String(record.role || 'staff'),
-        rawStatus: String(record.status || 'invited'),
-        role: titleCase(String(record.role || 'staff')),
-        state: titleCase(String(record.status || 'invited')),
-        title: String(record.title || ''),
-      })),
+      records.records.map((record) => {
+        const metadata = normalizeMetadata(record);
+        const branchName = String(metadata.branch_name || record.branch_name || branchId || 'Unassigned branch');
+        const coverageArea = String(metadata.coverage_area || '');
+        const shiftLabel = String(metadata.shift_label || '');
+        const shiftStart = String(metadata.shift_start || '');
+        const shiftEnd = String(metadata.shift_end || '');
+        const attendanceState = String(metadata.attendance_state || (record.status === 'active' ? 'scheduled' : 'invited'));
+
+        return {
+          id: String(record.id),
+          name: String(record.display_name || record.full_name || record.invited_email || 'Pending member'),
+          email: String(record.invited_email || record.email || 'Email pending'),
+          rawRole: String(record.role || 'staff'),
+          rawStatus: String(record.status || 'invited'),
+          role: titleCase(String(record.role || 'staff')),
+          state: titleCase(String(record.status || 'invited')),
+          title: String(record.title || ''),
+          branchName,
+          coverageArea,
+          shiftLabel,
+          shiftStart,
+          shiftEnd,
+          attendanceState,
+          attendanceLabel: titleCase(attendanceState),
+          metadata,
+        };
+      }),
     [records.records],
   );
+  const staffingSummary = useMemo(() => {
+    const branchMap = new Map<
+      string,
+      {
+        branch: string;
+        count: number;
+        coverageAreas: Set<string>;
+        checkedInCount: number;
+        scheduledCount: number;
+      }
+    >();
+
+    for (const member of liveMembers) {
+      const key = member.branchName || 'Unassigned branch';
+      const current = branchMap.get(key) || {
+        branch: key,
+        count: 0,
+        coverageAreas: new Set<string>(),
+        checkedInCount: 0,
+        scheduledCount: 0,
+      };
+
+      current.count += 1;
+      if (member.coverageArea) {
+        current.coverageAreas.add(member.coverageArea);
+      }
+      if (member.attendanceState === 'checked_in') {
+        current.checkedInCount += 1;
+      }
+      if (member.attendanceState === 'scheduled') {
+        current.scheduledCount += 1;
+      }
+
+      branchMap.set(key, current);
+    }
+
+    if (branchMap.size === 0) {
+      return branchStaffing;
+    }
+
+    return Array.from(branchMap.values()).map((branch) => ({
+      branch: branch.branch,
+      coverage: `${branch.count} staff`,
+      detail: branch.coverageAreas.size > 0 ? Array.from(branch.coverageAreas).join(', ') : 'Coverage not assigned',
+      attendanceDetail: `${branch.checkedInCount} checked in / ${branch.scheduledCount} scheduled`,
+      state: branch.count >= 2 ? 'Covered' : 'Needs backup',
+    }));
+  }, [liveMembers]);
+  const teamMetrics = useMemo(() => {
+    const activeUsers = liveMembers.filter((member) => member.rawStatus === 'active').length;
+    const pendingInvites = liveMembers.filter((member) => member.rawStatus === 'invited').length;
+    const branchManagers = liveMembers.filter((member) => ['manager', 'owner', 'admin'].includes(member.rawRole)).length;
+    const accessReviews = liveMembers.filter((member) => member.title.trim().length > 0).length;
+
+    return {
+      activeUsers,
+      pendingInvites,
+      branchManagers,
+      accessReviews,
+    };
+  }, [liveMembers]);
+  const auditRows = useMemo(() => {
+    if (liveMembers.length === 0) {
+      return auditItems;
+    }
+
+    const missingCoverage = staffingSummary.filter((branch) => branch.state === 'Needs backup').length;
+
+    return [
+      {
+        title: 'Shift planning sync',
+        detail: `${liveMembers.filter((member) => member.shiftLabel).length} staff assigned to live shifts`,
+        state: 'Logged',
+      },
+      {
+        title: 'Pending invite follow-up',
+        detail: `${teamMetrics.pendingInvites} invitations still awaiting acceptance`,
+        state: teamMetrics.pendingInvites > 0 ? 'Attention' : 'Logged',
+      },
+      {
+        title: 'Branch coverage review',
+        detail: missingCoverage > 0 ? `${missingCoverage} branch desks still need backup staffing` : 'All staffed branches have working coverage',
+        state: missingCoverage > 0 ? 'Review' : 'Logged',
+      },
+    ];
+  }, [liveMembers, staffingSummary, teamMetrics.pendingInvites]);
 
   async function handleMemberSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -168,6 +313,19 @@ export function TeamWorkspace({ organizationId, branchId, accommodationAccess }:
     }));
   }
 
+  function handleShiftMemberChange(memberId: string) {
+    const member = liveMembers.find((item) => item.id === memberId);
+    setShiftForm({
+      member_id: memberId,
+      branch_name: member?.branchName && member.branchName !== 'Unassigned branch' ? member.branchName : '',
+      coverage_area: member?.coverageArea || '',
+      shift_label: member?.shiftLabel || '',
+      shift_start: member?.shiftStart || '',
+      shift_end: member?.shiftEnd || '',
+      attendance_state: member?.attendanceState || 'scheduled',
+    });
+  }
+
   async function handleAccessReviewSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormMessage(null);
@@ -188,6 +346,39 @@ export function TeamWorkspace({ organizationId, branchId, accommodationAccess }:
       setFormMessage('Access review saved');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to save access review');
+    }
+  }
+
+  async function handleShiftSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    if (!shiftForm.member_id) {
+      setFormMessage('Select a team member before saving shift coverage');
+      return;
+    }
+
+    try {
+      const member = liveMembers.find((item) => item.id === shiftForm.member_id);
+      const nextMetadata = {
+        ...(member?.metadata || {}),
+        branch_name: shiftForm.branch_name.trim(),
+        coverage_area: shiftForm.coverage_area.trim(),
+        shift_label: shiftForm.shift_label.trim(),
+        shift_start: shiftForm.shift_start,
+        shift_end: shiftForm.shift_end,
+        attendance_state: shiftForm.attendance_state,
+        last_attendance_updated_at: new Date().toISOString(),
+      };
+
+      await mutations.updateRecord(shiftForm.member_id, {
+        title: [shiftForm.branch_name.trim(), shiftForm.coverage_area.trim()].filter(Boolean).join(' - '),
+        metadata: nextMetadata,
+      });
+      await records.refresh();
+      setFormMessage('Shift plan saved');
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to save shift plan');
     }
   }
 
@@ -370,10 +561,112 @@ export function TeamWorkspace({ organizationId, branchId, accommodationAccess }:
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <Metric label="Active Users" value="19" detail="5 roles" />
-        <Metric label="Pending Invites" value="3" detail="Needs follow-up" />
-        <Metric label="Branch Managers" value="4" detail="Covered" />
-        <Metric label="Access Reviews" value="2" detail="This week" />
+        <Metric label="Active Users" value={String(teamMetrics.activeUsers)} detail={`${new Set(liveMembers.map((member) => member.rawRole)).size || 0} roles`} />
+        <Metric label="Pending Invites" value={String(teamMetrics.pendingInvites)} detail={teamMetrics.pendingInvites > 0 ? 'Needs follow-up' : 'Clear'} />
+        <Metric label="Branch Managers" value={String(teamMetrics.branchManagers)} detail="Coverage leads" />
+        <Metric label="Access Reviews" value={String(teamMetrics.accessReviews)} detail="Saved live" />
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Shift & Attendance Desk</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">Assign branch coverage, handoff windows, and live attendance states</p>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+            Live staffing desk
+          </span>
+        </div>
+        <form className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_0.8fr_0.8fr_0.8fr_0.9fr_auto]" onSubmit={handleShiftSubmit}>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Shift member *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={shiftForm.member_id}
+              onChange={(inputEvent) => handleShiftMemberChange(inputEvent.target.value)}
+            >
+              <option value="">Select member</option>
+              {liveMembers.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name} - {member.role}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Coverage branch *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Manali Hotel"
+              required
+              value={shiftForm.branch_name}
+              onChange={(inputEvent) => setShiftForm((current) => ({ ...current, branch_name: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Coverage area *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Front desk"
+              required
+              value={shiftForm.coverage_area}
+              onChange={(inputEvent) => setShiftForm((current) => ({ ...current, coverage_area: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Shift label *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Morning"
+              required
+              value={shiftForm.shift_label}
+              onChange={(inputEvent) => setShiftForm((current) => ({ ...current, shift_label: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Shift start *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              type="time"
+              value={shiftForm.shift_start}
+              onChange={(inputEvent) => setShiftForm((current) => ({ ...current, shift_start: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Shift end *</span>
+            <input
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              type="time"
+              value={shiftForm.shift_end}
+              onChange={(inputEvent) => setShiftForm((current) => ({ ...current, shift_end: inputEvent.target.value }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Attendance state *</span>
+            <select
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={shiftForm.attendance_state}
+              onChange={(inputEvent) => setShiftForm((current) => ({ ...current, attendance_state: inputEvent.target.value }))}
+            >
+              {attendanceOptions.map((status) => (
+                <option key={status} value={status}>
+                  {titleCase(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            disabled={mutations.submitting || !organizationId || !shiftForm.member_id}
+            type="submit"
+          >
+            Save Shift Plan
+          </Button>
+        </form>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -420,7 +713,7 @@ export function TeamWorkspace({ organizationId, branchId, accommodationAccess }:
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Branch Staffing</h3>
           </div>
           <div className="space-y-3">
-            {branchStaffing.map((branch) => (
+            {staffingSummary.map((branch) => (
               <div key={branch.branch} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -430,6 +723,7 @@ export function TeamWorkspace({ organizationId, branchId, accommodationAccess }:
                   <StatePill state={branch.state} />
                 </div>
                 <div className="mt-3 text-xl font-black text-slate-950">{branch.coverage}</div>
+                {'attendanceDetail' in branch ? <div className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-400">{branch.attendanceDetail}</div> : null}
               </div>
             ))}
           </div>
@@ -463,7 +757,7 @@ export function TeamWorkspace({ organizationId, branchId, accommodationAccess }:
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Audit Accountability</h3>
           </div>
           <div className="space-y-3">
-            {auditItems.map((item) => (
+            {auditRows.map((item) => (
               <div key={item.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>

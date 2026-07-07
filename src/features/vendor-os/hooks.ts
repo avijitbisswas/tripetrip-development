@@ -440,7 +440,15 @@ export function useVendorDocumentUpload(
   const accommodationAccess = useMutationAccommodationAccess(organizationId, accessOverride);
 
   const uploadDocument = useCallback(
-    async (input: { name: string; document_type: string; status?: DocumentStatus; file: File | Blob }) => {
+    async (input: {
+      name: string;
+      document_type: string;
+      status?: DocumentStatus;
+      file: File | Blob;
+      entityType?: string | null;
+      entityId?: string | null;
+      metadata?: Record<string, unknown>;
+    }) => {
       if (!organizationId) throw new Error('Select an organization before uploading documents');
       if (accommodationAccess === undefined) {
         const message = 'Checking module access. Please try again.';
@@ -463,6 +471,9 @@ export function useVendorDocumentUpload(
           documentType: input.document_type,
           status: input.status || 'active',
           file: input.file,
+          ...(input.entityType ? { entityType: input.entityType } : {}),
+          ...(input.entityId ? { entityId: input.entityId } : {}),
+          ...(input.metadata ? { metadata: input.metadata } : {}),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unable to upload document';

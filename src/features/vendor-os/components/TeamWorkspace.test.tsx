@@ -188,6 +188,105 @@ describe('TeamWorkspace', () => {
     expect(hookMocks.refresh).toHaveBeenCalled();
   });
 
+  it('derives live staffing coverage from team metadata', () => {
+    hookMocks.records = [
+      {
+        id: 'member-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        invited_email: 'frontdesk@example.com',
+        display_name: 'Front Desk Lead',
+        role: 'manager',
+        status: 'active',
+        metadata: {
+          branch_name: 'Manali Hotel',
+          coverage_area: 'Front desk',
+          shift_label: 'Morning',
+          attendance_state: 'checked_in',
+        },
+      },
+      {
+        id: 'member-2',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        invited_email: 'housekeeping@example.com',
+        display_name: 'Housekeeping Captain',
+        role: 'staff',
+        status: 'active',
+        metadata: {
+          branch_name: 'Manali Hotel',
+          coverage_area: 'Housekeeping',
+          shift_label: 'Morning',
+          attendance_state: 'scheduled',
+        },
+      },
+    ];
+
+    render(<TeamWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(screen.getByText('Shift & Attendance Desk')).toBeInTheDocument();
+    expect(screen.getAllByText('Manali Hotel').length).toBeGreaterThan(0);
+    expect(screen.getByText('2 staff')).toBeInTheDocument();
+    expect(screen.getByText('Front desk, Housekeeping')).toBeInTheDocument();
+    expect(screen.getByText('1 checked in / 1 scheduled')).toBeInTheDocument();
+  });
+
+  it('updates live shift planning and attendance controls', async () => {
+    hookMocks.records = [
+      {
+        id: 'member-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        invited_email: 'ops@example.com',
+        display_name: 'Ops Manager',
+        role: 'operations',
+        status: 'active',
+        metadata: {
+          branch_name: 'Manali Hotel',
+          coverage_area: 'Front desk',
+          shift_label: 'Morning',
+          shift_start: '08:00',
+          shift_end: '16:00',
+          attendance_state: 'scheduled',
+        },
+      },
+    ];
+    hookMocks.updateRecord.mockResolvedValueOnce({ id: 'member-1' });
+    hookMocks.refresh.mockResolvedValueOnce(undefined);
+
+    render(<TeamWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await userEvent.selectOptions(screen.getByLabelText('Shift member *'), 'member-1');
+    await userEvent.clear(screen.getByLabelText('Coverage branch *'));
+    await userEvent.type(screen.getByLabelText('Coverage branch *'), 'Goa Villa Desk');
+    await userEvent.clear(screen.getByLabelText('Coverage area *'));
+    await userEvent.type(screen.getByLabelText('Coverage area *'), 'Housekeeping');
+    await userEvent.clear(screen.getByLabelText('Shift label *'));
+    await userEvent.type(screen.getByLabelText('Shift label *'), 'Evening');
+    await userEvent.clear(screen.getByLabelText('Shift start *'));
+    await userEvent.type(screen.getByLabelText('Shift start *'), '14:00');
+    await userEvent.clear(screen.getByLabelText('Shift end *'));
+    await userEvent.type(screen.getByLabelText('Shift end *'), '22:00');
+    await userEvent.selectOptions(screen.getByLabelText('Attendance state *'), 'checked_in');
+    await userEvent.click(screen.getByRole('button', { name: 'Save Shift Plan' }));
+
+    expect(hookMocks.updateRecord).toHaveBeenCalledWith(
+      'member-1',
+      expect.objectContaining({
+        title: 'Goa Villa Desk - Housekeeping',
+        metadata: expect.objectContaining({
+          branch_name: 'Goa Villa Desk',
+          coverage_area: 'Housekeeping',
+          shift_label: 'Evening',
+          shift_start: '14:00',
+          shift_end: '22:00',
+          attendance_state: 'checked_in',
+        }),
+      }),
+    );
+    expect(hookMocks.refresh).toHaveBeenCalled();
+  });
+
   it('shows accommodation staffing guidance for attendance and approval workflows', () => {
     render(<TeamWorkspace accommodationAccess={accommodationAccess} />);
 

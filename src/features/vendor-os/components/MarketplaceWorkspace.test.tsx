@@ -196,6 +196,8 @@ describe('MarketplaceWorkspace', () => {
     expect(screen.getByText('Inventory Mapping')).toBeInTheDocument();
     expect(screen.getByText('Conversion Health')).toBeInTheDocument();
     expect(screen.getByText('Publishing Queue')).toBeInTheDocument();
+    expect(screen.getByText('Channel Connections')).toBeInTheDocument();
+    expect(screen.getByText('Sync Activity')).toBeInTheDocument();
     expect(screen.getAllByText('Goa Beach Escape')).toHaveLength(2);
     expect(screen.getByText('Sync Listing')).toBeInTheDocument();
     expect(screen.getByText('Create Flash Sale')).toBeInTheDocument();
@@ -234,7 +236,11 @@ describe('MarketplaceWorkspace', () => {
         sync_status: 'synced',
         nightly_rate: 8100,
         total_inventory: 2,
+        requested_sync_status: 'synced',
+        requested_listing_state: 'live',
+        approval_status: 'open',
         conversion_rate: 8.4,
+        channel_targets: ['tripetrip', 'direct_web'],
         direct_deal_enabled: true,
         deal_badge: '30% off',
       }),
@@ -264,6 +270,12 @@ describe('MarketplaceWorkspace', () => {
           available_inventory: 1,
           nightly_rate: 8100,
           listing_state: 'live',
+          approval_status: 'approved',
+          channel_targets: ['tripetrip', 'direct_web'],
+          channel_distribution: {
+            tripetrip: { status: 'live', mode: 'direct' },
+            direct_web: { status: 'live', mode: 'direct' },
+          },
         },
       },
     ];
@@ -277,6 +289,35 @@ describe('MarketplaceWorkspace', () => {
     expect(screen.getByText('8.4% conversion')).toBeInTheDocument();
     expect(screen.getByText('1/2 rooms available')).toBeInTheDocument();
     expect(screen.getByText('INR 8,100/night')).toBeInTheDocument();
+    expect(screen.getByText('Approved')).toBeInTheDocument();
+    expect(screen.getByText('tripetrip, direct_web')).toBeInTheDocument();
+    expect(screen.getByText('Tripetrip Live')).toBeInTheDocument();
+    expect(screen.getByText('Direct Web Live')).toBeInTheDocument();
+  });
+
+  it('submits marketplace inventory for admin review when publishing approval is required', async () => {
+    hookMocks.createRecord.mockResolvedValueOnce({ id: 'sync-2' });
+    hookMocks.refresh.mockResolvedValue(undefined);
+    hookMocks.propertyRecords = [{ id: 'property-1', name: 'Goa Beach Retreat' }];
+
+    render(<MarketplaceWorkspace organizationId="org-1" branchId="branch-1" accommodationAccess={accommodationAccess} />);
+    await screen.findByText('Goa Beach Retreat');
+
+    fireEvent.change(screen.getByLabelText('Property *'), { target: { value: 'property-1' } });
+    fireEvent.change(screen.getByLabelText('Room type *'), { target: { value: 'room-type-1' } });
+    fireEvent.change(screen.getByLabelText('Listing state *'), { target: { value: 'live' } });
+    fireEvent.change(screen.getByLabelText('Sync status *'), { target: { value: 'synced' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Publish Inventory' }));
+
+    expect(hookMocks.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sync_status: 'pending_approval',
+        requested_sync_status: 'synced',
+        listing_state: 'pending_approval',
+        requested_listing_state: 'live',
+        approval_status: 'pending',
+      }),
+    );
   });
 
   it('shows accommodation approval guidance for marketplace actions', () => {
@@ -288,5 +329,107 @@ describe('MarketplaceWorkspace', () => {
     expect(screen.getByText('Admin approval')).toBeInTheDocument();
     expect(screen.getByText('Pricing changes')).toBeInTheDocument();
     expect(screen.getByText('Owner approval')).toBeInTheDocument();
+  });
+
+  it('creates a channel connection from the marketplace workspace', async () => {
+    hookMocks.createRecord.mockResolvedValueOnce({ id: 'connection-1' });
+    hookMocks.refresh.mockResolvedValueOnce(undefined);
+
+    render(<MarketplaceWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    fireEvent.change(screen.getByLabelText('Credential label *'), { target: { value: 'Prod OTA token' } });
+    fireEvent.change(screen.getByLabelText('Connection status *'), { target: { value: 'connected' } });
+    fireEvent.change(screen.getByLabelText('Primary sync *'), { target: { value: 'rates' } });
+    fireEvent.change(screen.getByLabelText('Connection notes'), { target: { value: 'Staging verified' } });
+    await userEvent.click(screen.getByRole('button', { name: 'Save Connection' }));
+
+    expect(hookMocks.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        record_type: 'channel_connection',
+        provider_name: 'booking.com',
+        connection_status: 'connected',
+        credential_label: 'Prod OTA token',
+        sync_type: 'rates',
+        enabled: true,
+        notes: 'Staging verified',
+      }),
+    );
+  });
+
+  it('verifies channel connections and retries failed sync activity', async () => {
+    hookMocks.propertyRecords = [{ id: 'property-1', name: 'Goa Beach Retreat' }];
+    hookMocks.records = [
+      {
+        id: 'connection-1',
+        organization_id: 'org-1',
+        module: 'pms',
+        sync_status: 'draft',
+        conversion_rate: null,
+        metadata: {
+          record_type: 'channel_connection',
+          provider_name: 'booking.com',
+          connection_status: 'draft',
+          credential_label: 'Prod OTA token',
+          sync_type: 'inventory',
+          enabled: true,
+          last_verified_at: null,
+        },
+      },
+      {
+        id: 'log-1',
+        organization_id: 'org-1',
+        module: 'pms',
+        sync_status: 'failed',
+        conversion_rate: null,
+        created_at: '2026-06-30T08:00:00.000Z',
+        metadata: {
+          record_type: 'channel_sync_log',
+          connection_id: 'connection-1',
+          provider_name: 'booking.com',
+          sync_type: 'inventory',
+          direction: 'outbound',
+          status: 'failed',
+          payload_summary: 'Inventory push attempted',
+          error_summary: 'Connection must be verified before sending channel updates',
+        },
+      },
+    ];
+    hookMocks.updateRecord.mockResolvedValueOnce({ id: 'connection-1' });
+    hookMocks.createRecord.mockResolvedValue({ id: 'log-2' });
+    hookMocks.refresh.mockResolvedValue(undefined);
+
+    render(<MarketplaceWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Verify Connection' }));
+
+    expect(hookMocks.updateRecord).toHaveBeenCalledWith(
+      'connection-1',
+      expect.objectContaining({
+        sync_status: 'connected',
+        metadata: expect.objectContaining({
+          connection_status: 'connected',
+        }),
+      }),
+    );
+    expect(hookMocks.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        record_type: 'channel_sync_log',
+        connection_id: 'connection-1',
+        provider_name: 'booking.com',
+        status: 'applied',
+      }),
+    );
+
+    hookMocks.createRecord.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry Sync' }));
+
+    expect(hookMocks.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        record_type: 'channel_sync_log',
+        connection_id: 'connection-1',
+        provider_name: 'booking.com',
+        status: 'failed',
+      }),
+    );
   });
 });

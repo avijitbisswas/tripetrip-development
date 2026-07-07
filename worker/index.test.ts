@@ -1260,6 +1260,243 @@ describe("cloudflare worker runtime", () => {
     );
   });
 
+  it("forces marketplace syncs into pending approval when accommodation publishing requires admin review", async () => {
+    const insertSingle = vi.fn(async () => ({
+      data: {
+        id: "sync-1",
+        organization_id: "org-1",
+        branch_id: "branch-1",
+        module: "pms",
+        sync_status: "pending_approval",
+        metadata: {
+          listing_state: "pending_approval",
+          requested_listing_state: "live",
+          requested_sync_status: "synced",
+          approval_status: "pending",
+        },
+      },
+      error: null,
+    }));
+    const insert = vi.fn(() => ({ select: vi.fn(() => ({ single: insertSingle })) }));
+    const auditInsert = vi.fn(async () => ({ data: { id: "audit-4" }, error: null }));
+
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "user-1" } },
+          error: null,
+        })),
+        admin: {
+          createUser: vi.fn(),
+          deleteUser: vi.fn(),
+        },
+      },
+      from: vi.fn((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: "user-1", full_name: "Vendor User", role: "vendor", avatar_url: null },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === "vendor_organizations") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "org-1", primary_vendor_profile_id: "vendor-1" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === "vendor_profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: { id: "vendor-1", user_id: "user-1", business_type: "hotel" },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === "messages") {
+          return {
+            select: vi.fn(() =>
+              createSelectQuery({
+                data: [
+                  {
+                    id: "msg-1",
+                    sender_id: "admin-1",
+                    content:
+                      '__tripetrip_vendor_access__:{"vendorProfileId":"vendor-1","businessType":"hotel","providerFamily":"accommodation","planTier":"advanced","enforcementMode":"enforced","moduleOverrides":{},"capabilityOverrides":{},"approvalOverrides":{"marketplace_publishing":"admin_approval_required"},"updatedAt":"2026-06-30T12:00:00.000Z"}',
+                    created_at: "2026-06-30T12:00:00.000Z",
+                  },
+                ],
+                error: null,
+              }),
+            ),
+          };
+        }
+        if (table === "vendor_marketplace_syncs") {
+          return { insert };
+        }
+        if (table === "vendor_audit_logs") {
+          return { insert: auditInsert };
+        }
+        return {};
+      }),
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/vendor-os/records", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vendor-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          module: "marketplace",
+          organizationId: "org-1",
+          branchId: "branch-1",
+          payload: {
+            module: "pms",
+            sync_status: "synced",
+            metadata: {
+              listing_state: "live",
+              requested_listing_state: "live",
+            },
+          },
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organization_id: "org-1",
+        branch_id: "branch-1",
+        sync_status: "pending_approval",
+        metadata: expect.objectContaining({
+          listing_state: "pending_approval",
+          requested_listing_state: "live",
+          requested_sync_status: "synced",
+          approval_status: "pending",
+        }),
+      }),
+    );
+  });
+
+  it("allows admins to approve marketplace sync records", async () => {
+    const update = vi.fn(() => ({
+      eq: vi.fn(async () => ({ error: null })),
+    }));
+
+    createClientMock.mockReturnValue({
+      auth: {
+        getUser: vi.fn(async () => ({
+          data: { user: { id: "admin-1" } },
+          error: null,
+        })),
+        admin: {
+          listUsers: vi.fn(),
+          updateUserById: vi.fn(),
+        },
+      },
+      from: vi.fn((table: string) => {
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: { id: "admin-1", full_name: "Tripetrip Admin", role: "admin", avatar_url: null },
+                  error: null,
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === "vendor_marketplace_syncs") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: {
+                    metadata: {
+                      requested_listing_state: "live",
+                      requested_sync_status: "synced",
+                      listing_state: "pending_approval",
+                      approval_status: "pending",
+                      channel_targets: ["tripetrip", "booking_request"],
+                    },
+                  },
+                  error: null,
+                })),
+              })),
+            })),
+            update,
+          };
+        }
+        if (table === "messages") {
+          return {
+            insert: vi.fn(async () => ({ data: {}, error: null })),
+          };
+        }
+        return {};
+      }),
+    });
+
+    const env = createEnv({
+      SUPABASE_URL: "https://tripetrip.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/admin/marketplace-syncs", {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer admin-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          syncId: "sync-1",
+          approvalStatus: "approved",
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sync_status: "synced",
+        metadata: expect.objectContaining({
+          listing_state: "live",
+          approval_status: "approved",
+          approved_by: "Tripetrip Admin",
+          channel_distribution: {
+            tripetrip: { status: "live", mode: "direct" },
+            booking_request: { status: "request_only", mode: "request" },
+          },
+        }),
+      }),
+    );
+  });
+
   it("creates accounting payment records through the worker with tenant scoping", async () => {
     const insertSingle = vi.fn(async () => ({
       data: {

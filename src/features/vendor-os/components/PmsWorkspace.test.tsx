@@ -1,14 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PmsWorkspace } from './PmsWorkspace';
+import { buildGuestAutomationEmail, PmsWorkspace } from './PmsWorkspace';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 import { createVendorPmsRecord, listVendorPmsRecords, updateVendorPmsRecord } from '../api';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
+  updateRecord: vi.fn(),
   refresh: vi.fn(),
   records: [] as Record<string, unknown>[],
+  documents: [] as Record<string, unknown>[],
+  uploadDocument: vi.fn(),
 }));
 
 const accommodationAccess: ResolvedVendorAccommodationAccess = {
@@ -88,8 +91,14 @@ vi.mock('../hooks', () => ({
   }),
   useVendorOSRecordMutations: () => ({
     createRecord: hookMocks.createRecord,
-    updateRecord: vi.fn(),
+    updateRecord: hookMocks.updateRecord,
     deleteRecord: vi.fn(),
+    submitting: false,
+    error: null,
+  }),
+  useVendorOSDocuments: () => hookMocks.documents,
+  useVendorDocumentUpload: () => ({
+    uploadDocument: hookMocks.uploadDocument,
     submitting: false,
     error: null,
   }),
@@ -108,12 +117,19 @@ vi.mock('../api', async () => {
 describe('PmsWorkspace', () => {
   beforeEach(() => {
     hookMocks.createRecord.mockReset();
+    hookMocks.updateRecord.mockReset();
     hookMocks.refresh.mockReset();
     hookMocks.records = [];
+    hookMocks.documents = [];
+    hookMocks.uploadDocument.mockReset();
     vi.mocked(listVendorPmsRecords).mockReset();
     vi.mocked(createVendorPmsRecord).mockReset();
     vi.mocked(updateVendorPmsRecord).mockReset();
     vi.mocked(listVendorPmsRecords).mockResolvedValue([]);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'email-1' }),
+    } as Response);
   });
 
   it('renders the PMS front desk and room grid', () => {
@@ -188,7 +204,7 @@ describe('PmsWorkspace', () => {
     expect(screen.getByText('Housekeeping Board')).toBeInTheDocument();
     expect(screen.getByText('Guest Documents')).toBeInTheDocument();
     expect(screen.getByText('Folio & Rates')).toBeInTheDocument();
-    expect(await screen.findByText('Aarav Mehta')).toBeInTheDocument();
+    expect((await screen.findAllByText('Aarav Mehta')).length).toBeGreaterThan(0);
     expect(await screen.findByText('Room 108 deep clean')).toBeInTheDocument();
   });
 
@@ -256,8 +272,14 @@ describe('PmsWorkspace', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create Room' }));
 
     await userEvent.type(screen.getByLabelText('Guest name *'), 'Aarav Mehta');
+    await userEvent.type(screen.getByLabelText('Guest email'), 'aarav@example.com');
+    await userEvent.type(screen.getByLabelText('Guest phone'), '9876543210');
     await userEvent.type(screen.getByLabelText('Check-in date *'), '2026-07-02');
     await userEvent.type(screen.getByLabelText('Check-out date *'), '2026-07-04');
+    await userEvent.clear(screen.getByLabelText('Adults *'));
+    await userEvent.type(screen.getByLabelText('Adults *'), '2');
+    await userEvent.type(screen.getByLabelText('Reservation amount'), '12000');
+    await userEvent.type(screen.getByLabelText('Reservation notes'), 'Late arrival');
     await userEvent.click(screen.getByRole('button', { name: 'Create Reservation' }));
 
     await userEvent.type(screen.getByLabelText('Housekeeping task *'), 'Arrival room prep');
@@ -294,6 +316,12 @@ describe('PmsWorkspace', () => {
       expect.objectContaining({
         property_id: 'property-1',
         guest_name: 'Aarav Mehta',
+        guest_email: 'aarav@example.com',
+        guest_phone: '9876543210',
+        adults: 2,
+        payment_status: 'pending',
+        total_amount: 12000,
+        notes: 'Late arrival',
       }),
     );
     expect(createVendorPmsRecord).toHaveBeenCalledWith(
@@ -315,7 +343,7 @@ describe('PmsWorkspace', () => {
         amount: 2400,
       }),
     );
-  });
+  }, 30000);
 
   it('shows accommodation access guidance for PMS features', () => {
     render(<PmsWorkspace accommodationAccess={accommodationAccess} />);
@@ -325,5 +353,505 @@ describe('PmsWorkspace', () => {
     expect(screen.getByText('Locked on basic')).toBeInTheDocument();
     expect(screen.getByText('GST folios')).toBeInTheDocument();
     expect(screen.getByText('Upgrade to unlock')).toBeInTheDocument();
+  });
+
+  it('runs check-in and check-out lifecycle actions with room and housekeeping updates', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: 'Late arrival',
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(updateVendorPmsRecord).mockResolvedValue({ id: 'updated-1' } as never);
+    vi.mocked(createVendorPmsRecord).mockResolvedValue({ id: 'task-1' } as never);
+
+    const view = render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await screen.findByRole('button', { name: 'Check In' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Check In' }));
+
+    await waitFor(() => {
+      expect(updateVendorPmsRecord).toHaveBeenCalledWith('reservations', 'org-1', 'reservation-1', { status: 'checked_in' });
+    });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('rooms', 'org-1', 'room-101', {
+      status: 'occupied',
+      housekeeping_status: 'in_progress',
+    });
+
+    vi.mocked(updateVendorPmsRecord).mockClear();
+    vi.mocked(createVendorPmsRecord).mockClear();
+    view.unmount();
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'occupied',
+          housekeeping_status: 'in_progress',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'checked_in',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: 'Late arrival',
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+    await screen.findByRole('button', { name: 'Check Out' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Check Out' }));
+
+    await waitFor(() => {
+      expect(updateVendorPmsRecord).toHaveBeenCalledWith('reservations', 'org-1', 'reservation-1', { status: 'checked_out' });
+    });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('rooms', 'org-1', 'room-101', {
+      status: 'dirty',
+      housekeeping_status: 'dirty',
+    });
+    expect(createVendorPmsRecord).toHaveBeenCalledWith('housekeeping', 'org-1', 'branch-1', {
+      property_id: 'property-1',
+      room_id: 'room-101',
+      title: 'Post-checkout cleaning for Aarav Mehta',
+      status: 'pending',
+    });
+  });
+
+  it('syncs room readiness when housekeeping tasks are completed', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'dirty',
+          housekeeping_status: 'dirty',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'task-1',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          title: 'Post-checkout cleaning',
+          status: 'pending',
+          assigned_to: null,
+          due_at: null,
+          created_at: '2026-07-02T08:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(updateVendorPmsRecord).mockResolvedValue({ id: 'updated-1' } as never);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    const taskTitle = await screen.findByText('Post-checkout cleaning');
+    const taskCard = taskTitle.closest('.rounded-xl');
+
+    expect(taskCard).not.toBeNull();
+    const statusSelect = taskCard?.querySelector('select');
+
+    expect(statusSelect).not.toBeNull();
+    await userEvent.selectOptions(statusSelect as HTMLSelectElement, 'done');
+
+    await waitFor(() => {
+      expect(updateVendorPmsRecord).toHaveBeenCalledWith('housekeeping', 'org-1', 'task-1', { status: 'done' });
+    });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('rooms', 'org-1', 'room-101', {
+      housekeeping_status: 'clean',
+      status: 'available',
+    });
+  });
+
+  it('tracks guest arrival readiness, uploads guest documents, and marks them verified', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+    hookMocks.documents = [
+      {
+        id: 'doc-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        uploaded_by: 'user-1',
+        module: 'documents',
+        entity_type: 'vendor_pms_reservation',
+        entity_id: 'reservation-1',
+        name: 'Aarav passport',
+        document_type: 'guest_identity',
+        storage_path: 'organizations/org-1/guest/passport.pdf',
+        mime_type: 'application/pdf',
+        file_size_bytes: 1024,
+        status: 'active',
+        metadata: {
+          verification_status: 'submitted',
+        },
+        created_at: '2026-07-02T10:00:00.000Z',
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    hookMocks.uploadDocument.mockResolvedValue({ id: 'doc-2' });
+    hookMocks.updateRecord.mockResolvedValue({ id: 'doc-1' });
+    hookMocks.refresh.mockResolvedValue(undefined);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText('Guest Arrival Readiness')).toBeInTheDocument();
+    expect(screen.getByText('Submitted')).toBeInTheDocument();
+
+    const file = new File(['passport'], 'passport.pdf', { type: 'application/pdf' });
+    const uploadInput = screen.getByLabelText('Upload guest document for Aarav Mehta');
+    await userEvent.upload(uploadInput, file);
+    await userEvent.click(screen.getByRole('button', { name: 'Upload ID' }));
+
+    expect(hookMocks.uploadDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Aarav Mehta identity document',
+        document_type: 'guest_identity',
+        entityType: 'vendor_pms_reservation',
+        entityId: 'reservation-1',
+        metadata: expect.objectContaining({
+          verification_status: 'submitted',
+          guest_name: 'Aarav Mehta',
+        }),
+      }),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Mark Verified' }));
+
+    expect(hookMocks.updateRecord).toHaveBeenCalledWith(
+      'doc-1',
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          verification_status: 'verified',
+        }),
+      }),
+    );
+  });
+
+  it('surfaces booking conflicts and blocks overlapping reservation creation', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([
+        {
+          id: 'room-type-1',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          name: 'Deluxe',
+          occupancy: 2,
+          base_rate: 8999,
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: 'room-type-1',
+          room_number: '101',
+          floor: '1',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Existing Guest',
+          guest_email: 'existing@example.com',
+          guest_phone: '9999999999',
+          check_in_date: '2026-07-05',
+          check_out_date: '2026-07-07',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 10000,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText('Availability & Booking Controls')).toBeInTheDocument();
+    expect(screen.getByText('Room 101')).toBeInTheDocument();
+    expect(screen.getByText('Held')).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Guest name *'), 'New Guest');
+    await userEvent.selectOptions(screen.getByDisplayValue('Assign room'), 'room-101');
+    await userEvent.type(screen.getByLabelText('Check-in date *'), '2026-07-06');
+    await userEvent.type(screen.getByLabelText('Check-out date *'), '2026-07-08');
+    await userEvent.click(screen.getByRole('button', { name: 'Create Reservation' }));
+
+    expect(createVendorPmsRecord).not.toHaveBeenCalledWith(
+      'reservations',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(screen.getByText('Room 101 already has an overlapping active reservation for the selected dates.')).toBeInTheDocument();
+  });
+
+  it('builds booking confirmations and pre-arrival reminders from reservation data', () => {
+    const confirmation = buildGuestAutomationEmail(
+      {
+        guest: 'Aarav Mehta',
+        room: 'Room 101',
+        time: '2 Jul 2026 -> 4 Jul 2026',
+        docs: 'pending',
+        amount: 12000,
+        notes: 'Late arrival',
+        source: 'direct',
+        propertyId: 'property-1',
+      },
+      [{ id: 'property-1', name: 'Goa Luxe Villas' }],
+      'confirmation',
+    );
+
+    expect(confirmation.subject).toContain('Booking confirmed at Goa Luxe Villas');
+    expect(confirmation.html).toContain('Aarav Mehta');
+    expect(confirmation.html).toContain('Room 101');
+    expect(confirmation.html).toContain('Late arrival');
+
+    const reminder = buildGuestAutomationEmail(
+      {
+        guest: 'Aarav Mehta',
+        room: 'Room 101',
+        time: '2 Jul 2026 -> 4 Jul 2026',
+        docs: 'pending',
+        amount: 12000,
+        notes: '',
+        source: 'direct',
+        propertyId: 'property-1',
+      },
+      [{ id: 'property-1', name: 'Goa Luxe Villas' }],
+      'reminder',
+    );
+
+    expect(reminder.subject).toContain('Pre-arrival reminder for Goa Luxe Villas');
+    expect(reminder.html).toContain('coming up soon');
+    expect(reminder.html).toContain('Reservation source: direct');
+  });
+
+  it('blocks guest automation when a reservation has no guest email', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: null,
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await screen.findByRole('button', { name: 'Send Confirmation' });
+
+    expect(screen.getByRole('button', { name: 'Send Confirmation' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send Reminder' })).toBeDisabled();
+    expect(screen.getByText('Guest email required for automation')).toBeInTheDocument();
   });
 });

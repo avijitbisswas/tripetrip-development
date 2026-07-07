@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { BedDouble, CalendarCheck, ClipboardCheck, DoorOpen, FileBadge, Hotel, IndianRupee, KeyRound, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { sendTransactionalEmail } from '@/src/services/email';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { createVendorPmsRecord, listVendorPmsRecords, updateVendorPmsRecord } from '../api';
-import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import { useVendorOSDocuments, useVendorOSRecordMutations, useVendorOSRecords, useVendorDocumentUpload } from '../hooks';
 import type {
+  VendorDocument,
   VendorFolioEntryRecord,
   VendorHousekeepingTaskRecord,
   VendorPmsReservationRecord,
@@ -26,6 +28,9 @@ const housekeepingStatusOptions = ['clean', 'dirty', 'inspected', 'in_progress',
 const reservationStatusOptions = ['reserved', 'checked_in', 'checked_out', 'cancelled', 'no_show'];
 const taskStatusOptions = ['pending', 'assigned', 'in_progress', 'done', 'blocked'];
 const folioEntryTypes = ['room_charge', 'tax', 'addon', 'discount', 'payment'];
+const paymentStatusOptions = ['pending', 'partial', 'paid', 'refunded'];
+const reservationSourceOptions = ['manual', 'direct', 'ota', 'group'];
+type GuestAutomationAction = 'confirmation' | 'reminder';
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-IN', {
@@ -63,16 +68,90 @@ function StatePill({ state }: { state: string }) {
   );
 }
 
+function formatDateLabel(value: string) {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function datesOverlap(startA: string, endA: string, startB: string, endB: string) {
+  const leftStart = new Date(startA).getTime();
+  const leftEnd = new Date(endA).getTime();
+  const rightStart = new Date(startB).getTime();
+  const rightEnd = new Date(endB).getTime();
+
+  if ([leftStart, leftEnd, rightStart, rightEnd].some((value) => Number.isNaN(value))) {
+    return false;
+  }
+
+  return leftStart < rightEnd && rightStart < leftEnd;
+}
+
+export function buildGuestAutomationEmail(
+  reservation: {
+    guest: string;
+    room: string;
+    time: string;
+    docs: string;
+    amount: number;
+    notes: string;
+    source: string;
+    propertyId: string;
+  },
+  properties: Array<{ id: string; name: string }>,
+  action: GuestAutomationAction,
+) {
+  const propertyName = properties.find((property) => property.id === reservation.propertyId)?.name || 'your property';
+  const subject =
+    action === 'confirmation'
+      ? `Booking confirmed at ${propertyName}`
+      : `Pre-arrival reminder for ${propertyName}`;
+  const headline =
+    action === 'confirmation'
+      ? `Your stay at ${propertyName} is confirmed`
+      : `Your stay at ${propertyName} is coming up soon`;
+  const supportingCopy =
+    action === 'confirmation'
+      ? 'We have secured your reservation and shared the key stay details below.'
+      : 'Here is a quick reminder with your arrival details before check-in.';
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
+      <h2 style="margin:0 0 12px">${headline}</h2>
+      <p style="margin:0 0 16px">Hi ${reservation.guest},</p>
+      <p style="margin:0 0 16px">${supportingCopy}</p>
+      <div style="border:1px solid #e2e8f0;border-radius:16px;padding:16px;background:#f8fafc">
+        <p style="margin:0 0 8px"><strong>Property:</strong> ${propertyName}</p>
+        <p style="margin:0 0 8px"><strong>Room:</strong> ${reservation.room}</p>
+        <p style="margin:0 0 8px"><strong>Stay:</strong> ${reservation.time}</p>
+        <p style="margin:0 0 8px"><strong>Payment:</strong> ${reservation.docs}</p>
+        <p style="margin:0"><strong>Amount:</strong> ${formatCurrency(reservation.amount)}</p>
+      </div>
+      ${reservation.notes ? `<p style="margin:16px 0 0"><strong>Notes:</strong> ${reservation.notes}</p>` : ''}
+      <p style="margin:16px 0 0">Reservation source: ${reservation.source}</p>
+    </div>
+  `;
+
+  return { subject, html };
+}
+
 export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: PmsWorkspaceProps) {
   const propertyRecords = useVendorOSRecords('pms', organizationId);
   const propertyMutations = useVendorOSRecordMutations('pms', organizationId, branchId);
+  const documentMutations = useVendorOSRecordMutations('documents', organizationId, branchId, accommodationAccess);
+  const documentUploads = useVendorDocumentUpload(organizationId, branchId, accommodationAccess);
   const accommodationInsight = getAccommodationModuleInsights('pms', accommodationAccess);
+  const uploadedDocuments = useVendorOSDocuments(organizationId);
 
   const [roomTypes, setRoomTypes] = useState<VendorRoomTypeRecord[]>([]);
   const [rooms, setRooms] = useState<VendorRoomRecord[]>([]);
   const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
   const [housekeepingTasks, setHousekeepingTasks] = useState<VendorHousekeepingTaskRecord[]>([]);
   const [folioEntries, setFolioEntries] = useState<VendorFolioEntryRecord[]>([]);
+  const [guestDocuments, setGuestDocuments] = useState<VendorDocument[]>([]);
+  const [guestUploadFiles, setGuestUploadFiles] = useState<Record<string, File | null>>({});
+  const [guestAutomationSending, setGuestAutomationSending] = useState<Record<string, GuestAutomationAction | null>>({});
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
 
   const [propertyForm, setPropertyForm] = useState({ name: '', property_type: 'hotel', address: '' });
@@ -82,8 +161,16 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     property_id: '',
     room_id: '',
     guest_name: '',
+    guest_email: '',
+    guest_phone: '',
     check_in_date: '',
     check_out_date: '',
+    adults: '1',
+    children: '0',
+    total_amount: '',
+    source: 'manual',
+    payment_status: 'pending',
+    notes: '',
   });
   const [taskForm, setTaskForm] = useState({ property_id: '', room_id: '', title: '' });
   const [folioForm, setFolioForm] = useState({ property_id: '', reservation_id: '', title: '', amount: '', entry_type: 'room_charge' });
@@ -127,6 +214,10 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   }, [organizationId]);
 
   useEffect(() => {
+    setGuestDocuments(uploadedDocuments);
+  }, [uploadedDocuments]);
+
+  useEffect(() => {
     const firstPropertyId = liveProperties[0]?.id || '';
     setRoomTypeForm((current) => ({ ...current, property_id: current.property_id || firstPropertyId }));
     setRoomForm((current) => ({ ...current, property_id: current.property_id || firstPropertyId }));
@@ -157,17 +248,108 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   const arrivalRows = reservations.map((reservation) => ({
     id: reservation.id,
     guest: reservation.guest_name,
+    guestEmail: reservation.guest_email || 'Email pending',
+    guestPhone: reservation.guest_phone || 'Phone pending',
     room: roomMap.get(reservation.room_id || '')?.room_number || 'Room unassigned',
     type: reservation.status,
-    time: `${reservation.check_in_date} -> ${reservation.check_out_date}`,
+    checkInDate: reservation.check_in_date,
+    checkOutDate: reservation.check_out_date,
+    time: `${formatDateLabel(reservation.check_in_date)} -> ${formatDateLabel(reservation.check_out_date)}`,
     docs: reservation.payment_status.replace(/_/g, ' '),
+    amount: Number(reservation.total_amount || 0),
+    notes: reservation.notes || '',
+    roomId: reservation.room_id || '',
+    propertyId: reservation.property_id,
+    source: reservation.source || 'manual',
   }));
 
-  const guestDocuments = reservations.slice(0, 3).map((reservation, index) => ({
-    title: `${reservation.guest_name} ID`,
-    room: roomMap.get(reservation.room_id || '')?.room_number || 'Room unassigned',
-    state: index % 2 === 0 ? 'Verified' : 'Pending',
-  }));
+  const activeReservations = useMemo(
+    () => reservations.filter((reservation) => !['cancelled', 'no_show', 'checked_out'].includes(reservation.status)),
+    [reservations],
+  );
+
+  const roomAvailabilityRows = useMemo(
+    () =>
+      rooms.map((room) => {
+        const roomReservations = activeReservations.filter((reservation) => reservation.room_id === room.id);
+        const leadReservation = roomReservations[0] || null;
+        const roomType = roomTypeMap.get(room.room_type_id || '');
+        const conflictCount = Math.max(roomReservations.length - 1, 0);
+
+        return {
+          id: room.id,
+          roomNumber: room.room_number,
+          roomTypeName: roomType?.name || 'Room inventory',
+          occupancyLimit: Number(roomType?.occupancy || 0),
+          currentStatus: room.status,
+          housekeepingStatus: room.housekeeping_status || 'clean',
+          leadGuest: leadReservation?.guest_name || 'Open inventory',
+          stayWindow: leadReservation
+            ? `${formatDateLabel(leadReservation.check_in_date)} -> ${formatDateLabel(leadReservation.check_out_date)}`
+            : 'No active stay',
+          conflictCount,
+          riskState:
+            conflictCount > 0
+              ? 'Conflict risk'
+              : ['blocked', 'maintenance'].includes(room.status)
+                ? 'Blocked'
+                : room.status === 'dirty'
+                  ? 'Prep needed'
+                  : roomReservations.length > 0
+                    ? 'Held'
+                    : 'Open',
+        };
+      }),
+    [activeReservations, roomTypeMap, rooms],
+  );
+
+  const bookingControlSummary = useMemo(() => {
+    const unassignedArrivals = activeReservations.filter((reservation) => reservation.status === 'reserved' && !reservation.room_id).length;
+    const conflictRooms = roomAvailabilityRows.filter((room) => room.conflictCount > 0).length;
+    const blockedRooms = roomAvailabilityRows.filter((room) => ['blocked', 'maintenance'].includes(room.currentStatus)).length;
+    const sourceMix = reservationSourceOptions.map((source) => ({
+      source,
+      count: reservations.filter((reservation) => String(reservation.source || 'manual') === source).length,
+    }));
+
+    return {
+      unassignedArrivals,
+      conflictRooms,
+      blockedRooms,
+      sourceMix,
+    };
+  }, [activeReservations, reservations, roomAvailabilityRows]);
+
+  const guestArrivalReadiness = useMemo(
+    () =>
+      reservations.map((reservation) => {
+        const linkedDocuments = guestDocuments.filter(
+          (document) => document.entity_type === 'vendor_pms_reservation' && document.entity_id === reservation.id,
+        );
+        const latestDocument = linkedDocuments
+          .slice()
+          .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())[0];
+        const latestVerificationStatus = String(
+          (latestDocument?.metadata?.verification_status as string | undefined) || (latestDocument ? 'submitted' : 'missing'),
+        );
+        const contactReady = Boolean(reservation.guest_email && reservation.guest_phone);
+        const identityReady = latestVerificationStatus === 'verified';
+        const readinessState = identityReady && contactReady ? 'Ready' : latestVerificationStatus === 'submitted' ? 'Submitted' : 'Pending';
+
+        return {
+          reservationId: reservation.id,
+          guestName: reservation.guest_name,
+          room: roomMap.get(reservation.room_id || '')?.room_number || 'Room unassigned',
+          stay: `${formatDateLabel(reservation.check_in_date)} -> ${formatDateLabel(reservation.check_out_date)}`,
+          readinessState,
+          contactReady,
+          identityReady,
+          latestDocument,
+          documentLabel: latestDocument?.name || 'No ID uploaded',
+        };
+      }),
+    [guestDocuments, reservations, roomMap],
+  );
 
   async function handlePropertySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -211,10 +393,233 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     await refreshPmsData();
   }
 
+  async function handleReservationLifecycleAction(reservation: {
+    id: string;
+    roomId: string;
+    propertyId: string;
+    guest: string;
+  }, action: 'check_in' | 'check_out') {
+    if (!organizationId || !reservation.roomId) {
+      setWorkspaceMessage('Assign a room before updating this reservation.');
+      return;
+    }
+
+    setWorkspaceMessage(null);
+
+    try {
+      if (action === 'check_in') {
+        await updateVendorPmsRecord('reservations', organizationId, reservation.id, { status: 'checked_in' });
+        await updateVendorPmsRecord('rooms', organizationId, reservation.roomId, {
+          status: 'occupied',
+          housekeeping_status: 'in_progress',
+        });
+        setWorkspaceMessage(`Checked in ${reservation.guest}`);
+      } else {
+        await updateVendorPmsRecord('reservations', organizationId, reservation.id, { status: 'checked_out' });
+        await updateVendorPmsRecord('rooms', organizationId, reservation.roomId, {
+          status: 'dirty',
+          housekeeping_status: 'dirty',
+        });
+        await createVendorPmsRecord('housekeeping', organizationId, branchId || null, {
+          property_id: reservation.propertyId,
+          room_id: reservation.roomId,
+          title: `Post-checkout cleaning for ${reservation.guest}`,
+          status: 'pending',
+        });
+        setWorkspaceMessage(`Checked out ${reservation.guest} and created a housekeeping task`);
+      }
+
+      await refreshPmsData();
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to update reservation lifecycle');
+    }
+  }
+
+  async function handleGuestAutomation(reservation: (typeof arrivalRows)[number], action: GuestAutomationAction) {
+    if (!reservation.guestEmail || reservation.guestEmail === 'Email pending') {
+      setWorkspaceMessage(`Guest email required before sending ${action === 'confirmation' ? 'a confirmation' : 'a reminder'}.`);
+      return;
+    }
+
+    setWorkspaceMessage(null);
+    setGuestAutomationSending((current) => ({ ...current, [reservation.id]: action }));
+
+    try {
+      const email = buildGuestAutomationEmail(reservation, liveProperties, action);
+      await sendTransactionalEmail({
+        to: reservation.guestEmail,
+        subject: email.subject,
+        html: email.html,
+      });
+      setWorkspaceMessage(`${action === 'confirmation' ? 'Confirmation' : 'Reminder'} sent to ${reservation.guest}`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to send guest email');
+    } finally {
+      setGuestAutomationSending((current) => ({ ...current, [reservation.id]: null }));
+    }
+  }
+
   async function handleHousekeepingStatusUpdate(taskId: string, status: string) {
     if (!organizationId) return;
+
+    const task = housekeepingTasks.find((entry) => entry.id === taskId);
+    const linkedRoom = task?.room_id ? roomMap.get(task.room_id) : null;
+
     await updateVendorPmsRecord('housekeeping', organizationId, taskId, { status });
+
+    if (task?.room_id && linkedRoom) {
+      if (status === 'done') {
+        await updateVendorPmsRecord('rooms', organizationId, task.room_id, {
+          housekeeping_status: 'clean',
+          status: linkedRoom.status === 'dirty' ? 'available' : linkedRoom.status,
+        });
+      } else if (status === 'in_progress') {
+        await updateVendorPmsRecord('rooms', organizationId, task.room_id, {
+          housekeeping_status: 'in_progress',
+        });
+      } else if (status === 'blocked') {
+        await updateVendorPmsRecord('rooms', organizationId, task.room_id, {
+          housekeeping_status: 'dirty',
+          status: linkedRoom.status === 'available' ? 'dirty' : linkedRoom.status,
+        });
+      }
+    }
+
     await refreshPmsData();
+  }
+
+  async function handleGuestDocumentUpload(reservation: VendorPmsReservationRecord) {
+    const file = guestUploadFiles[reservation.id];
+    if (!file) {
+      setWorkspaceMessage(`Choose a file for ${reservation.guest_name} before uploading.`);
+      return;
+    }
+
+    setWorkspaceMessage(null);
+
+    try {
+      const uploadedDocument = await documentUploads.uploadDocument({
+        name: `${reservation.guest_name} identity document`,
+        document_type: 'guest_identity',
+        file,
+        entityType: 'vendor_pms_reservation',
+        entityId: reservation.id,
+        metadata: {
+          verification_status: 'submitted',
+          guest_name: reservation.guest_name,
+          reservation_id: reservation.id,
+        },
+      });
+
+      if (uploadedDocument && typeof uploadedDocument === 'object') {
+        setGuestDocuments((current) => [uploadedDocument as VendorDocument, ...current]);
+      }
+      setGuestUploadFiles((current) => ({ ...current, [reservation.id]: null }));
+      setWorkspaceMessage(`Uploaded guest ID for ${reservation.guest_name}`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to upload guest document');
+    }
+  }
+
+  async function handleGuestDocumentVerify(document: VendorDocument, guestName: string) {
+    if (!organizationId) return;
+
+    setWorkspaceMessage(null);
+
+    try {
+      const nextMetadata = {
+        ...(document.metadata || {}),
+        verification_status: 'verified',
+        verified_at: new Date().toISOString(),
+      };
+
+      await documentMutations.updateRecord(document.id, {
+        metadata: nextMetadata,
+      });
+
+      setGuestDocuments((current) =>
+        current.map((entry) => (entry.id === document.id ? { ...entry, metadata: nextMetadata } : entry)),
+      );
+      setWorkspaceMessage(`Verified guest ID for ${guestName}`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to verify guest document');
+    }
+  }
+
+  async function handleReservationSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!organizationId) return;
+
+    const totalGuests = Number(reservationForm.adults || 0) + Number(reservationForm.children || 0);
+    const selectedRoom = rooms.find((room) => room.id === reservationForm.room_id);
+    const selectedRoomType = selectedRoom ? roomTypeMap.get(selectedRoom.room_type_id || '') : null;
+
+    if (selectedRoom) {
+      if (['blocked', 'maintenance'].includes(selectedRoom.status)) {
+        setWorkspaceMessage(`Room ${selectedRoom.room_number} is currently ${selectedRoom.status} and cannot be assigned.`);
+        return;
+      }
+
+      const overlappingReservation = activeReservations.find(
+        (reservation) =>
+          reservation.room_id === selectedRoom.id &&
+          datesOverlap(
+            reservation.check_in_date,
+            reservation.check_out_date,
+            reservationForm.check_in_date,
+            reservationForm.check_out_date,
+          ),
+      );
+
+      if (overlappingReservation) {
+        setWorkspaceMessage(`Room ${selectedRoom.room_number} already has an overlapping active reservation for the selected dates.`);
+        return;
+      }
+
+      if (selectedRoomType && totalGuests > Number(selectedRoomType.occupancy || 0)) {
+        setWorkspaceMessage(
+          `Room ${selectedRoom.room_number} supports ${selectedRoomType.occupancy} guests, but this booking has ${totalGuests}.`,
+        );
+        return;
+      }
+    }
+
+    await handlePmsCreate(
+      'reservations',
+      {
+        property_id: reservationForm.property_id,
+        room_id: reservationForm.room_id || null,
+        guest_name: reservationForm.guest_name,
+        guest_email: reservationForm.guest_email || null,
+        guest_phone: reservationForm.guest_phone || null,
+        check_in_date: reservationForm.check_in_date,
+        check_out_date: reservationForm.check_out_date,
+        adults: Number(reservationForm.adults || 1),
+        children: Number(reservationForm.children || 0),
+        total_amount: Number(reservationForm.total_amount || 0),
+        status: 'reserved',
+        source: reservationForm.source,
+        payment_status: reservationForm.payment_status,
+        notes: reservationForm.notes || null,
+      },
+      () =>
+        setReservationForm((current) => ({
+          ...current,
+          room_id: '',
+          guest_name: '',
+          guest_email: '',
+          guest_phone: '',
+          check_in_date: '',
+          check_out_date: '',
+          adults: '1',
+          children: '0',
+          total_amount: '',
+          source: 'manual',
+          payment_status: 'pending',
+          notes: '',
+        })),
+      'Reservation created',
+    );
   }
 
   return (
@@ -276,6 +681,63 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
         <Metric label="Arrivals" value={metrics.arrivals} detail={metrics.arrivalsDetail} />
         <Metric label="Rooms Dirty" value={metrics.dirtyRooms} detail={metrics.dirtyRoomsDetail} />
         <Metric label="Open Folios" value={metrics.openFolios} detail={metrics.openFoliosDetail} />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2"><CalendarCheck className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Availability & Booking Controls</h3></div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {roomAvailabilityRows.map((room) => (
+              <div key={room.id} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">Room {room.roomNumber}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-400">
+                      {room.roomTypeName}{room.occupancyLimit > 0 ? ` · ${room.occupancyLimit} pax` : ''}
+                    </div>
+                  </div>
+                  <StatePill state={room.riskState} />
+                </div>
+                <div className="mt-3 text-sm font-semibold text-slate-700">{room.leadGuest}</div>
+                <div className="mt-1 text-xs text-slate-500">{room.stayWindow}</div>
+                <div className="mt-2 text-xs font-bold uppercase tracking-widest text-emerald-700">
+                  {room.currentStatus} · {room.housekeepingStatus.replace(/_/g, ' ')}
+                </div>
+              </div>
+            ))}
+            {roomAvailabilityRows.length === 0 ? (
+              <div className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 ring-1 ring-slate-100">
+                Room availability controls will appear after inventory is created.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2"><Hotel className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Booking Pulse</h3></div>
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Unassigned arrivals</div>
+              <div className="mt-3 text-2xl font-black text-slate-950">{bookingControlSummary.unassignedArrivals}</div>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Conflict rooms</div>
+              <div className="mt-3 text-2xl font-black text-slate-950">{bookingControlSummary.conflictRooms}</div>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Blocked rooms</div>
+              <div className="mt-3 text-2xl font-black text-slate-950">{bookingControlSummary.blockedRooms}</div>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3">
+            {bookingControlSummary.sourceMix.map((source) => (
+              <div key={source.source} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-100">
+                <div className="text-xs font-bold uppercase tracking-widest text-slate-500">{source.source}</div>
+                <div className="text-sm font-black text-slate-950">{source.count}</div>
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
@@ -380,20 +842,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2"><CalendarCheck className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Arrivals & Departures</h3></div>
-          <form className="grid gap-3 md:grid-cols-5" onSubmit={(event) => {
-            event.preventDefault();
-            handlePmsCreate('reservations', {
-              property_id: reservationForm.property_id,
-              room_id: reservationForm.room_id || null,
-              guest_name: reservationForm.guest_name,
-              check_in_date: reservationForm.check_in_date,
-              check_out_date: reservationForm.check_out_date,
-              adults: 1,
-              children: 0,
-              total_amount: 0,
-              status: 'reserved',
-            }, () => setReservationForm((current) => ({ ...current, room_id: '', guest_name: '', check_in_date: '', check_out_date: '' })), 'Reservation created');
-          }}>
+          <form className="grid gap-3 md:grid-cols-5" onSubmit={handleReservationSubmit}>
             <select className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" value={reservationForm.property_id} onChange={(event) => setReservationForm((current) => ({ ...current, property_id: event.target.value, room_id: '' }))}>
               {propertyOptions.map((property) => <option key={property.value} value={property.value}>{property.label}</option>)}
             </select>
@@ -402,10 +851,36 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
               {rooms.filter((room) => room.property_id === reservationForm.property_id).map((room) => <option key={room.id} value={room.id}>{room.room_number}</option>)}
             </select>
             <input aria-label="Guest name *" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" placeholder="Guest name" value={reservationForm.guest_name} onChange={(event) => setReservationForm((current) => ({ ...current, guest_name: event.target.value }))} required />
+            <input aria-label="Guest email" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" placeholder="Guest email" type="email" value={reservationForm.guest_email} onChange={(event) => setReservationForm((current) => ({ ...current, guest_email: event.target.value }))} />
+            <input aria-label="Guest phone" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" placeholder="Guest phone" value={reservationForm.guest_phone} onChange={(event) => setReservationForm((current) => ({ ...current, guest_phone: event.target.value }))} />
             <input aria-label="Check-in date *" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" type="date" value={reservationForm.check_in_date} onChange={(event) => setReservationForm((current) => ({ ...current, check_in_date: event.target.value }))} required />
-            <div className="flex gap-3">
-              <input aria-label="Check-out date *" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" type="date" value={reservationForm.check_out_date} onChange={(event) => setReservationForm((current) => ({ ...current, check_out_date: event.target.value }))} required />
-              <Button type="submit" className="h-11 rounded-xl bg-emerald-600 px-4 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700">Create Reservation</Button>
+            <input aria-label="Check-out date *" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" type="date" value={reservationForm.check_out_date} onChange={(event) => setReservationForm((current) => ({ ...current, check_out_date: event.target.value }))} required />
+            <input aria-label="Adults *" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" min="1" type="number" value={reservationForm.adults} onChange={(event) => setReservationForm((current) => ({ ...current, adults: event.target.value }))} required />
+            <input aria-label="Children" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" min="0" type="number" value={reservationForm.children} onChange={(event) => setReservationForm((current) => ({ ...current, children: event.target.value }))} />
+            <input aria-label="Reservation amount" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" min="0" placeholder="Reservation amount" type="number" value={reservationForm.total_amount} onChange={(event) => setReservationForm((current) => ({ ...current, total_amount: event.target.value }))} />
+            <select aria-label="Reservation source" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" value={reservationForm.source} onChange={(event) => setReservationForm((current) => ({ ...current, source: event.target.value }))}>
+              {reservationSourceOptions.map((source) => <option key={source} value={source}>{source}</option>)}
+            </select>
+            <select aria-label="Payment status" className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" value={reservationForm.payment_status} onChange={(event) => setReservationForm((current) => ({ ...current, payment_status: event.target.value }))}>
+              {paymentStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+            <div className="md:col-span-2">
+              <input aria-label="Reservation notes" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800" placeholder="Arrival notes, preferences, or remarks" value={reservationForm.notes} onChange={(event) => setReservationForm((current) => ({ ...current, notes: event.target.value }))} />
+            </div>
+            <div className="md:col-span-2 flex justify-end">
+              <Button
+                type="submit"
+                className="h-11 rounded-xl bg-emerald-600 px-4 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700"
+                disabled={
+                  !reservationForm.property_id ||
+                  !reservationForm.guest_name ||
+                  !reservationForm.check_in_date ||
+                  !reservationForm.check_out_date ||
+                  new Date(reservationForm.check_out_date).getTime() <= new Date(reservationForm.check_in_date).getTime()
+                }
+              >
+                Create Reservation
+              </Button>
             </div>
           </form>
           <div className="mt-4 space-y-3">
@@ -416,11 +891,87 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                   <StatePill state={move.type} />
                 </div>
                 <div className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-400">{move.room} / {move.time}</div>
+                <div className="mt-2 text-sm text-slate-500">{move.guestEmail} · {move.guestPhone}</div>
                 <div className="mt-2 flex items-center justify-between gap-3">
-                  <div className="text-sm text-slate-500">{move.docs}</div>
+                  <div className="text-sm text-slate-500">{move.docs} · {formatCurrency(move.amount)}</div>
                   <select className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-bold uppercase tracking-widest text-slate-700" value={move.type} onChange={(event) => handleReservationStatusUpdate(move.id, event.target.value)}>
                     {reservationStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
                   </select>
+                </div>
+                {move.notes ? <div className="mt-2 text-xs text-slate-500">{move.notes}</div> : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl bg-slate-950 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800"
+                    disabled={move.type === 'checked_in' || move.type === 'checked_out' || move.type === 'cancelled' || move.type === 'no_show' || !move.roomId}
+                    onClick={() =>
+                      void handleReservationLifecycleAction(
+                        {
+                          id: move.id,
+                          roomId: move.roomId,
+                          propertyId: move.propertyId,
+                          guest: move.guest,
+                        },
+                        'check_in',
+                      )
+                    }
+                  >
+                    Check In
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                    disabled={move.type !== 'checked_in' || !move.roomId}
+                    onClick={() =>
+                      void handleReservationLifecycleAction(
+                        {
+                          id: move.id,
+                          roomId: move.roomId,
+                          propertyId: move.propertyId,
+                          guest: move.guest,
+                        },
+                        'check_out',
+                      )
+                    }
+                  >
+                    Check Out
+                  </Button>
+                </div>
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Guest automation</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-600">
+                        {move.guestEmail === 'Email pending' ? 'Guest email required for automation' : 'Transactional email is ready for this stay'}
+                      </div>
+                    </div>
+                    <Sparkles className="h-4 w-4 text-emerald-600" />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                      disabled={move.guestEmail === 'Email pending' || guestAutomationSending[move.id] !== null}
+                      onClick={() => void handleGuestAutomation(move, 'confirmation')}
+                    >
+                      {guestAutomationSending[move.id] === 'confirmation' ? 'Sending...' : 'Send Confirmation'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                      disabled={move.guestEmail === 'Email pending' || guestAutomationSending[move.id] !== null}
+                      onClick={() => void handleGuestAutomation(move, 'reminder')}
+                    >
+                      {guestAutomationSending[move.id] === 'reminder' ? 'Sending...' : 'Send Reminder'}
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -472,15 +1023,61 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
 
       <section className="grid gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2"><FileBadge className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Guest Documents</h3></div>
+          <div className="mb-4 flex items-center gap-2"><FileBadge className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Guest Arrival Readiness</h3></div>
+          <p className="mb-4 text-xs font-semibold text-slate-400">Guest Documents</p>
           <div className="space-y-3">
-            {guestDocuments.map((doc) => (
-              <div key={`${doc.title}-${doc.room}`} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
-                <div>
-                  <div className="text-sm font-black text-slate-950">{doc.title}</div>
-                  <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-400">{doc.room}</div>
+            {guestArrivalReadiness.map((guest) => (
+              <div key={guest.reservationId} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{guest.guestName}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-400">{guest.room} / {guest.stay}</div>
+                  </div>
+                  <StatePill state={guest.readinessState} />
                 </div>
-                <StatePill state={doc.state} />
+                <div className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">
+                  Contact {guest.contactReady ? 'ready' : 'pending'} • Identity {guest.identityReady ? 'verified' : guest.latestDocument ? 'submitted' : 'missing'}
+                </div>
+                <div className="mt-2 text-sm text-slate-600">{guest.documentLabel}</div>
+                <div className="mt-3 space-y-2">
+                  <input
+                    aria-label={`Upload guest document for ${guest.guestName}`}
+                    className="block w-full text-xs font-semibold text-slate-600 file:mr-3 file:rounded-xl file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-bold file:uppercase file:tracking-widest file:text-slate-700"
+                    type="file"
+                    onChange={(event) =>
+                      setGuestUploadFiles((current) => ({
+                        ...current,
+                        [guest.reservationId]: event.target.files?.[0] || null,
+                      }))
+                    }
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="rounded-xl bg-slate-950 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800"
+                      disabled={!organizationId || documentUploads.submitting}
+                      onClick={() => {
+                        const reservation = reservations.find((entry) => entry.id === guest.reservationId);
+                        if (reservation) void handleGuestDocumentUpload(reservation);
+                      }}
+                    >
+                      Upload ID
+                    </Button>
+                    {guest.latestDocument ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                        disabled={!organizationId || guest.identityReady || documentMutations.submitting}
+                        onClick={() => void handleGuestDocumentVerify(guest.latestDocument, guest.guestName)}
+                      >
+                        Mark Verified
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             ))}
           </div>

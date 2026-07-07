@@ -210,6 +210,50 @@ function normalizeTeamMemberStatus(status?: unknown): VendorTeamMemberStatus {
   return 'invited';
 }
 
+function buildMarketplaceChannelDistribution(input: {
+  channelTargets: string[];
+  syncStatus?: unknown;
+  listingState?: unknown;
+  approvalStatus?: unknown;
+}) {
+  const syncStatus = String(input.syncStatus || 'pending');
+  const listingState = String(input.listingState || 'draft');
+  const approvalStatus = String(input.approvalStatus || 'open');
+
+  return Object.fromEntries(
+    input.channelTargets.map((channel) => {
+      const isRequestChannel = channel.endsWith('_request');
+      let status = 'draft';
+
+      if (approvalStatus === 'pending' || syncStatus === 'pending_approval') {
+        status = 'pending_approval';
+      } else if (approvalStatus === 'rejected' || syncStatus === 'rejected') {
+        status = 'rejected';
+      } else if (listingState === 'paused') {
+        status = 'paused';
+      } else if (isRequestChannel && listingState === 'live' && syncStatus === 'synced') {
+        status = 'request_only';
+      } else if (listingState === 'live' && syncStatus === 'synced') {
+        status = 'live';
+      } else if (syncStatus === 'failed') {
+        status = 'attention';
+      } else if (listingState === 'draft') {
+        status = 'draft';
+      } else {
+        status = syncStatus;
+      }
+
+      return [
+        channel,
+        {
+          status,
+          mode: isRequestChannel ? 'request' : 'direct',
+        },
+      ];
+    }),
+  );
+}
+
 async function buildTeamMemberPayload(input: Record<string, unknown>) {
   const status = normalizeTeamMemberStatus(input.status);
   return {
@@ -222,12 +266,89 @@ async function buildTeamMemberPayload(input: Record<string, unknown>) {
 }
 
 function buildMarketplaceSyncPayload(input: Record<string, unknown>) {
+  const baseMetadata = input.metadata && typeof input.metadata === 'object' ? (input.metadata as Record<string, unknown>) : {};
+  const recordType = String(input.record_type || baseMetadata.record_type || 'listing_sync');
+  const channelTargets = Array.isArray(input.channel_targets)
+    ? input.channel_targets.map((value) => String(value)).filter(Boolean)
+    : [];
+
+  if (recordType === 'channel_connection') {
+    return {
+      module: input.module || 'pms',
+      sync_status: String(input.sync_status || input.connection_status || 'draft'),
+      conversion_rate: null,
+      ...(input.last_synced_at ? { last_synced_at: String(input.last_synced_at) } : {}),
+      metadata: {
+        ...baseMetadata,
+        record_type: 'channel_connection',
+        provider_name: input.provider_name || null,
+        connection_status: input.connection_status || 'draft',
+        credential_label: input.credential_label || null,
+        enabled: input.enabled ?? true,
+        last_verified_at: input.last_verified_at || null,
+        notes: input.notes || null,
+        property_scope: input.property_scope || 'organization',
+        source: 'marketplace_workspace',
+      },
+    };
+  }
+
+  if (recordType === 'channel_sync_log') {
+    const logStatus = String(input.status || input.sync_status || 'queued');
+    return {
+      module: input.module || 'pms',
+      sync_status: logStatus,
+      conversion_rate: null,
+      ...(logStatus === 'sent' || logStatus === 'applied' ? { last_synced_at: new Date().toISOString() } : {}),
+      metadata: {
+        ...baseMetadata,
+        record_type: 'channel_sync_log',
+        connection_id: input.connection_id || null,
+        provider_name: input.provider_name || null,
+        sync_type: input.sync_type || 'inventory',
+        direction: input.direction || 'outbound',
+        status: logStatus,
+        payload_summary: input.payload_summary || null,
+        error_summary: input.error_summary || null,
+        override_note: input.override_note || null,
+        source: 'marketplace_workspace',
+      },
+    };
+  }
+
+  const approvalStatus = input.approval_status || 'open';
+  const listingState = input.listing_state || null;
+  const requestedListingState = input.requested_listing_state || input.listing_state || null;
+  const requestedSyncStatus = input.requested_sync_status || input.sync_status || null;
   const metadata = {
-    ...(input.metadata && typeof input.metadata === 'object' ? (input.metadata as Record<string, unknown>) : {}),
+    ...baseMetadata,
+    record_type: 'listing_sync',
     listing_title: input.listing_title || null,
     public_slug: input.public_slug || null,
+    property_id: input.property_id || null,
+    room_type_id: input.room_type_id || null,
+    room_type_name: input.room_type_name || null,
     direct_deal_enabled: Boolean(input.direct_deal_enabled),
     deal_badge: input.deal_badge || null,
+    nightly_rate: input.nightly_rate ?? null,
+    total_inventory: input.total_inventory ?? null,
+    available_inventory: input.available_inventory ?? null,
+    occupied_inventory: input.occupied_inventory ?? null,
+    occupancy_rate: input.occupancy_rate ?? null,
+    listing_state: listingState,
+    requested_listing_state: requestedListingState,
+    requested_sync_status: requestedSyncStatus,
+    approval_status: approvalStatus,
+    approval_note: input.approval_note || null,
+    approved_at: input.approved_at || null,
+    approved_by: input.approved_by || null,
+    channel_targets: channelTargets,
+    channel_distribution: buildMarketplaceChannelDistribution({
+      channelTargets,
+      syncStatus: input.sync_status,
+      listingState,
+      approvalStatus,
+    }),
     source: 'marketplace_workspace',
   };
 

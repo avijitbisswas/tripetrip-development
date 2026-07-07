@@ -80,6 +80,10 @@ const syncSignals: Array<{ title: string; detail: string; icon: LucideIcon }> = 
 const sourceModuleOptions = ['pms', 'tours', 'activities', 'fleet'];
 const syncStatusOptions = ['pending', 'synced', 'failed'];
 const listingStateOptions = ['draft', 'live', 'paused'];
+const channelTargetOptions = ['tripetrip', 'direct_web', 'booking_request', 'airbnb_request'];
+const providerNameOptions = ['booking.com', 'airbnb', 'expedia', 'agoda', 'direct_api'];
+const connectionStatusOptions = ['draft', 'connected', 'error', 'paused'];
+const channelSyncTypeOptions = ['inventory', 'rates', 'reservation'];
 
 function titleCase(value: string) {
   return value
@@ -87,6 +91,21 @@ function titleCase(value: string) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
+}
+
+function formatChannelStatus(value: unknown) {
+  return titleCase(String(value || 'draft'));
+}
+
+function formatTimestamp(value: unknown) {
+  const parsed = new Date(String(value || ''));
+  if (Number.isNaN(parsed.getTime())) return 'Not available';
+  return parsed.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 function StatePill({ state }: { state: string }) {
@@ -129,8 +148,17 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
     listing_state: 'draft',
     nightly_rate: '',
     conversion_rate: '',
+    channel_targets: ['tripetrip', 'direct_web'],
     direct_deal_enabled: false,
     deal_badge: '',
+  });
+  const [connectionForm, setConnectionForm] = useState({
+    provider_name: 'booking.com',
+    connection_status: 'draft',
+    credential_label: '',
+    sync_type: 'inventory',
+    enabled: true,
+    notes: '',
   });
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [pmsLoading, setPmsLoading] = useState(false);
@@ -247,14 +275,35 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
     [inventorySummaries, syncForm.property_id, syncForm.room_type_id],
   );
 
-  const liveListings = useMemo(
+  const typedMarketplaceRecords = useMemo(
     () =>
       records.records.map((record) => {
         const metadata =
           record.metadata && typeof record.metadata === 'object' ? (record.metadata as Record<string, unknown>) : {};
+
+        return {
+          record,
+          metadata,
+          recordType: String(metadata.record_type || 'listing_sync'),
+        };
+      }),
+    [records.records],
+  );
+
+  const liveListings = useMemo(
+    () =>
+      typedMarketplaceRecords
+        .filter(({ recordType }) => recordType === 'listing_sync')
+        .map(({ record, metadata }) => {
         const availableInventory = Number(metadata.available_inventory || 0);
         const totalInventory = Number(metadata.total_inventory || 0);
         const nightlyRate = Number(metadata.nightly_rate || 0);
+        const approvalStatus = String(metadata.approval_status || 'open');
+        const channelTargets = Array.isArray(metadata.channel_targets) ? metadata.channel_targets.map((value) => String(value)) : [];
+        const channelDistribution =
+          metadata.channel_distribution && typeof metadata.channel_distribution === 'object'
+            ? (metadata.channel_distribution as Record<string, { status?: string; mode?: string }>)
+            : {};
         return {
           id: String(record.id),
           title: String(metadata.listing_title || record.title || 'Untitled listing'),
@@ -265,15 +314,60 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
           source: `${String(record.module || 'marketplace').toUpperCase()} / ${String(metadata.room_type_name || 'Room inventory')}`,
           sync: String(record.last_synced_at ? `Synced ${record.last_synced_at}` : 'Awaiting marketplace sync'),
           state: titleCase(String(metadata.listing_state || record.sync_status || 'pending')),
+          syncStatus: String(record.sync_status || 'pending'),
+          approvalStatus: titleCase(approvalStatus),
           metric:
             record.conversion_rate === null || record.conversion_rate === undefined
               ? 'Conversion pending'
               : `${record.conversion_rate}% conversion`,
           inventory: totalInventory > 0 ? `${availableInventory}/${totalInventory} rooms available` : 'Inventory pending',
           nightlyRate: nightlyRate > 0 ? `INR ${Math.round(nightlyRate).toLocaleString('en-IN')}/night` : 'Rate pending',
+          channels: channelTargets.join(', '),
+          channelDistribution: channelTargets.map((channel) => ({
+            channel,
+            status: formatChannelStatus(channelDistribution[channel]?.status),
+          })),
         };
       }),
-    [records.records],
+    [typedMarketplaceRecords],
+  );
+
+  const channelConnections = useMemo(
+    () =>
+      typedMarketplaceRecords
+        .filter(({ recordType }) => recordType === 'channel_connection')
+        .map(({ record, metadata }) => ({
+          id: String(record.id),
+          providerName: String(metadata.provider_name || 'Unknown provider'),
+          connectionStatus: titleCase(String(metadata.connection_status || record.sync_status || 'draft')),
+          syncType: titleCase(String(metadata.sync_type || 'inventory')),
+          credentialLabel: String(metadata.credential_label || 'Credential pending'),
+          enabled: Boolean(metadata.enabled ?? true),
+          notes: String(metadata.notes || ''),
+          lastVerifiedAt: metadata.last_verified_at ? formatTimestamp(metadata.last_verified_at) : 'Not verified',
+        })),
+    [typedMarketplaceRecords],
+  );
+
+  const channelSyncLogs = useMemo(
+    () =>
+      typedMarketplaceRecords
+        .filter(({ recordType }) => recordType === 'channel_sync_log')
+        .map(({ record, metadata }) => ({
+          id: String(record.id),
+          connectionId: String(metadata.connection_id || ''),
+          providerName: String(metadata.provider_name || 'Unknown provider'),
+          syncType: titleCase(String(metadata.sync_type || 'inventory')),
+          direction: titleCase(String(metadata.direction || 'outbound')),
+          status: titleCase(String(metadata.status || record.sync_status || 'queued')),
+          rawStatus: String(metadata.status || record.sync_status || 'queued'),
+          payloadSummary: String(metadata.payload_summary || 'No payload summary'),
+          errorSummary: String(metadata.error_summary || ''),
+          sortValue: String(record.last_synced_at || record.created_at || ''),
+          updatedAt: record.last_synced_at ? formatTimestamp(record.last_synced_at) : formatTimestamp(record.created_at),
+        }))
+        .sort((left, right) => right.sortValue.localeCompare(left.sortValue)),
+    [typedMarketplaceRecords],
   );
 
   async function refreshInventory() {
@@ -304,6 +398,10 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
     }
 
     try {
+      const requiresAdminApproval = accommodationAccess?.resolvedApprovals.marketplace_publishing === 'admin_approval_required';
+      const effectiveSyncStatus = requiresAdminApproval ? 'pending_approval' : syncForm.sync_status;
+      const effectiveListingState = requiresAdminApproval && syncForm.listing_state === 'live' ? 'pending_approval' : syncForm.listing_state;
+
       await mutations.createRecord({
         listing_title: syncForm.listing_title || `${selectedSummary.propertyName} ${selectedSummary.roomTypeName}`,
         public_slug:
@@ -313,14 +411,18 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
         room_type_id: selectedSummary.roomTypeId,
         room_type_name: selectedSummary.roomTypeName,
         module: syncForm.module,
-        sync_status: syncForm.sync_status,
-        listing_state: syncForm.listing_state,
+        sync_status: effectiveSyncStatus,
+        requested_sync_status: syncForm.sync_status,
+        listing_state: effectiveListingState,
+        requested_listing_state: syncForm.listing_state,
+        approval_status: requiresAdminApproval ? 'pending' : 'open',
         nightly_rate: syncForm.nightly_rate ? Number(syncForm.nightly_rate) : selectedSummary.baseRate,
         total_inventory: selectedSummary.totalInventory,
         available_inventory: selectedSummary.availableInventory,
         occupied_inventory: selectedSummary.occupiedInventory,
         occupancy_rate: selectedSummary.occupancyRate,
         conversion_rate: syncForm.conversion_rate ? Number(syncForm.conversion_rate) : null,
+        channel_targets: syncForm.channel_targets,
         direct_deal_enabled: syncForm.direct_deal_enabled,
         deal_badge: syncForm.deal_badge,
       });
@@ -334,17 +436,18 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
         listing_state: 'draft',
         nightly_rate: '',
         conversion_rate: '',
+        channel_targets: ['tripetrip', 'direct_web'],
         direct_deal_enabled: false,
         deal_badge: '',
       });
       await refreshInventory();
-      setFormMessage('Inventory published to marketplace sync');
+      setFormMessage(requiresAdminApproval ? 'Inventory submitted for admin publishing approval' : 'Inventory published to marketplace sync');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to create listing sync');
     }
   }
 
-  async function handleRefreshListing(listingId: string, propertyId: string, roomTypeId: string) {
+  async function handleRefreshListing(listingId: string, propertyId: string, roomTypeId: string, currentSyncStatus: string) {
     const summary = inventorySummaries.find((item) => item.propertyId === propertyId && item.roomTypeId === roomTypeId);
     if (!summary) {
       setFormMessage('Live PMS availability is missing for this listing.');
@@ -353,8 +456,8 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
 
     try {
       await mutations.updateRecord(listingId, {
-        sync_status: 'synced',
-        last_synced_at: new Date().toISOString(),
+        sync_status: currentSyncStatus === 'pending_approval' ? 'pending_approval' : 'synced',
+        ...(currentSyncStatus === 'pending_approval' ? {} : { last_synced_at: new Date().toISOString() }),
         metadata: {
           property_id: summary.propertyId,
           room_type_id: summary.roomTypeId,
@@ -373,6 +476,99 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
     }
   }
 
+  async function handleConnectionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormMessage(null);
+
+    try {
+      await mutations.createRecord({
+        record_type: 'channel_connection',
+        module: 'pms',
+        provider_name: connectionForm.provider_name,
+        connection_status: connectionForm.connection_status,
+        credential_label: connectionForm.credential_label,
+        sync_type: connectionForm.sync_type,
+        enabled: connectionForm.enabled,
+        notes: connectionForm.notes,
+      });
+      setConnectionForm({
+        provider_name: 'booking.com',
+        connection_status: 'draft',
+        credential_label: '',
+        sync_type: 'inventory',
+        enabled: true,
+        notes: '',
+      });
+      await records.refresh();
+      setFormMessage('Channel connection saved');
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : 'Unable to save channel connection');
+    }
+  }
+
+  async function handleVerifyConnection(connectionId: string, providerName: string, syncType: string) {
+    if (!organizationId) return;
+
+    try {
+      const verifiedAt = new Date().toISOString();
+      await mutations.updateRecord(connectionId, {
+        sync_status: 'connected',
+        metadata: {
+          connection_status: 'connected',
+          last_verified_at: verifiedAt,
+        },
+      });
+      await mutations.createRecord({
+        record_type: 'channel_sync_log',
+        module: 'pms',
+        connection_id: connectionId,
+        provider_name: providerName,
+        sync_type: syncType.toLowerCase(),
+        direction: 'outbound',
+        status: 'applied',
+        payload_summary: 'Manual connection verification completed',
+      });
+      await records.refresh();
+      setFormMessage(`Verified ${providerName} connection`);
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : 'Unable to verify channel connection');
+    }
+  }
+
+  async function handleRunChannelSync(connectionId: string, providerName: string, syncType: string, isConnected: boolean) {
+    try {
+      await mutations.createRecord({
+        record_type: 'channel_sync_log',
+        module: 'pms',
+        connection_id: connectionId,
+        provider_name: providerName,
+        sync_type: syncType.toLowerCase(),
+        direction: 'outbound',
+        status: isConnected ? 'applied' : 'failed',
+        payload_summary: `Manual ${syncType.toLowerCase()} push requested from Vendor OS`,
+        error_summary: isConnected ? null : 'Connection must be verified before sending channel updates',
+      });
+      await records.refresh();
+      setFormMessage(isConnected ? `Pushed ${syncType.toLowerCase()} update for ${providerName}` : `Channel sync failed for ${providerName}`);
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : 'Unable to run channel sync');
+    }
+  }
+
+  async function handleRetryChannelLog(log: {
+    connectionId: string;
+    providerName: string;
+    syncType: string;
+  }) {
+    const linkedConnection = channelConnections.find((connection) => connection.id === log.connectionId);
+    await handleRunChannelSync(
+      log.connectionId,
+      log.providerName,
+      log.syncType,
+      linkedConnection?.connectionStatus.toLowerCase() === 'connected',
+    );
+  }
+
   const liveMetricCards = useMemo(() => {
     const listingsLive = liveListings.filter((listing) => listing.state.toLowerCase() === 'live').length;
     const dealsActive = liveListings.filter((listing) => listing.dealBadge !== 'No direct deal').length;
@@ -389,14 +585,18 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
       liveListings.length > 0
         ? `${Math.round((liveListings.filter((listing) => listing.state.toLowerCase() !== 'failed').length / liveListings.length) * 100)}%`
         : '100%';
+    const connectedChannels = channelConnections.filter((connection) => connection.connectionStatus.toLowerCase() === 'connected').length;
+    const failedChannelLogs = channelSyncLogs.filter((log) => log.rawStatus === 'failed' || log.rawStatus === 'conflict').length;
 
     return [
       ['Listings Live', String(listingsLive), 'Published inventory'],
       ['Deals Active', String(dealsActive), 'Direct deal enabled'],
+      ['Connected Channels', String(connectedChannels), 'Ready for push sync'],
+      ['Sync Exceptions', String(failedChannelLogs), 'Need manual retry'],
       ['Conversion', `${averageConversion}%`, 'Average tracked'],
       ['Sync Health', syncHealth, 'PMS connected'],
     ];
-  }, [liveListings]);
+  }, [channelConnections, channelSyncLogs, liveListings]);
 
   return (
     <div className="space-y-6">
@@ -511,6 +711,32 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
               ))}
             </select>
           </label>
+          <div className="space-y-2 md:col-span-2 xl:col-span-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Channels</span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {channelTargetOptions.map((channel) => (
+                <label
+                  key={channel}
+                  className="flex h-11 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700"
+                >
+                  <input
+                    checked={syncForm.channel_targets.includes(channel)}
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+                    type="checkbox"
+                    onChange={(inputEvent) =>
+                      setSyncForm((current) => ({
+                        ...current,
+                        channel_targets: inputEvent.target.checked
+                          ? [...current.channel_targets, channel]
+                          : current.channel_targets.filter((value) => value !== channel),
+                      }))
+                    }
+                  />
+                  {titleCase(channel)}
+                </label>
+              ))}
+            </div>
+          </div>
           <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Listing state *</span>
             <select
@@ -611,10 +837,210 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
         )}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         {liveMetricCards.map(([label, value, detail]) => (
           <Metric key={label} label={label} value={value} detail={detail} />
         ))}
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Channel Connections</h3>
+              <p className="mt-1 text-xs font-semibold text-slate-400">Manual OTA foundation with real status and verification history</p>
+            </div>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase text-emerald-700">
+              Live Connection State
+            </span>
+          </div>
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={handleConnectionSubmit}>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Provider *</span>
+              <select
+                aria-label="Provider *"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                value={connectionForm.provider_name}
+                onChange={(event) => setConnectionForm((current) => ({ ...current, provider_name: event.target.value }))}
+              >
+                {providerNameOptions.map((provider) => (
+                  <option key={provider} value={provider}>
+                    {titleCase(provider)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Connection status *</span>
+              <select
+                aria-label="Connection status *"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                value={connectionForm.connection_status}
+                onChange={(event) => setConnectionForm((current) => ({ ...current, connection_status: event.target.value }))}
+              >
+                {connectionStatusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {titleCase(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Credential label *</span>
+              <input
+                aria-label="Credential label *"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                placeholder="Prod API token"
+                required
+                value={connectionForm.credential_label}
+                onChange={(event) => setConnectionForm((current) => ({ ...current, credential_label: event.target.value }))}
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Primary sync *</span>
+              <select
+                aria-label="Primary sync *"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                value={connectionForm.sync_type}
+                onChange={(event) => setConnectionForm((current) => ({ ...current, sync_type: event.target.value }))}
+              >
+                {channelSyncTypeOptions.map((syncType) => (
+                  <option key={syncType} value={syncType}>
+                    {titleCase(syncType)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-2 md:col-span-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Notes</span>
+              <input
+                aria-label="Connection notes"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+                placeholder="Manual XML pull, staged mapping, sandbox verified"
+                value={connectionForm.notes}
+                onChange={(event) => setConnectionForm((current) => ({ ...current, notes: event.target.value }))}
+              />
+            </label>
+            <label className="flex h-11 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 text-xs font-bold text-emerald-800">
+              <input
+                aria-label="Connection enabled"
+                checked={connectionForm.enabled}
+                className="h-4 w-4 rounded border-emerald-300 text-emerald-600"
+                type="checkbox"
+                onChange={(event) => setConnectionForm((current) => ({ ...current, enabled: event.target.checked }))}
+              />
+              Connection enabled
+            </label>
+            <Button
+              className="h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700"
+              disabled={!organizationId || mutations.submitting}
+              type="submit"
+            >
+              Save Connection
+            </Button>
+          </form>
+          <div className="mt-4 space-y-3">
+            {channelConnections.map((connection) => (
+              <div key={connection.id} className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{titleCase(connection.providerName)}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{connection.syncType}</div>
+                    <div className="mt-1 text-xs text-slate-500">{connection.credentialLabel}</div>
+                  </div>
+                  <StatePill state={connection.connectionStatus} />
+                </div>
+                <div className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">
+                  {connection.enabled ? 'Enabled' : 'Disabled'} • Verified {connection.lastVerifiedAt}
+                </div>
+                {connection.notes ? <div className="mt-2 text-sm text-slate-600">{connection.notes}</div> : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl bg-slate-950 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800"
+                    disabled={!organizationId || mutations.submitting}
+                    onClick={() => void handleVerifyConnection(connection.id, connection.providerName, connection.syncType)}
+                  >
+                    Verify Connection
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                    disabled={!organizationId || mutations.submitting}
+                    onClick={() =>
+                      void handleRunChannelSync(
+                        connection.id,
+                        connection.providerName,
+                        connection.syncType,
+                        connection.connectionStatus.toLowerCase() === 'connected',
+                      )
+                    }
+                  >
+                    Push Sync
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {channelConnections.length === 0 ? (
+              <div className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 ring-1 ring-slate-100">
+                No channel connections yet. Save one above to start manual OTA operations.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Sync Activity</h3>
+          </div>
+          <div className="space-y-3">
+            {channelSyncLogs.map((log) => (
+              <div key={log.id} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{titleCase(log.providerName)}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-400">
+                      {log.syncType} • {log.direction}
+                    </div>
+                  </div>
+                  <StatePill state={log.status} />
+                </div>
+                <div className="mt-3 text-sm text-slate-600">{log.payloadSummary}</div>
+                {log.errorSummary ? <div className="mt-2 text-xs font-bold text-amber-700">{log.errorSummary}</div> : null}
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{log.updatedAt}</div>
+                  {(log.rawStatus === 'failed' || log.rawStatus === 'conflict') && log.connectionId ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                      disabled={!organizationId || mutations.submitting}
+                      onClick={() =>
+                        void handleRetryChannelLog({
+                          connectionId: log.connectionId,
+                          providerName: log.providerName,
+                          syncType: log.syncType,
+                        })
+                      }
+                    >
+                      Retry Sync
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+            {channelSyncLogs.length === 0 ? (
+              <div className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 ring-1 ring-slate-100">
+                Verification, sync pushes, failures, and retries will appear here as live channel history.
+              </div>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -640,6 +1066,20 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
                 </div>
                 <div className="mt-3 text-sm font-bold text-slate-800">{listing.inventory}</div>
                 <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-500">{listing.nightlyRate}</div>
+                <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-500">{listing.approvalStatus}</div>
+                <div className="mt-1 text-xs text-slate-500">{listing.channels}</div>
+                {listing.channelDistribution.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {listing.channelDistribution.map((channel) => (
+                      <span
+                        key={`${listing.id}-${channel.channel}`}
+                        className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-600 ring-1 ring-slate-200"
+                      >
+                        {titleCase(channel.channel)} {channel.status}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mt-3 flex flex-wrap gap-2 text-sm font-bold text-slate-800">
                   <span>{listing.metric}</span>
                   <span className="rounded-full bg-white px-2 py-1 text-[10px] uppercase tracking-widest text-emerald-700">
@@ -649,7 +1089,7 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
                 <Button
                   className="mt-4 h-9 rounded-xl bg-slate-950 px-4 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800"
                   disabled={!organizationId || !listing.propertyId || !listing.roomTypeId || mutations.submitting}
-                  onClick={() => void handleRefreshListing(listing.id, listing.propertyId, listing.roomTypeId)}
+                  onClick={() => void handleRefreshListing(listing.id, listing.propertyId, listing.roomTypeId, listing.syncStatus)}
                   type="button"
                 >
                   Refresh Availability

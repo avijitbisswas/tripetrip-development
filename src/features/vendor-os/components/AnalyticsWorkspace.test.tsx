@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnalyticsWorkspace } from './AnalyticsWorkspace';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import { listVendorAccountingRecords, listVendorPmsRecords } from '../api';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
@@ -94,11 +95,20 @@ vi.mock('../hooks', () => ({
   }),
 }));
 
+vi.mock('../api', () => ({
+  listVendorPmsRecords: vi.fn(),
+  listVendorAccountingRecords: vi.fn(),
+}));
+
 describe('AnalyticsWorkspace', () => {
   beforeEach(() => {
     hookMocks.createRecord.mockReset();
     hookMocks.refresh.mockReset();
     hookMocks.records = [];
+    vi.mocked(listVendorPmsRecords).mockReset();
+    vi.mocked(listVendorAccountingRecords).mockReset();
+    vi.mocked(listVendorPmsRecords).mockResolvedValue([]);
+    vi.mocked(listVendorAccountingRecords).mockResolvedValue([]);
   });
 
   it('renders executive reports, branch comparison, category performance, operational KPIs, and exports', () => {
@@ -154,6 +164,111 @@ describe('AnalyticsWorkspace', () => {
     expect(screen.getByText('Conversion')).toBeInTheDocument();
     expect(screen.getByText('9.2%')).toBeInTheDocument();
     expect(screen.getByText('2026-06-05')).toBeInTheDocument();
+  });
+
+  it('derives live operational reporting from reservations, folios, and payments', async () => {
+    vi.mocked(listVendorPmsRecords).mockImplementation(async (resource) => {
+      if (resource === 'reservations') {
+        return [
+          {
+            id: 'reservation-1',
+            organization_id: 'org-1',
+            property_id: 'property-1',
+            room_id: 'room-1',
+            guest_name: 'Aarav Mehta',
+            guest_email: 'aarav@example.com',
+            guest_phone: '9999999999',
+            check_in_date: '2026-06-30',
+            check_out_date: '2026-07-02',
+            adults: 2,
+            children: 0,
+            status: 'reserved',
+            payment_status: 'pending',
+            total_amount: 12000,
+            source: 'manual',
+            notes: null,
+            created_at: '2026-06-25T10:00:00.000Z',
+          },
+          {
+            id: 'reservation-2',
+            organization_id: 'org-1',
+            property_id: 'property-1',
+            room_id: 'room-2',
+            guest_name: 'Mira Sen',
+            guest_email: 'mira@example.com',
+            guest_phone: '8888888888',
+            check_in_date: '2026-06-29',
+            check_out_date: '2026-07-01',
+            adults: 2,
+            children: 1,
+            status: 'checked_in',
+            payment_status: 'paid',
+            total_amount: 16000,
+            source: 'manual',
+            notes: null,
+            created_at: '2026-06-24T10:00:00.000Z',
+          },
+        ] as never;
+      }
+
+      if (resource === 'folios') {
+        return [
+          {
+            id: 'folio-1',
+            organization_id: 'org-1',
+            property_id: 'property-1',
+            reservation_id: 'reservation-1',
+            entry_type: 'room_charge',
+            title: 'Deluxe room',
+            amount: 12000,
+            quantity: 1,
+            payment_state: 'open',
+            notes: null,
+            posted_at: '2026-06-25T10:00:00.000Z',
+            created_at: '2026-06-25T10:00:00.000Z',
+          },
+          {
+            id: 'folio-2',
+            organization_id: 'org-1',
+            property_id: 'property-1',
+            reservation_id: 'reservation-2',
+            entry_type: 'room_charge',
+            title: 'Family suite',
+            amount: 16000,
+            quantity: 1,
+            payment_state: 'settled',
+            notes: null,
+            posted_at: '2026-06-24T10:00:00.000Z',
+            created_at: '2026-06-24T10:00:00.000Z',
+          },
+        ] as never;
+      }
+
+      return [] as never;
+    });
+    vi.mocked(listVendorAccountingRecords).mockResolvedValue([
+      {
+        id: 'payment-1',
+        organization_id: 'org-1',
+        reservation_id: 'reservation-2',
+        folio_entry_id: 'folio-2',
+        manual_payment_intent_id: 'manual_1',
+        payment_method: 'cash',
+        amount: 16000,
+        status: 'recorded',
+        created_at: '2026-06-24T11:00:00.000Z',
+      },
+    ] as never);
+
+    render(<AnalyticsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText('Live Operations Pulse')).toBeInTheDocument();
+    expect(screen.getAllByText('50%').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1/2 rooms occupied').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Aarav Mehta').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('INR 12,000').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('INR 16,000').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1 open folio / 1 settled').length).toBeGreaterThan(0);
   });
 
   it('shows accommodation analytics guidance for dashboards and AI approvals', () => {

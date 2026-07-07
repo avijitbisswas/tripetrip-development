@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   BarChart3,
   Building2,
@@ -13,7 +13,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { listVendorAccountingRecords, listVendorPmsRecords } from '../api';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
+import type { VendorFolioEntryRecord, VendorPaymentRecord, VendorPmsReservationRecord } from '../types';
 import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
 import { AccommodationInsightPanel } from './AccommodationInsightPanel';
@@ -84,6 +86,17 @@ function titleCase(value: string) {
     .join(' ');
 }
 
+function formatCurrency(value: unknown) {
+  const amount = typeof value === 'number' ? value : Number(value || 0);
+  return new Intl.NumberFormat('en-IN', {
+    maximumFractionDigits: 0,
+    style: 'currency',
+    currency: 'INR',
+  })
+    .format(Number.isFinite(amount) ? amount : 0)
+    .replace('₹', 'INR ');
+}
+
 function StatePill({ state }: { state: string }) {
   const attention = ['Review', 'Scheduled'].includes(state);
   return (
@@ -113,6 +126,9 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
   const records = useVendorOSRecords('analytics', organizationId);
   const mutations = useVendorOSRecordMutations('analytics', organizationId, branchId);
   const accommodationInsight = getAccommodationModuleInsights('analytics', accommodationAccess);
+  const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
+  const [folioEntries, setFolioEntries] = useState<VendorFolioEntryRecord[]>([]);
+  const [payments, setPayments] = useState<VendorPaymentRecord[]>([]);
   const [snapshotForm, setSnapshotForm] = useState({
     module: 'marketplace',
     snapshot_date: '',
@@ -131,6 +147,130 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
       })),
     [records.records],
   );
+  const liveOperations = useMemo(() => {
+    const occupiedReservations = reservations.filter((reservation) => reservation.status === 'checked_in');
+    const occupancyRate = reservations.length > 0 ? Math.round((occupiedReservations.length / reservations.length) * 100) : 0;
+    const upcomingArrivals = reservations.filter((reservation) => reservation.status === 'reserved');
+    const openFolios = folioEntries.filter((folio) => folio.payment_state !== 'settled' && folio.payment_state !== 'void');
+    const settledFolios = folioEntries.filter((folio) => folio.payment_state === 'settled');
+    const recordedPayments = payments
+      .filter((payment) => payment.status === 'recorded' || payment.status === 'pending_approval')
+      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const billedRevenue = reservations.reduce((sum, reservation) => sum + Number(reservation.total_amount || 0), 0);
+    const outstandingRevenue = upcomingArrivals
+      .filter((reservation) => reservation.payment_status !== 'paid')
+      .reduce((sum, reservation) => sum + Number(reservation.total_amount || 0), 0);
+
+    return {
+      occupancyRate,
+      occupancyDetail: `${occupiedReservations.length}/${reservations.length || 0} rooms occupied`,
+      arrivalsCount: upcomingArrivals.length,
+      nextArrival: upcomingArrivals[0] || null,
+      openFoliosCount: openFolios.length,
+      settledFoliosCount: settledFolios.length,
+      recordedPayments,
+      billedRevenue,
+      outstandingRevenue,
+    };
+  }, [folioEntries, payments, reservations]);
+  const branchInsights = useMemo(() => {
+    if (reservations.length === 0) {
+      return branches;
+    }
+
+    const byProperty = new Map<string, { name: string; revenue: number; checkedIn: number; total: number; arrivals: number }>();
+    for (const reservation of reservations) {
+      const key = reservation.property_id || 'unassigned-property';
+      const current = byProperty.get(key) || { name: titleCase(key.replace(/-/g, ' ')), revenue: 0, checkedIn: 0, total: 0, arrivals: 0 };
+      current.revenue += Number(reservation.total_amount || 0);
+      current.total += 1;
+      if (reservation.status === 'checked_in') current.checkedIn += 1;
+      if (reservation.status === 'reserved') current.arrivals += 1;
+      byProperty.set(key, current);
+    }
+
+    return Array.from(byProperty.values()).map((branch) => ({
+      name: branch.name,
+      revenue: formatCurrency(branch.revenue),
+      signal: `${branch.total > 0 ? Math.round((branch.checkedIn / branch.total) * 100) : 0}% occupancy`,
+      state: branch.arrivals > 0 ? 'Arrivals due' : 'Stable',
+    }));
+  }, [reservations]);
+  const categoryInsights = useMemo(() => {
+    if (reservations.length === 0 && folioEntries.length === 0) {
+      return categories;
+    }
+
+    return [
+      {
+        title: 'Stays',
+        detail: 'PMS reservations and in-house occupancy',
+        value: `${liveOperations.occupancyRate}% occupancy`,
+        state: liveOperations.occupancyRate >= 70 ? 'Strong' : liveOperations.occupancyRate > 0 ? 'Stable' : 'Review',
+      },
+      {
+        title: 'Arrivals',
+        detail: 'Upcoming check-ins requiring desk readiness',
+        value: `${liveOperations.arrivalsCount} arrivals`,
+        state: liveOperations.arrivalsCount > 0 ? 'Stable' : 'Review',
+      },
+      {
+        title: 'Folios',
+        detail: 'Open versus settled guest billing',
+        value: `${liveOperations.openFoliosCount} open / ${liveOperations.settledFoliosCount} settled`,
+        state: liveOperations.openFoliosCount > 0 ? 'Review' : 'Healthy',
+      },
+      {
+        title: 'Collections',
+        detail: 'Recorded and pending payment capture',
+        value: formatCurrency(liveOperations.recordedPayments),
+        state: liveOperations.recordedPayments > 0 ? 'Strong' : 'Review',
+      },
+    ];
+  }, [folioEntries.length, liveOperations, reservations.length]);
+  const operationalMetrics = useMemo(() => {
+    if (reservations.length === 0 && payments.length === 0) {
+      return operationalKpis;
+    }
+
+    return [
+      { title: 'Occupancy', value: `${liveOperations.occupancyRate}%`, detail: liveOperations.occupancyDetail },
+      { title: 'Arrivals Today', value: String(liveOperations.arrivalsCount), detail: liveOperations.nextArrival ? liveOperations.nextArrival.guest_name : 'No queued arrivals' },
+      { title: 'Open Folios', value: String(liveOperations.openFoliosCount), detail: `${liveOperations.openFoliosCount} open folio / ${liveOperations.settledFoliosCount} settled` },
+      { title: 'Collections', value: formatCurrency(liveOperations.recordedPayments), detail: `${formatCurrency(liveOperations.outstandingRevenue)} awaiting payment` },
+    ];
+  }, [liveOperations, payments.length, reservations.length]);
+  const exportRows = useMemo(() => {
+    if (reservations.length === 0 && payments.length === 0) {
+      return exports;
+    }
+
+    return [
+      { title: 'Occupancy export', detail: liveOperations.occupancyDetail, state: 'Ready' },
+      { title: 'Arrival desk report', detail: liveOperations.nextArrival ? `${liveOperations.nextArrival.guest_name} arriving ${liveOperations.nextArrival.check_in_date}` : 'No queued arrivals', state: 'Ready' },
+      { title: 'Collections summary', detail: `${formatCurrency(liveOperations.recordedPayments)} collected against ${formatCurrency(liveOperations.billedRevenue)}`, state: liveOperations.outstandingRevenue > 0 ? 'Scheduled' : 'Ready' },
+    ];
+  }, [liveOperations, payments.length, reservations.length]);
+
+  useEffect(() => {
+    if (organizationId) {
+      void refreshOperationalData().catch(() => undefined);
+    }
+  }, [organizationId]);
+
+  async function refreshOperationalData() {
+    if (!organizationId) return;
+
+    const [reservationRows, folioRows, paymentRows] = await Promise.all([
+      listVendorPmsRecords('reservations', organizationId),
+      listVendorPmsRecords('folios', organizationId),
+      listVendorAccountingRecords('payments', organizationId),
+    ]);
+
+    setReservations(reservationRows);
+    setFolioEntries(folioRows);
+    setPayments(paymentRows);
+  }
 
   async function handleSnapshotSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -150,6 +290,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
         metric_value: '',
       });
       await records.refresh();
+      await refreshOperationalData();
       setFormMessage('Analytics snapshot created');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to create analytics snapshot');
@@ -254,10 +395,76 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <Metric label="Revenue" value="INR 18.4L" detail="+18%" />
-        <Metric label="Bookings" value="1,204" detail="+11%" />
-        <Metric label="Direct Savings" value="INR 3.2L" detail="Traveler value" />
-        <Metric label="Exports" value="12" detail="This month" />
+        <Metric label="Revenue" value={formatCurrency(liveOperations.billedRevenue || 1840000)} detail={reservations.length > 0 ? 'Reservation billed value' : '+18%'} />
+        <Metric label="Bookings" value={reservations.length > 0 ? String(reservations.length) : '1,204'} detail={reservations.length > 0 ? 'Live PMS reservations' : '+11%'} />
+        <Metric label="Direct Savings" value={formatCurrency(liveOperations.recordedPayments || 320000)} detail={payments.length > 0 ? 'Collections tracked' : 'Traveler value'} />
+        <Metric label="Exports" value={String(exportRows.length)} detail="Report presets" />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Live Operations Pulse</h3>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="text-xs font-bold uppercase tracking-widest text-emerald-700">Occupancy</div>
+              <div className="mt-3 text-3xl font-black text-slate-950">{liveOperations.occupancyRate}%</div>
+              <div className="mt-2 text-xs text-slate-500">{liveOperations.occupancyDetail}</div>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="text-xs font-bold uppercase tracking-widest text-emerald-700">Outstanding Revenue</div>
+              <div className="mt-3 text-3xl font-black text-slate-950">{formatCurrency(liveOperations.outstandingRevenue)}</div>
+              <div className="mt-2 text-xs text-slate-500">{liveOperations.openFoliosCount} open folio / {liveOperations.settledFoliosCount} settled</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Arrival & Collection Watch</h3>
+          </div>
+          <div className="space-y-3">
+            {liveOperations.nextArrival ? (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{liveOperations.nextArrival.guest_name}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">
+                      {liveOperations.nextArrival.check_in_date}
+                      {' -> '}
+                      {liveOperations.nextArrival.check_out_date}
+                    </div>
+                  </div>
+                  <StatePill state="Ready" />
+                </div>
+                <div className="mt-3 text-lg font-black text-slate-950">{formatCurrency(liveOperations.nextArrival.total_amount)}</div>
+                <div className="mt-2 text-xs text-slate-500">Upcoming arrival with payment status {titleCase(liveOperations.nextArrival.payment_status)}</div>
+              </div>
+            ) : null}
+            {payments.map((payment) => (
+              <div key={payment.id} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">
+                      {reservations.find((reservation) => reservation.id === payment.reservation_id)?.guest_name || payment.reservation_id || 'Unlinked reservation'}
+                    </div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-400">{titleCase(payment.payment_method)}</div>
+                  </div>
+                  <StatePill state={titleCase(payment.status)} />
+                </div>
+                <div className="mt-3 text-lg font-black text-slate-950">{formatCurrency(payment.amount)}</div>
+              </div>
+            ))}
+            {!liveOperations.nextArrival && payments.length === 0 ? (
+              <div className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 ring-1 ring-slate-100">
+                Arrival tracking and collection watch will populate after reservations and payments are created.
+              </div>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
@@ -301,7 +508,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Branch Comparison</h3>
           </div>
           <div className="grid gap-3 md:grid-cols-3">
-            {branches.map((branch) => (
+            {branchInsights.map((branch) => (
               <div key={branch.name} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div className="text-sm font-black text-slate-950">{branch.name}</div>
@@ -322,7 +529,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Category Performance</h3>
           </div>
           <div className="space-y-3">
-            {categories.map((category) => (
+            {categoryInsights.map((category) => (
               <div key={category.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -343,7 +550,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Operational KPIs</h3>
           </div>
           <div className="space-y-3">
-            {operationalKpis.map((kpi) => (
+            {operationalMetrics.map((kpi) => (
               <div key={kpi.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="text-sm font-black text-slate-950">{kpi.title}</div>
                 <div className="mt-3 text-2xl font-black text-slate-950">{kpi.value}</div>
@@ -359,7 +566,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Export Center</h3>
           </div>
           <div className="space-y-3">
-            {exports.map((report) => (
+            {exportRows.map((report) => (
               <div key={report.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>

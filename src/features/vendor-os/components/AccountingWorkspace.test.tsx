@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
-import { createVendorAccountingRecord, listVendorAccountingRecords } from '../api';
+import { createVendorAccountingRecord, listVendorAccountingRecords, listVendorPmsRecords, updateVendorPmsRecord } from '../api';
 import { AccountingWorkspace } from './AccountingWorkspace';
 
 const hookMocks = vi.hoisted(() => ({
@@ -101,6 +101,8 @@ vi.mock('../api', async () => {
     ...actual,
     listVendorAccountingRecords: vi.fn(),
     createVendorAccountingRecord: vi.fn(),
+    listVendorPmsRecords: vi.fn(),
+    updateVendorPmsRecord: vi.fn(),
   };
 });
 
@@ -111,7 +113,10 @@ describe('AccountingWorkspace', () => {
     hookMocks.records = [];
     vi.mocked(listVendorAccountingRecords).mockReset();
     vi.mocked(createVendorAccountingRecord).mockReset();
+    vi.mocked(listVendorPmsRecords).mockReset();
+    vi.mocked(updateVendorPmsRecord).mockReset();
     vi.mocked(listVendorAccountingRecords).mockResolvedValue([]);
+    vi.mocked(listVendorPmsRecords).mockResolvedValue([]);
   });
 
   it('renders invoices, expenses, payouts, tax, ledger, and export controls', () => {
@@ -198,11 +203,92 @@ describe('AccountingWorkspace', () => {
         created_at: '2026-07-02T10:00:00.000Z',
       } as never,
     ]);
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'folio-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          entry_type: 'room_charge',
+          title: 'Room charge',
+          amount: 5400,
+          quantity: 1,
+          payment_state: 'open',
+          notes: null,
+          posted_at: '2026-07-02T10:00:00.000Z',
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'folio-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          entry_type: 'room_charge',
+          title: 'Room charge',
+          amount: 5400,
+          quantity: 1,
+          payment_state: 'open',
+          notes: null,
+          posted_at: '2026-07-02T10:00:00.000Z',
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never);
     vi.mocked(createVendorAccountingRecord).mockResolvedValue({ id: 'payment-2' } as never);
 
     render(<AccountingWorkspace organizationId="org-1" branchId="branch-1" />);
 
-    await userEvent.type(screen.getByLabelText('Reservation reference *'), 'reservation-1');
+    expect(await screen.findByRole('option', { name: 'Aarav Mehta (2026-07-02)' })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Reservation reference *'), 'reservation-1');
+    await userEvent.selectOptions(screen.getByLabelText('Folio entry'), 'folio-1');
     await userEvent.type(screen.getByLabelText('Payment amount *'), '5400');
     await userEvent.selectOptions(screen.getByLabelText('Payment method *'), 'upi');
     await userEvent.click(screen.getByRole('button', { name: 'Record Payment' }));
@@ -213,9 +299,128 @@ describe('AccountingWorkspace', () => {
       'branch-1',
       expect.objectContaining({
         reservation_id: 'reservation-1',
+        folio_entry_id: 'folio-1',
         amount: 5400,
         payment_method: 'upi',
       }),
     );
+    expect(screen.getByText('Room charge')).toBeInTheDocument();
+  });
+
+  it('syncs folio and reservation payment state for recorded payments', async () => {
+    vi.mocked(listVendorAccountingRecords).mockResolvedValueOnce([]);
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 5400,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'folio-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          entry_type: 'room_charge',
+          title: 'Room charge',
+          amount: 5400,
+          quantity: 1,
+          payment_state: 'open',
+          notes: null,
+          posted_at: '2026-07-02T10:00:00.000Z',
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'payment-2',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          reservation_id: 'reservation-1',
+          folio_entry_id: 'folio-1',
+          manual_payment_intent_id: 'manual_2',
+          payment_method: 'cash',
+          amount: 5400,
+          status: 'recorded',
+          reference_number: null,
+          collected_at: '2026-07-02T11:00:00.000Z',
+          collected_by: 'Front Desk',
+          notes: null,
+          created_at: '2026-07-02T11:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'paid',
+          total_amount: 5400,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'folio-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          entry_type: 'room_charge',
+          title: 'Room charge',
+          amount: 5400,
+          quantity: 1,
+          payment_state: 'settled',
+          notes: null,
+          posted_at: '2026-07-02T10:00:00.000Z',
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never);
+    vi.mocked(createVendorAccountingRecord).mockResolvedValue({ id: 'payment-2' } as never);
+    vi.mocked(updateVendorPmsRecord).mockResolvedValue({ id: 'updated-1' } as never);
+
+    render(<AccountingWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByRole('option', { name: 'Aarav Mehta (2026-07-02)' })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Reservation reference *'), 'reservation-1');
+    await userEvent.selectOptions(screen.getByLabelText('Folio entry'), 'folio-1');
+    await userEvent.type(screen.getByLabelText('Payment amount *'), '5400');
+    await userEvent.selectOptions(screen.getByLabelText('Payment method *'), 'cash');
+    await userEvent.click(screen.getByRole('button', { name: 'Record Payment' }));
+
+    await waitFor(() => {
+      expect(updateVendorPmsRecord).toHaveBeenCalledWith('folios', 'org-1', 'folio-1', { payment_state: 'settled' });
+    });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('reservations', 'org-1', 'reservation-1', { payment_status: 'paid' });
   });
 });

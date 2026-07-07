@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { listAdminAccommodationAccess, saveAdminAccommodationAccess } from './controlPlane';
+import { listAdminAccommodationAccess, listAdminMarketplaceSyncs, saveAdminAccommodationAccess, updateAdminMarketplaceSync } from './controlPlane';
 
 function createMessagesQuery(rows: Array<Record<string, unknown>>) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {
@@ -151,5 +151,96 @@ describe('admin accommodation control plane', () => {
       capabilityOverrides: { 'guest.whatsapp_automation': true },
       resolvedCapabilities: expect.objectContaining({ 'guest.whatsapp_automation': true }),
     });
+  });
+
+  it('lists marketplace sync records for admin publishing review', async () => {
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'vendor_marketplace_syncs') {
+          return {
+            select: vi.fn(() => ({
+              order: vi.fn(async () => ({
+                data: [
+                  {
+                    id: 'sync-1',
+                    organization_id: 'org-1',
+                    sync_status: 'pending_approval',
+                    metadata: { listing_title: 'Private Villa Goa' },
+                  },
+                ],
+                error: null,
+              })),
+            })),
+          };
+        }
+
+        return {};
+      }),
+    };
+
+    await expect(listAdminMarketplaceSyncs(supabase as never)).resolves.toEqual([
+      expect.objectContaining({
+        id: 'sync-1',
+        sync_status: 'pending_approval',
+      }),
+    ]);
+  });
+
+  it('approves marketplace sync records using the requested publish state', async () => {
+    const update = vi.fn(() => ({
+      eq: vi.fn(async () => ({ error: null })),
+    }));
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'vendor_marketplace_syncs') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: {
+                    metadata: {
+                      requested_listing_state: 'live',
+                      requested_sync_status: 'synced',
+                      listing_state: 'pending_approval',
+                      approval_status: 'pending',
+                      channel_targets: ['tripetrip', 'booking_request'],
+                    },
+                  },
+                  error: null,
+                })),
+              })),
+            })),
+            update,
+          };
+        }
+
+        if (table === 'messages') {
+          return { insert };
+        }
+
+        return {};
+      }),
+    };
+
+    await updateAdminMarketplaceSync(supabase as never, viewer, {
+      syncId: 'sync-1',
+      approvalStatus: 'approved',
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sync_status: 'synced',
+        last_synced_at: expect.any(String),
+        metadata: expect.objectContaining({
+          listing_state: 'live',
+          approval_status: 'approved',
+          approved_by: 'Tripetrip Admin',
+          channel_distribution: {
+            tripetrip: { status: 'live', mode: 'direct' },
+            booking_request: { status: 'request_only', mode: 'request' },
+          },
+        }),
+      }),
+    );
   });
 });

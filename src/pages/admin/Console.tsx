@@ -17,6 +17,7 @@ import {
   listAdminCommunityPosts,
   listAdminDeals,
   listAdminListings,
+  listAdminMarketplaceSyncs,
   listAdminManualPayments,
   listAdminUsers,
   listAdminVendors,
@@ -26,6 +27,7 @@ import {
   saveAdminSystemConfig,
   updateAdminBooking,
   updateAdminListing,
+  updateAdminMarketplaceSync,
   updateAdminManualPayment,
   updateAdminUser,
   updateAdminVendor,
@@ -103,6 +105,14 @@ function formatAdminLabel(value: string) {
     .join(' ');
 }
 
+function formatChannelDistribution(metadata: Record<string, unknown>) {
+  const distribution =
+    metadata.channel_distribution && typeof metadata.channel_distribution === 'object'
+      ? (metadata.channel_distribution as Record<string, { status?: string }>)
+      : {};
+  return Object.entries(distribution).map(([channel, value]) => `${formatAdminLabel(channel)} ${formatAdminLabel(String(value?.status || 'draft'))}`);
+}
+
 function AdminSection({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -124,6 +134,7 @@ export default function AdminConsole() {
   const [users, setUsers] = useState<Array<Record<string, unknown>>>([]);
   const [vendors, setVendors] = useState<Array<Record<string, unknown>>>([]);
   const [listings, setListings] = useState<Array<Record<string, unknown>>>([]);
+  const [marketplaceSyncs, setMarketplaceSyncs] = useState<Array<Record<string, unknown>>>([]);
   const [bookings, setBookings] = useState<Array<Record<string, unknown>>>([]);
   const [payments, setPayments] = useState<Array<Record<string, unknown>>>([]);
   const [posts, setPosts] = useState<Array<Record<string, unknown>>>([]);
@@ -160,7 +171,10 @@ export default function AdminConsole() {
       if (path === '/admin') setOverview(await getAdminOverview());
       if (path === '/admin/users') setUsers((await listAdminUsers()).users);
       if (path === '/admin/vendors') setVendors((await listAdminVendors()).vendors);
-      if (path === '/admin/listings') setListings((await listAdminListings()).listings);
+      if (path === '/admin/listings') {
+        setListings((await listAdminListings()).listings);
+        setMarketplaceSyncs((await listAdminMarketplaceSyncs()).syncs);
+      }
       if (path === '/admin/bookings') setBookings((await listAdminBookings()).bookings);
       if (path === '/admin/payments') setPayments((await listAdminManualPayments()).payments);
       if (path === '/admin/community') setPosts((await listAdminCommunityPosts()).posts);
@@ -364,30 +378,123 @@ export default function AdminConsole() {
           )}
 
           {activePath === '/admin/listings' && (
-            <AdminSection title="Listing Moderation" subtitle="Visibility, pricing sanity, and marketplace quality control">
-              <div className="space-y-3">
-                {listings.map((listing) => (
-                  <div key={String(listing.id)} className="rounded-2xl border border-slate-200 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="font-black text-slate-950">{String(listing.title || '-')}</div>
-                        <div className="mt-1 text-sm text-slate-500">
-                          {String((listing.vendor_profiles as Record<string, unknown> | undefined)?.business_name || '')} · {String(listing.category || '')}
+            <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+              <AdminSection title="Listing Moderation" subtitle="Visibility, pricing sanity, and marketplace quality control">
+                <div className="space-y-3">
+                  {listings.map((listing) => (
+                    <div key={String(listing.id)} className="rounded-2xl border border-slate-200 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="font-black text-slate-950">{String(listing.title || '-')}</div>
+                          <div className="mt-1 text-sm text-slate-500">
+                            {String((listing.vendor_profiles as Record<string, unknown> | undefined)?.business_name || '')} · {String(listing.category || '')}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className={listing.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-700'}>
+                            {listing.is_active ? 'Live' : 'Hidden'}
+                          </Badge>
+                          <Button size="sm" variant="outline" onClick={() => updateAdminListing({ listingId: listing.id, isActive: !listing.is_active }).then(() => loadModule())}>
+                            {listing.is_active ? 'Hide' : 'Publish'}
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge className={listing.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-200 text-slate-700'}>
-                          {listing.is_active ? 'Live' : 'Hidden'}
-                        </Badge>
-                        <Button size="sm" variant="outline" onClick={() => updateAdminListing({ listingId: listing.id, isActive: !listing.is_active }).then(() => loadModule())}>
-                          {listing.is_active ? 'Hide' : 'Publish'}
-                        </Button>
-                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </AdminSection>
+                  ))}
+                </div>
+              </AdminSection>
+
+              <AdminSection title="Publishing Queue" subtitle="Approve or reject PMS-driven marketplace publishing requests">
+                <div className="space-y-3">
+                  {marketplaceSyncs.map((sync) => {
+                    const metadata = (sync.metadata as Record<string, unknown> | undefined) || {};
+                    const title = String(metadata.listing_title || 'Untitled listing');
+                    const roomType = String(metadata.room_type_name || 'Room inventory');
+                    const channelTargets = Array.isArray(metadata.channel_targets) ? metadata.channel_targets.map((value) => String(value)) : [];
+                    const channelDistribution = formatChannelDistribution(metadata);
+                    const approvalStatus = String(metadata.approval_status || 'open');
+                    const listingState = String(metadata.listing_state || sync.sync_status || 'draft');
+
+                    return (
+                      <div key={String(sync.id)} className="rounded-2xl border border-slate-200 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="font-black text-slate-950">{title}</div>
+                            <div className="mt-1 text-sm text-slate-500">{roomType}</div>
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400">
+                              <span>{String(sync.sync_status || 'pending')}</span>
+                              <span>{listingState}</span>
+                              {channelTargets.map((channel) => (
+                                <span key={channel}>{channel}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <Badge
+                            className={
+                              approvalStatus === 'approved'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : approvalStatus === 'rejected'
+                                  ? 'bg-rose-50 text-rose-700'
+                                  : 'bg-amber-50 text-amber-700'
+                            }
+                          >
+                            {approvalStatus}
+                          </Badge>
+                        </div>
+                        <div className="mt-3 text-sm text-slate-500">
+                          {String(metadata.available_inventory || 0)}/{String(metadata.total_inventory || 0)} available · INR {Number(metadata.nightly_rate || 0).toLocaleString('en-IN')}
+                        </div>
+                        {channelDistribution.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {channelDistribution.map((item) => (
+                              <span
+                                key={`${sync.id}-${item}`}
+                                className="rounded-full bg-slate-50 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500 ring-1 ring-slate-200"
+                              >
+                                {item}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <Button size="sm" onClick={() => updateAdminMarketplaceSync({ syncId: sync.id, approvalStatus: 'approved' }).then(() => loadModule())}>
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              updateAdminMarketplaceSync({
+                                syncId: sync.id,
+                                approvalStatus: 'rejected',
+                                approvalNote: 'Rejected by admin review',
+                              }).then(() => loadModule())
+                            }
+                          >
+                            Reject
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              updateAdminMarketplaceSync({
+                                syncId: sync.id,
+                                approvalStatus: 'approved',
+                                listingState: 'paused',
+                                syncStatus: 'paused',
+                                approvalNote: 'Approved but paused for launch control',
+                              }).then(() => loadModule())
+                            }
+                          >
+                            Pause
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </AdminSection>
+            </div>
           )}
 
           {activePath === '/admin/bookings' && (

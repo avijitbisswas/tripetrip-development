@@ -22,16 +22,23 @@
 - PMS workspace now supports live room type, room, reservation, housekeeping task, and folio entry creation against dedicated PMS resources.
 - PMS arrivals, housekeeping, folio panels, and operational metrics now derive from live PMS records instead of relying only on static demo arrays.
 - Payment operations slice now includes vendor payment record schema, Worker/API plumbing, and a live accounting settlement desk for reservation-linked payment capture.
+- Marketplace inventory sync now includes admin approval routing, channel targets, per-channel distribution state, and admin publishing queue controls for accommodation vendors.
+- OTA and channel foundations now include live channel connection records, sync activity logs, manual verification, and retryable push-sync workflows for accommodation vendors.
+- Guest arrival operations now include reservation-linked document uploads, readiness tracking, and manual identity verification flows inside the PMS workspace.
+- Team workspace now includes live shift planning, attendance state tracking, branch staffing coverage summaries, and staffing audit signals backed by vendor team member records.
+- Analytics workspace now derives live occupancy, arrivals, folio settlement, collection watch, and branch reporting signals from PMS reservations, folio entries, and payment records.
+- PMS booking controls now include room availability visibility, source-mix pulse, overlap prevention for assigned rooms, and occupancy-capacity checks before reservation creation.
+- PMS guest automation now includes real booking-confirmation and pre-arrival email payloads with reservation-aware messaging from the arrivals desk.
 
 ## In Progress
 
-- Inventory and marketplace sync slice: live PMS availability now powers marketplace publishing, sync refresh, and room-type inventory mapping for accommodation providers.
+- Accommodation operations expansion beyond arrival foundations: deeper booking engine features and deeper housekeeping automation.
 
 ## Next
 
 - Apply the latest PMS migration to the live Supabase project so `vendor_pms_reservations` and `vendor_folio_entries` exist in production before relying on the deployed PMS workspace.
 - Apply the payment operations migration so `vendor_payment_records` exists in production before deploying the new settlement desk.
-- Extend marketplace inventory sync into OTA/channel distribution and admin-controlled publishing approvals.
+- Extend the accommodation stack into deeper booking engine and guest engagement layers on top of the completed PMS, payments, marketplace, channel, arrival, staff-control, reporting, booking-control, and transactional-email foundations.
 
 ## Deferred
 

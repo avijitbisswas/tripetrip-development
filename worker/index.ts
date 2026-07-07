@@ -45,6 +45,7 @@ import {
   listAdminCommunityPosts,
   listAdminDeals,
   listAdminListings,
+  listAdminMarketplaceSyncs,
   listAdminUsers,
   listAdminVendors,
   logAdminAction,
@@ -53,6 +54,7 @@ import {
   saveAdminAccommodationAccess,
   updateAdminBooking,
   updateAdminListing,
+  updateAdminMarketplaceSync,
   updateAdminUser,
   updateAdminVendor,
 } from "../src/features/admin/controlPlane";
@@ -1247,6 +1249,25 @@ async function handleAdminListings(request: Request, env: WorkerEnv) {
   return json({ success: true });
 }
 
+async function handleAdminMarketplaceSyncs(request: Request, env: WorkerEnv) {
+  const auth = await getAuthenticatedAdmin(request, env);
+  if ("error" in auth) return auth.error;
+
+  if (request.method === "GET") {
+    return json({ syncs: await listAdminMarketplaceSyncs(auth.supabase) });
+  }
+
+  const body = await readJsonBody(request);
+  await updateAdminMarketplaceSync(auth.supabase, auth.profile, {
+    syncId: String(body.syncId || ""),
+    syncStatus: typeof body.syncStatus === "string" ? body.syncStatus : undefined,
+    listingState: typeof body.listingState === "string" ? body.listingState : undefined,
+    approvalStatus: typeof body.approvalStatus === "string" ? body.approvalStatus : undefined,
+    approvalNote: typeof body.approvalNote === "string" ? body.approvalNote : undefined,
+  });
+  return json({ success: true });
+}
+
 async function handleAdminBookings(request: Request, env: WorkerEnv) {
   const auth = await getAuthenticatedAdmin(request, env);
   if ("error" in auth) return auth.error;
@@ -1435,11 +1456,15 @@ async function handleVendorOSRecords(request: Request, env: WorkerEnv) {
   }
 
   if (request.method === "POST") {
-    const insertPayload = {
+    const basePayload = {
       organization_id: organizationId,
       ...(operation.branchScoped === false ? {} : { branch_id: body.branchId || null }),
       ...(payload as Record<string, unknown>),
     };
+    const insertPayload =
+      operation.module === "marketplace"
+        ? applyMarketplaceApprovalPolicy(basePayload, access?.resolvedApprovals.marketplace_publishing)
+        : basePayload;
     const vendorTable = auth.supabase.from(operation.table) as unknown as {
       insert: (row: Record<string, unknown>) => {
         select: () => {
@@ -1483,6 +1508,36 @@ async function handleVendorOSRecords(request: Request, env: WorkerEnv) {
   }
 
   if (request.method === "PATCH") {
+    let nextInput: Record<string, unknown> = input as Record<string, unknown>;
+    if (operation.module === "marketplace") {
+      const currentRowQuery = auth.supabase.from(operation.table) as unknown as {
+        select: (columns: string) => {
+          eq: (column: string, value: string) => {
+            eq: (column: string, value: string) => {
+              single: () => Promise<{ data: Record<string, unknown> | null; error?: { message?: string } | null }>;
+            };
+          };
+        };
+      };
+      const { data: currentRow } = await currentRowQuery.select("metadata").eq("id", recordId).eq("organization_id", organizationId).single();
+      const currentMetadata =
+        currentRow?.metadata && typeof currentRow.metadata === "object"
+          ? (currentRow.metadata as Record<string, unknown>)
+          : {};
+      const incomingMetadata =
+        input && typeof input.metadata === "object" ? (input.metadata as Record<string, unknown>) : {};
+
+      nextInput = applyMarketplaceApprovalPolicy(
+        {
+          ...(input as Record<string, unknown>),
+          metadata: {
+            ...currentMetadata,
+            ...incomingMetadata,
+          },
+        },
+        access?.resolvedApprovals.marketplace_publishing,
+      );
+    }
     const vendorTable = auth.supabase.from(operation.table) as unknown as {
       update: (row: Record<string, unknown>) => {
         eq: (column: string, value: string) => {
@@ -1498,7 +1553,7 @@ async function handleVendorOSRecords(request: Request, env: WorkerEnv) {
       insert: (row: Record<string, unknown>) => Promise<{ data?: unknown; error?: { message?: string } | null }>;
     };
     const { data, error } = await vendorTable
-      .update(input)
+      .update(nextInput)
       .eq("id", recordId)
       .eq("organization_id", organizationId)
       .select()
@@ -1518,7 +1573,7 @@ async function handleVendorOSRecords(request: Request, env: WorkerEnv) {
       entity_id: data.id,
       severity: "info",
       metadata: {
-        changed_fields: Object.keys(input as Record<string, unknown>),
+        changed_fields: Object.keys(nextInput as Record<string, unknown>),
         table: operation.table,
         title_field: operation.titleField,
       },
@@ -1810,6 +1865,48 @@ async function handleVendorAccountingRecords(request: Request, env: WorkerEnv) {
   return json({ error: "Method not allowed" }, { status: 405 });
 }
 
+function applyMarketplaceApprovalPolicy(
+  payload: Record<string, unknown>,
+  approvalMode: string | undefined,
+) {
+  const metadata =
+    payload.metadata && typeof payload.metadata === "object"
+      ? { ...(payload.metadata as Record<string, unknown>) }
+      : {};
+  const recordType = String(metadata.record_type || payload.record_type || "listing_sync");
+
+  if (recordType !== "listing_sync") {
+    return {
+      ...payload,
+      metadata,
+    };
+  }
+
+  if (approvalMode !== "admin_approval_required") {
+    return {
+      ...payload,
+      metadata: {
+        ...metadata,
+        approval_status: metadata.approval_status || "open",
+      },
+    };
+  }
+
+  return {
+    ...payload,
+    sync_status: "pending_approval",
+    metadata: {
+      ...metadata,
+      listing_state: "pending_approval",
+      requested_listing_state: metadata.requested_listing_state || metadata.listing_state || "live",
+      requested_sync_status: metadata.requested_sync_status || payload.sync_status || "synced",
+      approval_status: "pending",
+      approved_at: null,
+      approved_by: null,
+    },
+  };
+}
+
 async function handlePublicSiteConfig(env: WorkerEnv) {
   const { supabase } = createRepositories(env);
   if (!supabase) {
@@ -1890,6 +1987,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleAdminVendors(request, env);
   if ((request.method === "GET" || request.method === "PATCH") && pathname === "/api/admin/listings")
     return handleAdminListings(request, env);
+  if ((request.method === "GET" || request.method === "PATCH") && pathname === "/api/admin/marketplace-syncs")
+    return handleAdminMarketplaceSyncs(request, env);
   if ((request.method === "GET" || request.method === "PATCH") && pathname === "/api/admin/bookings")
     return handleAdminBookings(request, env);
   if ((request.method === "GET" || request.method === "DELETE") && pathname === "/api/admin/community/posts")

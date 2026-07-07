@@ -68,6 +68,17 @@ export function updateAdminListing(input: Record<string, unknown>) {
   });
 }
 
+export function listAdminMarketplaceSyncs() {
+  return adminFetch<{ syncs: Array<Record<string, unknown>> }>('/api/admin/marketplace-syncs');
+}
+
+export function updateAdminMarketplaceSync(input: Record<string, unknown>) {
+  return adminFetch<{ success: true }>('/api/admin/marketplace-syncs', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 export function listAdminBookings() {
   return adminFetch<{ bookings: Array<Record<string, unknown>> }>('/api/admin/bookings');
 }
