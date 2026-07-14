@@ -292,6 +292,14 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     roomId: reservation.room_id || '',
     propertyId: reservation.property_id,
     source: reservation.source || 'manual',
+    groupName:
+      reservation.metadata && typeof reservation.metadata === 'object'
+        ? String((reservation.metadata as Record<string, unknown>).group_name || '')
+        : '',
+    groupSize:
+      reservation.metadata && typeof reservation.metadata === 'object'
+        ? Number((reservation.metadata as Record<string, unknown>).group_size || 0)
+        : 0,
   }));
 
   const activeReservations = useMemo(
@@ -591,6 +599,46 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       await refreshPmsData();
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to update reservation lifecycle');
+    }
+  }
+
+  async function handleReservationCancellation(reservation: {
+    id: string;
+    roomId: string;
+    guest: string;
+    checkInDate: string;
+    checkOutDate: string;
+  }) {
+    if (!organizationId) return;
+
+    setWorkspaceMessage(null);
+
+    try {
+      await updateVendorPmsRecord('reservations', organizationId, reservation.id, { status: 'cancelled' });
+
+      if (reservation.roomId) {
+        const room = roomMap.get(reservation.roomId);
+        const overlappingReservations = activeReservations.filter(
+          (entry) =>
+            entry.id !== reservation.id &&
+            entry.room_id === reservation.roomId &&
+            datesOverlap(entry.check_in_date, entry.check_out_date, reservation.checkInDate, reservation.checkOutDate),
+        );
+
+        if (room && overlappingReservations.length === 0) {
+          await updateVendorPmsRecord('rooms', organizationId, reservation.roomId, {
+            status: 'available',
+            housekeeping_status: room.housekeeping_status || 'clean',
+          });
+        }
+      }
+
+      setReservations((current) =>
+        current.map((entry) => (entry.id === reservation.id ? { ...entry, status: 'cancelled' } : entry)),
+      );
+      setWorkspaceMessage(`Cancelled reservation for ${reservation.guest}`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to cancel reservation');
     }
   }
 
@@ -1204,6 +1252,16 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                   <StatePill state={move.type} />
                 </div>
                 <div className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-400">{move.room} / {move.time}</div>
+                {move.source === 'group' || move.groupName ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700 ring-1 ring-emerald-100">
+                      Group Booking
+                    </span>
+                    <span className="text-xs font-semibold text-slate-500">
+                      {move.groupName || 'Group arrival'} {move.groupSize > 0 ? `• ${move.groupSize} guests` : ''}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="mt-2 text-sm text-slate-500">{move.guestEmail} · {move.guestPhone}</div>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   <div className="text-sm text-slate-500">{move.docs} · {formatCurrency(move.amount)}</div>
@@ -1251,6 +1309,24 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                     }
                   >
                     Check Out
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                    disabled={move.type === 'cancelled' || move.type === 'checked_out' || move.type === 'no_show'}
+                    onClick={() =>
+                      void handleReservationCancellation({
+                        id: move.id,
+                        roomId: move.roomId,
+                        guest: move.guest,
+                        checkInDate: move.checkInDate,
+                        checkOutDate: move.checkOutDate,
+                      })
+                    }
+                  >
+                    Cancel Reservation
                   </Button>
                 </div>
                 <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">

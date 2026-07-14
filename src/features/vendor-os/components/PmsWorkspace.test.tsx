@@ -1084,6 +1084,142 @@ describe('PmsWorkspace', () => {
     expect(screen.getByText('Room 101 already has an overlapping active reservation for the selected dates.')).toBeInTheDocument();
   });
 
+  it('surfaces group-booking context for arrivals', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-201',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '201',
+          floor: '2',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-2',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-201',
+          guest_name: 'Corporate Retreat Lead',
+          guest_email: 'lead@example.com',
+          guest_phone: '9999999998',
+          check_in_date: '2026-07-09',
+          check_out_date: '2026-07-11',
+          adults: 4,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 28000,
+          source: 'group',
+          notes: null,
+          metadata: {
+            group_name: 'Monsoon Offsite',
+            group_size: 4,
+          },
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect((await screen.findAllByText('Group Booking')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Monsoon Offsite • 4 guests')).toBeInTheDocument();
+  });
+
+  it('cancels a reservation and releases the room when no other stays overlap', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-12',
+          check_out_date: '2026-07-14',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(updateVendorPmsRecord).mockResolvedValue({ id: 'reservation-1' } as never);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect((await screen.findAllByText('Aarav Mehta')).length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel Reservation' }));
+
+    await waitFor(() => {
+      expect(updateVendorPmsRecord).toHaveBeenCalledWith('reservations', 'org-1', 'reservation-1', {
+        status: 'cancelled',
+      });
+    });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('rooms', 'org-1', 'room-101', {
+      status: 'available',
+      housekeeping_status: 'clean',
+    });
+    expect(screen.getByText('Cancelled reservation for Aarav Mehta')).toBeInTheDocument();
+  });
+
   it('builds booking confirmations and pre-arrival reminders from reservation data', () => {
     const confirmation = buildGuestAutomationEmail(
       {
