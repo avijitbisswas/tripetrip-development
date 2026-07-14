@@ -37,6 +37,12 @@ type PreCheckInEdit = {
   arrival_mode: string;
   special_requests: string;
 };
+type ReservationEditDraft = {
+  check_in_date: string;
+  check_out_date: string;
+  total_amount: string;
+  notes: string;
+};
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-IN', {
@@ -181,6 +187,8 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     Record<string, { assigned_to: string; due_time: string }>
   >({});
   const [preCheckInEdits, setPreCheckInEdits] = useState<Record<string, PreCheckInEdit>>({});
+  const [reservationEditDrafts, setReservationEditDrafts] = useState<Record<string, ReservationEditDraft>>({});
+  const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
 
   const [propertyForm, setPropertyForm] = useState({ name: '', property_type: 'hotel', address: '' });
@@ -518,6 +526,17 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     );
   }
 
+  function getReservationEditDraft(reservation: (typeof arrivalRows)[number]) {
+    return (
+      reservationEditDrafts[reservation.id] || {
+        check_in_date: reservation.checkInDate,
+        check_out_date: reservation.checkOutDate,
+        total_amount: String(reservation.amount || 0),
+        notes: reservation.notes,
+      }
+    );
+  }
+
   async function handlePropertySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setWorkspaceMessage(null);
@@ -639,6 +658,63 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       setWorkspaceMessage(`Cancelled reservation for ${reservation.guest}`);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to cancel reservation');
+    }
+  }
+
+  async function handleReservationEditSave(reservation: (typeof arrivalRows)[number]) {
+    if (!organizationId) return;
+
+    const edit = getReservationEditDraft(reservation);
+    const checkInTime = new Date(edit.check_in_date).getTime();
+    const checkOutTime = new Date(edit.check_out_date).getTime();
+
+    if (Number.isNaN(checkInTime) || Number.isNaN(checkOutTime) || checkOutTime <= checkInTime) {
+      setWorkspaceMessage(`Use valid stay dates before updating ${reservation.guest}.`);
+      return;
+    }
+
+    if (reservation.roomId) {
+      const room = roomMap.get(reservation.roomId);
+      const overlappingReservation = activeReservations.find(
+        (entry) =>
+          entry.id !== reservation.id &&
+          entry.room_id === reservation.roomId &&
+          datesOverlap(entry.check_in_date, entry.check_out_date, edit.check_in_date, edit.check_out_date),
+      );
+
+      if (room && overlappingReservation) {
+        setWorkspaceMessage(`Room ${room.room_number} already has an overlapping active reservation for the selected dates.`);
+        return;
+      }
+    }
+
+    setWorkspaceMessage(null);
+
+    try {
+      await updateVendorPmsRecord('reservations', organizationId, reservation.id, {
+        check_in_date: edit.check_in_date,
+        check_out_date: edit.check_out_date,
+        total_amount: Number(edit.total_amount || 0),
+        notes: edit.notes || null,
+      });
+
+      setReservations((current) =>
+        current.map((entry) =>
+          entry.id === reservation.id
+            ? {
+                ...entry,
+                check_in_date: edit.check_in_date,
+                check_out_date: edit.check_out_date,
+                total_amount: Number(edit.total_amount || 0),
+                notes: edit.notes || null,
+              }
+            : entry,
+        ),
+      );
+      setEditingReservationId(null);
+      setWorkspaceMessage(`Updated reservation for ${reservation.guest}`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to update reservation');
     }
   }
 
@@ -1274,6 +1350,22 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                   <Button
                     type="button"
                     size="sm"
+                    variant="outline"
+                    className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                    disabled={move.type === 'cancelled' || move.type === 'checked_out' || move.type === 'no_show'}
+                    onClick={() => {
+                      setEditingReservationId((current) => (current === move.id ? null : move.id));
+                      setReservationEditDrafts((current) => ({
+                        ...current,
+                        [move.id]: current[move.id] || getReservationEditDraft(move),
+                      }));
+                    }}
+                  >
+                    Edit Reservation
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
                     className="rounded-xl bg-slate-950 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800"
                     disabled={move.type === 'checked_in' || move.type === 'checked_out' || move.type === 'cancelled' || move.type === 'no_show' || !move.roomId}
                     onClick={() =>
@@ -1329,6 +1421,90 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                     Cancel Reservation
                   </Button>
                 </div>
+                {editingReservationId === move.id ? (
+                  <div className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white p-3 md:grid-cols-2">
+                    <input
+                      aria-label={`Edit check-in for ${move.guest}`}
+                      className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                      type="date"
+                      value={getReservationEditDraft(move).check_in_date}
+                      onChange={(event) =>
+                        setReservationEditDrafts((current) => ({
+                          ...current,
+                          [move.id]: {
+                            ...getReservationEditDraft(move),
+                            check_in_date: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <input
+                      aria-label={`Edit check-out for ${move.guest}`}
+                      className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                      type="date"
+                      value={getReservationEditDraft(move).check_out_date}
+                      onChange={(event) =>
+                        setReservationEditDrafts((current) => ({
+                          ...current,
+                          [move.id]: {
+                            ...getReservationEditDraft(move),
+                            check_out_date: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <input
+                      aria-label={`Edit amount for ${move.guest}`}
+                      className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                      min="0"
+                      type="number"
+                      value={getReservationEditDraft(move).total_amount}
+                      onChange={(event) =>
+                        setReservationEditDrafts((current) => ({
+                          ...current,
+                          [move.id]: {
+                            ...getReservationEditDraft(move),
+                            total_amount: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <input
+                      aria-label={`Edit notes for ${move.guest}`}
+                      className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                      placeholder="Reservation notes"
+                      value={getReservationEditDraft(move).notes}
+                      onChange={(event) =>
+                        setReservationEditDrafts((current) => ({
+                          ...current,
+                          [move.id]: {
+                            ...getReservationEditDraft(move),
+                            notes: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <div className="md:col-span-2 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="rounded-xl bg-emerald-600 text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-700"
+                        onClick={() => void handleReservationEditSave(move)}
+                      >
+                        Save Reservation
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                        onClick={() => setEditingReservationId(null)}
+                      >
+                        Close Edit
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>

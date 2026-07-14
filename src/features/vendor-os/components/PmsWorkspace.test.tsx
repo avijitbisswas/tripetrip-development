@@ -1220,6 +1220,183 @@ describe('PmsWorkspace', () => {
     expect(screen.getByText('Cancelled reservation for Aarav Mehta')).toBeInTheDocument();
   });
 
+  it('updates reservation stay details from the arrivals desk', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-12',
+          check_out_date: '2026-07-14',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: 'Late arrival',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(updateVendorPmsRecord).mockResolvedValue({ id: 'reservation-1' } as never);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect((await screen.findAllByText('Aarav Mehta')).length).toBeGreaterThan(0);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Edit Reservation' })[0]);
+    await userEvent.clear(screen.getByLabelText('Edit check-in for Aarav Mehta'));
+    await userEvent.type(screen.getByLabelText('Edit check-in for Aarav Mehta'), '2026-07-13');
+    await userEvent.clear(screen.getByLabelText('Edit check-out for Aarav Mehta'));
+    await userEvent.type(screen.getByLabelText('Edit check-out for Aarav Mehta'), '2026-07-15');
+    await userEvent.clear(screen.getByLabelText('Edit amount for Aarav Mehta'));
+    await userEvent.type(screen.getByLabelText('Edit amount for Aarav Mehta'), '14500');
+    await userEvent.click(screen.getByRole('button', { name: 'Save Reservation' }));
+
+    await waitFor(() => {
+      expect(updateVendorPmsRecord).toHaveBeenCalledWith(
+        'reservations',
+        'org-1',
+        'reservation-1',
+        expect.objectContaining({
+          check_in_date: '2026-07-13',
+          check_out_date: '2026-07-15',
+          total_amount: 14500,
+        }),
+      );
+    });
+    expect(screen.getByText('Updated reservation for Aarav Mehta')).toBeInTheDocument();
+  });
+
+  it('blocks reservation edits that create an overlap on the same room', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-12',
+          check_out_date: '2026-07-14',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+        {
+          id: 'reservation-2',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Existing Guest',
+          guest_email: 'existing@example.com',
+          guest_phone: '9999999999',
+          check_in_date: '2026-07-15',
+          check_out_date: '2026-07-17',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 10000,
+          source: 'manual',
+          notes: null,
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect((await screen.findAllByText('Aarav Mehta')).length).toBeGreaterThan(0);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Edit Reservation' })[0]);
+    await userEvent.clear(screen.getByLabelText('Edit check-out for Aarav Mehta'));
+    await userEvent.type(screen.getByLabelText('Edit check-out for Aarav Mehta'), '2026-07-16');
+    await userEvent.click(screen.getByRole('button', { name: 'Save Reservation' }));
+
+    expect(updateVendorPmsRecord).not.toHaveBeenCalledWith(
+      'reservations',
+      'org-1',
+      'reservation-1',
+      expect.objectContaining({
+        check_out_date: '2026-07-16',
+      }),
+    );
+    expect(screen.getByText('Room 101 already has an overlapping active reservation for the selected dates.')).toBeInTheDocument();
+  });
+
   it('builds booking confirmations and pre-arrival reminders from reservation data', () => {
     const confirmation = buildGuestAutomationEmail(
       {
