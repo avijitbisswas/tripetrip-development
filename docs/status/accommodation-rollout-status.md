@@ -23,6 +23,7 @@
 - PMS arrivals, housekeeping, folio panels, and operational metrics now derive from live PMS records instead of relying only on static demo arrays.
 - Payment operations slice now includes vendor payment record schema, Worker/API plumbing, and a live accounting settlement desk for reservation-linked payment capture.
 - Payment operations now include finance-side approval and rejection controls for pending manual payments, with folio and reservation balance sync when approvals close or reopen billing.
+- Payment operations now include GST invoice capture, refund processing with folio/reservation resync, and a live night-audit desk for end-of-day finance review.
 - Marketplace inventory sync now includes admin approval routing, channel targets, per-channel distribution state, and admin publishing queue controls for accommodation vendors.
 - OTA and channel foundations now include live channel connection records, sync activity logs, manual verification, and retryable push-sync workflows for accommodation vendors.
 - Guest arrival operations now include reservation-linked document uploads, readiness tracking, and manual identity verification flows inside the PMS workspace.
@@ -39,7 +40,7 @@
 
 ## In Progress
 
-- Accommodation operations expansion beyond arrival foundations: deeper booking depth and payment-wall-ready controls beyond the latest guest-engagement, group-arrival, reservation-change, rate-plan, and front-desk finance flows.
+- Accommodation operations expansion beyond arrival foundations: deeper booking depth and payment-wall-ready controls beyond the latest guest-engagement, group-arrival, reservation-change, rate-plan, and finance-close workflows.
 
 ## Next
 

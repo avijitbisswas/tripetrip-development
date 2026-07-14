@@ -68,6 +68,7 @@ const financeSignals: Array<{ title: string; detail: string; icon: LucideIcon }>
 ];
 
 const invoiceStatusOptions = ['due', 'sent', 'paid', 'overdue'];
+const invoiceKindOptions = ['gst', 'proforma', 'credit_note'];
 
 function formatCurrency(value: unknown) {
   const amount = typeof value === 'number' ? value : Number(value || 0);
@@ -94,6 +95,22 @@ function deriveReservationPaymentStatus(outstanding: number, billedAmount: numbe
   if (outstanding <= 0) return 'paid';
   if (outstanding < billedAmount) return 'partial';
   return 'pending';
+}
+
+function getRefundAmount(payment: VendorPaymentRecord) {
+  return Math.max(Number((payment as VendorPaymentRecord & { refund_amount?: unknown }).refund_amount || 0), 0);
+}
+
+function getNetCapturedAmount(payment: VendorPaymentRecord) {
+  const gross = Number(payment.amount || 0);
+  if (payment.status === 'failed' || payment.status === 'reversed') return 0;
+  return Math.max(gross - getRefundAmount(payment), 0);
+}
+
+function deriveFolioPaymentState(netCapturedAmount: number, targetAmount: number) {
+  if (netCapturedAmount <= 0) return 'open';
+  if (netCapturedAmount >= targetAmount) return 'settled';
+  return 'partial';
 }
 
 function calculateBilledAmount(reservation: VendorPmsReservationRecord | undefined, linkedFolios: VendorFolioEntryRecord[]) {
@@ -141,6 +158,9 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
     booking_reference: '',
     amount: '',
     status: 'due',
+    invoice_kind: 'gst',
+    customer_gstin: '',
+    supply_state: '',
   });
   const [formMessage, setFormMessage] = useState<string | null>(null);
   const [paymentForm, setPaymentForm] = useState({
@@ -149,6 +169,7 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
     amount: '',
     payment_method: 'upi',
   });
+  const [refundDrafts, setRefundDrafts] = useState<Record<string, { amount: string; reason: string; open: boolean }>>({});
   const [payments, setPayments] = useState<VendorPaymentRecord[]>([]);
   const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
   const [folioEntries, setFolioEntries] = useState<VendorFolioEntryRecord[]>([]);
@@ -162,13 +183,17 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
           booking: String(record.booking_reference || record.booking || record.customer_name || 'Unlinked booking'),
           amount: formatCurrency(record.amount),
           state: titleCase(String(record.status || 'due')),
+          invoiceKind: titleCase(String(record.invoice_kind || 'invoice')),
+          gstin: String(record.customer_gstin || ''),
+          supplyState: String(record.supply_state || ''),
         })),
     [records.records],
   );
   const paymentTotals = useMemo(() => {
     const pending = payments.filter((payment) => payment.status === 'pending_approval').reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    const recorded = payments.filter((payment) => payment.status === 'recorded').reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    return { pending, recorded };
+    const recorded = payments.reduce((sum, payment) => sum + getNetCapturedAmount(payment), 0);
+    const refunds = payments.reduce((sum, payment) => sum + getRefundAmount(payment), 0);
+    return { pending, recorded, refunds };
   }, [payments]);
 
   const reservationMap = useMemo(() => new Map(reservations.map((reservation) => [reservation.id, reservation])), [reservations]);
@@ -180,8 +205,8 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
         const linkedFolios = folioEntries.filter((folio) => folio.reservation_id === reservation.id);
         const linkedPayments = payments.filter((payment) => payment.reservation_id === reservation.id && payment.status !== 'failed' && payment.status !== 'reversed');
         const recordedPayments = linkedPayments
-          .filter((payment) => payment.status === 'recorded' || payment.status === 'pending_approval')
-          .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+          .filter((payment) => payment.status === 'recorded' || payment.status === 'pending_approval' || payment.status === 'partially_refunded' || payment.status === 'refunded')
+          .reduce((sum, payment) => sum + getNetCapturedAmount(payment), 0);
         const billedAmount = calculateBilledAmount(reservation, linkedFolios);
         const outstanding = Math.max(billedAmount - recordedPayments, 0);
 
@@ -205,9 +230,30 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
         ...payment,
         reservationLabel: reservationMap.get(payment.reservation_id || '')?.guest_name || payment.reservation_id || 'Unlinked reservation',
         folioLabel: payment.folio_entry_id ? folioMap.get(payment.folio_entry_id)?.title || payment.folio_entry_id : null,
+        refundAmount: getRefundAmount(payment),
+        netAmount: getNetCapturedAmount(payment),
       })),
     [folioMap, payments, reservationMap],
   );
+
+  const nightAuditSummary = useMemo(() => {
+    const checkedOutPending = reservations.filter(
+      (reservation) => reservation.status === 'checked_out' && reservation.payment_status !== 'paid',
+    ).length;
+    const openFolios = folioEntries.filter((folio) => folio.payment_state !== 'settled' && folio.payment_state !== 'void').length;
+    const pendingApprovals = payments.filter((payment) => payment.status === 'pending_approval').length;
+    const refundValue = payments.reduce((sum, payment) => sum + getRefundAmount(payment), 0);
+    const outstanding = reservationBalances.reduce((sum, reservation) => sum + reservation.outstanding, 0);
+
+    return {
+      checkedOutPending,
+      openFolios,
+      pendingApprovals,
+      refundValue,
+      outstanding,
+      closeable: checkedOutPending === 0 && openFolios === 0 && pendingApprovals === 0,
+    };
+  }, [folioEntries, payments, reservationBalances, reservations]);
 
   useEffect(() => {
     if (organizationId) {
@@ -240,12 +286,18 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
         booking_reference: invoiceForm.booking_reference,
         amount: Number(invoiceForm.amount),
         status: invoiceForm.status,
+        invoice_kind: invoiceForm.invoice_kind,
+        customer_gstin: invoiceForm.customer_gstin || null,
+        supply_state: invoiceForm.supply_state || null,
       });
       setInvoiceForm({
         invoice_number: '',
         booking_reference: '',
         amount: '',
         status: 'due',
+        invoice_kind: 'gst',
+        customer_gstin: '',
+        supply_state: '',
       });
       await records.refresh();
       setFormMessage('Invoice created');
@@ -278,9 +330,9 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
           .filter(
             (payment) =>
               payment.reservation_id === paymentForm.reservation_id &&
-              (payment.status === 'recorded' || payment.status === 'pending_approval'),
+              (payment.status === 'recorded' || payment.status === 'pending_approval' || payment.status === 'partially_refunded' || payment.status === 'refunded'),
           )
-          .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+          .reduce((sum, payment) => sum + getNetCapturedAmount(payment), 0);
         const linkedFolio = paymentForm.folio_entry_id ? folioEntries.find((folio) => folio.id === paymentForm.folio_entry_id) : null;
         const reservationBilledAmount = calculateBilledAmount(reservation, linkedFolios);
         const nextRecordedTotal = existingRecordedPayments + paymentAmount;
@@ -289,7 +341,7 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
         if (linkedFolio) {
           const folioTarget = Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1);
           await updateVendorPmsRecord('folios', organizationId, linkedFolio.id, {
-            payment_state: paymentAmount >= folioTarget ? 'settled' : 'partial',
+            payment_state: deriveFolioPaymentState(paymentAmount, folioTarget),
           });
         }
 
@@ -327,21 +379,21 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
       const linkedFolios = folioEntries.filter((folio) => folio.reservation_id === payment.reservation_id);
       const linkedFolio = payment.folio_entry_id ? folioEntries.find((folio) => folio.id === payment.folio_entry_id) : null;
       const approvedTotal = payments
-        .filter((entry) => entry.id !== payment.id && entry.reservation_id === payment.reservation_id && entry.status === 'recorded')
-        .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-      const nextRecordedTotal = decision === 'approve' ? approvedTotal + Number(payment.amount || 0) : approvedTotal;
+        .filter(
+          (entry) =>
+            entry.id !== payment.id &&
+            entry.reservation_id === payment.reservation_id &&
+            ['recorded', 'partially_refunded', 'refunded'].includes(entry.status),
+        )
+        .reduce((sum, entry) => sum + getNetCapturedAmount(entry), 0);
+      const nextRecordedTotal = decision === 'approve' ? approvedTotal + getNetCapturedAmount(payment) : approvedTotal;
       const reservationBilledAmount = calculateBilledAmount(reservation, linkedFolios);
       const nextOutstanding = Math.max(reservationBilledAmount - nextRecordedTotal, 0);
 
       if (linkedFolio) {
         const folioTarget = Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1);
         await updateVendorPmsRecord('folios', organizationId, linkedFolio.id, {
-          payment_state:
-            decision === 'approve'
-              ? nextRecordedTotal >= folioTarget
-                ? 'settled'
-                : 'partial'
-              : 'open',
+          payment_state: decision === 'approve' ? deriveFolioPaymentState(nextRecordedTotal, folioTarget) : 'open',
         });
       }
 
@@ -381,9 +433,7 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
                   ...entry,
                   payment_state:
                     decision === 'approve'
-                      ? nextRecordedTotal >= Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1)
-                        ? 'settled'
-                        : 'partial'
+                      ? deriveFolioPaymentState(nextRecordedTotal, Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1))
                       : 'open',
                 }
               : entry,
@@ -394,6 +444,105 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
       setFormMessage(`${decision === 'approve' ? 'Payment approved' : 'Payment rejected'} for ${reservation?.guest_name || 'reservation'}`);
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to review payment');
+    }
+  }
+
+  async function handleRefund(payment: VendorPaymentRecord) {
+    if (!organizationId) return;
+
+    const draft = refundDrafts[payment.id];
+    const refundAmount = Math.max(Number(draft?.amount || 0), 0);
+    if (!refundAmount) {
+      setFormMessage('Enter a refund amount before processing a refund.');
+      return;
+    }
+
+    const currentRefundedAmount = getRefundAmount(payment);
+    const netCapturedAmount = getNetCapturedAmount(payment);
+    if (refundAmount > netCapturedAmount) {
+      setFormMessage('Refund amount cannot exceed the remaining captured amount.');
+      return;
+    }
+
+    setFormMessage(null);
+
+    try {
+      const nextRefundAmount = currentRefundedAmount + refundAmount;
+      const nextStatus = nextRefundAmount >= Number(payment.amount || 0) ? 'refunded' : 'partially_refunded';
+
+      await mutations.updateRecord(payment.id, {
+        status: nextStatus,
+        refund_amount: nextRefundAmount,
+        refund_reason: draft?.reason || null,
+        refunded_at: new Date().toISOString(),
+      });
+
+      const reservation = reservations.find((entry) => entry.id === payment.reservation_id);
+      const linkedFolios = folioEntries.filter((folio) => folio.reservation_id === payment.reservation_id);
+      const linkedFolio = payment.folio_entry_id ? folioEntries.find((folio) => folio.id === payment.folio_entry_id) : null;
+      const recordedTotal = payments
+        .filter(
+          (entry) =>
+            entry.id !== payment.id &&
+            entry.reservation_id === payment.reservation_id &&
+            ['recorded', 'pending_approval', 'partially_refunded', 'refunded'].includes(entry.status),
+        )
+        .reduce((sum, entry) => sum + getNetCapturedAmount(entry), 0);
+      const nextCapturedTotal = recordedTotal + Math.max(Number(payment.amount || 0) - nextRefundAmount, 0);
+      const reservationBilledAmount = calculateBilledAmount(reservation, linkedFolios);
+      const nextOutstanding = Math.max(reservationBilledAmount - nextCapturedTotal, 0);
+
+      if (linkedFolio) {
+        const folioTarget = Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1);
+        await updateVendorPmsRecord('folios', organizationId, linkedFolio.id, {
+          payment_state: deriveFolioPaymentState(nextCapturedTotal, folioTarget),
+        });
+      }
+
+      if (reservation) {
+        await updateVendorPmsRecord('reservations', organizationId, reservation.id, {
+          payment_status: nextCapturedTotal <= 0 ? 'refunded' : deriveReservationPaymentStatus(nextOutstanding, reservationBilledAmount),
+        });
+      }
+
+      setPayments((current) =>
+        current.map((entry) =>
+          entry.id === payment.id
+            ? ({
+                ...entry,
+                status: nextStatus,
+                refund_amount: nextRefundAmount,
+                refund_reason: draft?.reason || null,
+              } as VendorPaymentRecord)
+            : entry,
+        ),
+      );
+      setReservations((current) =>
+        current.map((entry) =>
+          entry.id === payment.reservation_id
+            ? {
+                ...entry,
+                payment_status: nextCapturedTotal <= 0 ? 'refunded' : deriveReservationPaymentStatus(nextOutstanding, reservationBilledAmount),
+              }
+            : entry,
+        ),
+      );
+      if (linkedFolio) {
+        setFolioEntries((current) =>
+          current.map((entry) =>
+            entry.id === linkedFolio.id
+              ? {
+                  ...entry,
+                  payment_state: deriveFolioPaymentState(nextCapturedTotal, Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1)),
+                }
+              : entry,
+          ),
+        );
+      }
+      setRefundDrafts((current) => ({ ...current, [payment.id]: { amount: '', reason: '', open: false } }));
+      setFormMessage(`Refund processed for ${reservation?.guest_name || 'reservation'}`);
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to process refund');
     }
   }
 
@@ -435,7 +584,7 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
             Live Finance API
           </span>
         </div>
-        <form className="grid gap-3 md:grid-cols-[0.75fr_1fr_0.55fr_0.55fr_auto]" onSubmit={handleInvoiceSubmit}>
+        <form className="grid gap-3 md:grid-cols-3" onSubmit={handleInvoiceSubmit}>
           <label className="space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Invoice number *</span>
             <input
@@ -482,8 +631,44 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
               ))}
             </select>
           </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Invoice type *</span>
+            <select
+              aria-label="Invoice type *"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              required
+              value={invoiceForm.invoice_kind}
+              onChange={(inputEvent) => setInvoiceForm((current) => ({ ...current, invoice_kind: inputEvent.target.value }))}
+            >
+              {invoiceKindOptions.map((invoiceKind) => (
+                <option key={invoiceKind} value={invoiceKind}>
+                  {titleCase(invoiceKind)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Customer GSTIN</span>
+            <input
+              aria-label="Customer GSTIN"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="27ABCDE1234F1Z5"
+              value={invoiceForm.customer_gstin}
+              onChange={(inputEvent) => setInvoiceForm((current) => ({ ...current, customer_gstin: inputEvent.target.value.toUpperCase() }))}
+            />
+          </label>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Supply state</span>
+            <input
+              aria-label="Supply state"
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              placeholder="Goa"
+              value={invoiceForm.supply_state}
+              onChange={(inputEvent) => setInvoiceForm((current) => ({ ...current, supply_state: inputEvent.target.value }))}
+            />
+          </label>
           <Button
-            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60"
+            className="mt-auto h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-60 md:col-span-3 md:justify-self-end"
             disabled={mutations.submitting || !organizationId}
             type="submit"
           >
@@ -496,10 +681,83 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <Metric label="Receivables" value="INR 4.2L" detail="12 invoices" />
+        <Metric
+          label="Receivables"
+          value={formatCurrency(reservationBalances.reduce((sum, reservation) => sum + reservation.outstanding, 0))}
+          detail={`${reservationBalances.length} live balances`}
+        />
         <Metric label="Expenses" value="INR 82K" detail="This month" />
         <Metric label="Payouts" value={formatCurrency(paymentTotals.pending)} detail="Pending approval" />
-        <Metric label="Ledger Health" value="98%" detail="Reconciled" />
+        <Metric label="Ledger Health" value={nightAuditSummary.closeable ? 'Ready' : 'Action'} detail="Night audit" />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <Calculator className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Night Audit Desk</h3>
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Outstanding</div>
+              <div className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(nightAuditSummary.outstanding)}</div>
+              <div className="mt-1 text-xs text-slate-500">Open guest balances</div>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">Checked-out pending</div>
+              <div className="mt-2 text-2xl font-black text-slate-950">{nightAuditSummary.checkedOutPending}</div>
+              <div className="mt-1 text-xs text-slate-500">Departed stays still open</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Open folios</div>
+              <div className="mt-2 text-2xl font-black text-slate-950">{nightAuditSummary.openFolios}</div>
+              <div className="mt-1 text-xs text-slate-500">Need settlement follow-up</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Refunds today</div>
+              <div className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(paymentTotals.refunds)}</div>
+              <div className="mt-1 text-xs text-slate-500">{nightAuditSummary.pendingApprovals} approvals pending</div>
+            </div>
+          </div>
+          <div className="mt-4 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Night audit state</div>
+            <div className="mt-2 text-sm font-black text-slate-950">
+              {nightAuditSummary.closeable ? 'Ready to close day' : 'Night audit requires review'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              Close only after balances, folios, approvals, and refunds are reconciled.
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">GST Invoice Queue</h3>
+          </div>
+          <div className="space-y-3">
+            {liveInvoices.map((invoice) => (
+              <div key={`${invoice.id}-gst`} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-black text-slate-950">{invoice.number}</div>
+                    <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{invoice.invoiceKind}</div>
+                  </div>
+                  <StatePill state={invoice.state} />
+                </div>
+                <div className="mt-3 text-sm font-semibold text-slate-700">{invoice.booking}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {invoice.gstin ? `GSTIN ${invoice.gstin}` : 'GSTIN pending'}{invoice.supplyState ? ` / ${invoice.supplyState}` : ''}
+                </div>
+              </div>
+            ))}
+            {liveInvoices.length === 0 ? (
+              <div className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 ring-1 ring-slate-100">
+                GST-ready invoices will populate here after finance entries are created.
+              </div>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
@@ -614,6 +872,11 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
                 <div className="text-sm font-black text-slate-950">{payment.reservationLabel}</div>
                 <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">{payment.payment_method}</div>
                 {payment.folioLabel ? <div className="mt-1 text-xs text-slate-500">{payment.folioLabel}</div> : null}
+                {payment.refundAmount > 0 ? (
+                  <div className="mt-1 text-xs text-rose-600">
+                    Refunded {formatCurrency(payment.refundAmount)} / Net {formatCurrency(payment.netAmount)}
+                  </div>
+                ) : null}
               </div>
               <div className="text-sm font-black text-slate-950">{formatCurrency(payment.amount)}</div>
               <div className="flex items-center justify-end gap-2">
@@ -638,7 +901,69 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
                     </Button>
                   </>
                 ) : null}
+                {(payment.status === 'recorded' || payment.status === 'partially_refunded') && payment.netAmount > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                    onClick={() =>
+                      setRefundDrafts((current) => ({
+                        ...current,
+                        [payment.id]: current[payment.id]
+                          ? { ...current[payment.id], open: !current[payment.id].open }
+                          : { amount: String(payment.netAmount), reason: '', open: true },
+                      }))
+                    }
+                  >
+                    Refund Payment
+                  </Button>
+                ) : null}
               </div>
+              {refundDrafts[payment.id]?.open ? (
+                <div className="md:col-span-3 grid gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-100 md:grid-cols-[0.6fr_1fr_auto]">
+                  <input
+                    aria-label={`Refund amount for ${payment.reservationLabel}`}
+                    className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                    min="1"
+                    max={payment.netAmount}
+                    type="number"
+                    value={refundDrafts[payment.id]?.amount || ''}
+                    onChange={(inputEvent) =>
+                      setRefundDrafts((current) => ({
+                        ...current,
+                        [payment.id]: {
+                          amount: inputEvent.target.value,
+                          reason: current[payment.id]?.reason || '',
+                          open: true,
+                        },
+                      }))
+                    }
+                  />
+                  <input
+                    aria-label={`Refund reason for ${payment.reservationLabel}`}
+                    className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                    placeholder="Refund reason"
+                    value={refundDrafts[payment.id]?.reason || ''}
+                    onChange={(inputEvent) =>
+                      setRefundDrafts((current) => ({
+                        ...current,
+                        [payment.id]: {
+                          amount: current[payment.id]?.amount || '',
+                          reason: inputEvent.target.value,
+                          open: true,
+                        },
+                      }))
+                    }
+                  />
+                  <Button
+                    type="button"
+                    className="h-11 rounded-xl bg-rose-600 px-4 text-xs font-bold uppercase tracking-widest hover:bg-rose-700"
+                    onClick={() => void handleRefund(payment)}
+                  >
+                    Process Refund
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

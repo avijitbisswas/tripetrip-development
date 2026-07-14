@@ -144,6 +144,9 @@ describe('AccountingWorkspace', () => {
     await userEvent.type(screen.getByLabelText('Booking or customer *'), 'Goa Beach Escape');
     await userEvent.type(screen.getByLabelText('Amount *'), '29999');
     await userEvent.selectOptions(screen.getByLabelText('Status *'), 'due');
+    await userEvent.selectOptions(screen.getByLabelText('Invoice type *'), 'gst');
+    await userEvent.type(screen.getByLabelText('Customer GSTIN'), '27ABCDE1234F1Z5');
+    await userEvent.type(screen.getByLabelText('Supply state'), 'Goa');
     await userEvent.click(screen.getByRole('button', { name: 'Create Invoice' }));
 
     expect(hookMocks.createRecord).toHaveBeenCalledWith({
@@ -152,6 +155,9 @@ describe('AccountingWorkspace', () => {
       booking_reference: 'Goa Beach Escape',
       amount: 29999,
       status: 'due',
+      invoice_kind: 'gst',
+      customer_gstin: '27ABCDE1234F1Z5',
+      supply_state: 'Goa',
     });
     expect(hookMocks.refresh).toHaveBeenCalled();
   });
@@ -166,14 +172,104 @@ describe('AccountingWorkspace', () => {
         booking_reference: 'Corporate Retreat',
         amount: 30500,
         status: 'due',
+        invoice_kind: 'gst',
+        customer_gstin: '27ABCDE1234F1Z5',
+        supply_state: 'Goa',
       },
     ];
 
     render(<AccountingWorkspace organizationId="org-1" branchId="branch-1" />);
 
-    expect(screen.getByText('INV-3001')).toBeInTheDocument();
-    expect(screen.getByText('Corporate Retreat')).toBeInTheDocument();
-    expect(screen.getByText('INR 30,500')).toBeInTheDocument();
+    expect(screen.getAllByText('INV-3001').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Corporate Retreat').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('INR 30,500').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Gst').length).toBeGreaterThan(0);
+    expect(screen.getByText('GSTIN 27ABCDE1234F1Z5 / Goa')).toBeInTheDocument();
+  });
+
+  it('derives a live night-audit summary from reservations, folios, and refunds', async () => {
+    vi.mocked(listVendorAccountingRecords).mockResolvedValueOnce([
+      {
+        id: 'payment-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        reservation_id: 'reservation-1',
+        folio_entry_id: 'folio-1',
+        manual_payment_intent_id: 'manual_1',
+        payment_method: 'card',
+        amount: 5400,
+        status: 'partially_refunded',
+        refund_amount: 1400,
+        reference_number: 'CARD-1',
+        collected_at: '2026-07-02T10:00:00.000Z',
+        collected_by: 'Front Desk',
+        notes: null,
+        created_at: '2026-07-02T10:00:00.000Z',
+      } as never,
+      {
+        id: 'payment-2',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        reservation_id: 'reservation-2',
+        folio_entry_id: null,
+        manual_payment_intent_id: 'manual_2',
+        payment_method: 'upi',
+        amount: 2200,
+        status: 'pending_approval',
+        reference_number: 'UPI-1',
+        collected_at: '2026-07-02T10:30:00.000Z',
+        collected_by: 'Front Desk',
+        notes: null,
+        created_at: '2026-07-02T10:30:00.000Z',
+      } as never,
+    ]);
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'checked_out',
+          payment_status: 'partial',
+          total_amount: 5400,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'folio-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          entry_type: 'room_charge',
+          title: 'Room charge',
+          amount: 5400,
+          quantity: 1,
+          payment_state: 'partial',
+          notes: null,
+          posted_at: '2026-07-02T10:00:00.000Z',
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never);
+
+    render(<AccountingWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText('Night Audit Desk')).toBeInTheDocument();
+    expect(screen.getAllByText('INR 1,400').length).toBeGreaterThan(0);
+    expect(screen.getByText('1 approvals pending')).toBeInTheDocument();
+    expect(screen.getByText('Night audit requires review')).toBeInTheDocument();
   });
 
   it('shows accommodation finance guidance for approvals and billing features', () => {
@@ -505,5 +601,91 @@ describe('AccountingWorkspace', () => {
     expect(updateVendorPmsRecord).toHaveBeenCalledWith('folios', 'org-1', 'folio-1', { payment_state: 'settled' });
     expect(updateVendorPmsRecord).toHaveBeenCalledWith('reservations', 'org-1', 'reservation-1', { payment_status: 'paid' });
     expect(screen.getByText('Payment approved for Aarav Mehta')).toBeInTheDocument();
+  });
+
+  it('processes refunds and reopens linked folio and reservation balances', async () => {
+    vi.mocked(listVendorAccountingRecords).mockResolvedValueOnce([
+      {
+        id: 'payment-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        reservation_id: 'reservation-1',
+        folio_entry_id: 'folio-1',
+        manual_payment_intent_id: 'manual_1',
+        payment_method: 'card',
+        amount: 5400,
+        status: 'recorded',
+        reference_number: 'CARD-1',
+        collected_at: '2026-07-02T10:00:00.000Z',
+        collected_by: 'Front Desk',
+        notes: null,
+        created_at: '2026-07-02T10:00:00.000Z',
+      } as never,
+    ]);
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'paid',
+          total_amount: 5400,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'folio-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          entry_type: 'room_charge',
+          title: 'Room charge',
+          amount: 5400,
+          quantity: 1,
+          payment_state: 'settled',
+          notes: null,
+          posted_at: '2026-07-02T10:00:00.000Z',
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never);
+    vi.mocked(updateVendorPmsRecord).mockResolvedValue({ id: 'updated-1' } as never);
+    hookMocks.updateRecord.mockResolvedValue({ id: 'payment-1' });
+
+    render(<AccountingWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByRole('button', { name: 'Refund Payment' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Refund Payment' }));
+    await userEvent.clear(screen.getByLabelText('Refund amount for Aarav Mehta'));
+    await userEvent.type(screen.getByLabelText('Refund amount for Aarav Mehta'), '1400');
+    await userEvent.type(screen.getByLabelText('Refund reason for Aarav Mehta'), 'Guest complaint');
+    await userEvent.click(screen.getByRole('button', { name: 'Process Refund' }));
+
+    await waitFor(() => {
+      expect(hookMocks.updateRecord).toHaveBeenCalledWith(
+        'payment-1',
+        expect.objectContaining({
+          status: 'partially_refunded',
+          refund_amount: 1400,
+          refund_reason: 'Guest complaint',
+        }),
+      );
+    });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('folios', 'org-1', 'folio-1', { payment_state: 'partial' });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('reservations', 'org-1', 'reservation-1', { payment_status: 'partial' });
+    expect(screen.getByText('Refund processed for Aarav Mehta')).toBeInTheDocument();
   });
 });
