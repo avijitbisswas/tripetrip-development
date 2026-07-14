@@ -26,6 +26,7 @@
 - Marketplace inventory sync now includes admin approval routing, channel targets, per-channel distribution state, and admin publishing queue controls for accommodation vendors.
 - OTA and channel foundations now include live channel connection records, sync activity logs, manual verification, and retryable push-sync workflows for accommodation vendors.
 - Guest arrival operations now include reservation-linked document uploads, readiness tracking, and manual identity verification flows inside the PMS workspace.
+- Guest arrival operations now include a live pre-check-in desk for ETA capture, arrival mode, and special-request intake stored against PMS reservations before front desk arrival.
 - Team workspace now includes live shift planning, attendance state tracking, branch staffing coverage summaries, and staffing audit signals backed by vendor team member records.
 - Analytics workspace now derives live occupancy, arrivals, folio settlement, collection watch, and branch reporting signals from PMS reservations, folio entries, and payment records.
 - PMS booking controls now include room availability visibility, source-mix pulse, overlap prevention for assigned rooms, and occupancy-capacity checks before reservation creation.
@@ -35,7 +36,7 @@
 
 ## In Progress
 
-- Accommodation operations expansion beyond arrival foundations: deeper guest engagement and payment-wall-ready controls beyond live front-desk and finance flows.
+- Accommodation operations expansion beyond arrival foundations: deeper guest engagement, booking depth, and payment-wall-ready controls beyond live front-desk and finance flows.
 
 ## Next
 

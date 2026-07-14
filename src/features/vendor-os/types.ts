@@ -217,6 +217,7 @@ export interface VendorPmsReservationRecord {
   total_amount: number;
   source: string;
   notes: string | null;
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 

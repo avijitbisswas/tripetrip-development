@@ -32,6 +32,11 @@ const folioEntryTypes = ['room_charge', 'tax', 'addon', 'discount', 'payment'];
 const paymentStatusOptions = ['pending', 'partial', 'paid', 'refunded'];
 const reservationSourceOptions = ['manual', 'direct', 'ota', 'group'];
 type GuestAutomationAction = 'confirmation' | 'reminder';
+type PreCheckInEdit = {
+  eta: string;
+  arrival_mode: string;
+  special_requests: string;
+};
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-IN', {
@@ -175,6 +180,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   const [housekeepingDispatchEdits, setHousekeepingDispatchEdits] = useState<
     Record<string, { assigned_to: string; due_time: string }>
   >({});
+  const [preCheckInEdits, setPreCheckInEdits] = useState<Record<string, PreCheckInEdit>>({});
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
 
   const [propertyForm, setPropertyForm] = useState({ name: '', property_type: 'hotel', address: '' });
@@ -449,6 +455,10 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   const guestArrivalReadiness = useMemo(
     () =>
       reservations.map((reservation) => {
+        const reservationMetadata =
+          reservation.metadata && typeof reservation.metadata === 'object'
+            ? (reservation.metadata as Record<string, unknown>)
+            : {};
         const linkedDocuments = guestDocuments.filter(
           (document) => document.entity_type === 'vendor_pms_reservation' && document.entity_id === reservation.id,
         );
@@ -458,9 +468,18 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
         const latestVerificationStatus = String(
           (latestDocument?.metadata?.verification_status as string | undefined) || (latestDocument ? 'submitted' : 'missing'),
         );
+        const preCheckInStatus = String(reservationMetadata.pre_check_in_status || 'pending');
+        const eta = String(reservationMetadata.eta || '');
+        const arrivalMode = String(reservationMetadata.arrival_mode || '');
+        const specialRequests = String(reservationMetadata.special_requests || '');
         const contactReady = Boolean(reservation.guest_email && reservation.guest_phone);
         const identityReady = latestVerificationStatus === 'verified';
-        const readinessState = identityReady && contactReady ? 'Ready' : latestVerificationStatus === 'submitted' ? 'Submitted' : 'Pending';
+        const readinessState =
+          identityReady && contactReady
+            ? 'Ready'
+            : preCheckInStatus === 'submitted' || latestVerificationStatus === 'submitted'
+              ? 'Submitted'
+              : 'Pending';
 
         return {
           reservationId: reservation.id,
@@ -470,12 +489,26 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
           readinessState,
           contactReady,
           identityReady,
+          preCheckInStatus,
+          eta,
+          arrivalMode,
+          specialRequests,
           latestDocument,
           documentLabel: latestDocument?.name || 'No ID uploaded',
         };
       }),
     [guestDocuments, reservations, roomMap],
   );
+
+  function getPreCheckInEdit(guest: (typeof guestArrivalReadiness)[number]) {
+    return (
+      preCheckInEdits[guest.reservationId] || {
+        eta: guest.eta,
+        arrival_mode: guest.arrivalMode,
+        special_requests: guest.specialRequests,
+      }
+    );
+  }
 
   async function handlePropertySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -701,6 +734,53 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       setWorkspaceMessage(`Verified guest ID for ${guestName}`);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to verify guest document');
+    }
+  }
+
+  async function handlePreCheckInSave(guest: (typeof guestArrivalReadiness)[number]) {
+    if (!organizationId) return;
+
+    const reservation = reservations.find((entry) => entry.id === guest.reservationId);
+    if (!reservation) return;
+
+    const edit = getPreCheckInEdit(guest);
+    const reservationMetadata =
+      reservation.metadata && typeof reservation.metadata === 'object'
+        ? (reservation.metadata as Record<string, unknown>)
+        : {};
+
+    setWorkspaceMessage(null);
+
+    try {
+      await updateVendorPmsRecord('reservations', organizationId, guest.reservationId, {
+        metadata: {
+          ...reservationMetadata,
+          pre_check_in_status: 'submitted',
+          eta: edit.eta,
+          arrival_mode: edit.arrival_mode,
+          special_requests: edit.special_requests,
+        },
+      });
+
+      setReservations((current) =>
+        current.map((entry) =>
+          entry.id === guest.reservationId
+            ? {
+                ...entry,
+                metadata: {
+                  ...(entry.metadata || {}),
+                  pre_check_in_status: 'submitted',
+                  eta: edit.eta,
+                  arrival_mode: edit.arrival_mode,
+                  special_requests: edit.special_requests,
+                },
+              }
+            : entry,
+        ),
+      );
+      setWorkspaceMessage(`Pre-check-in saved for ${guest.guestName}`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to save pre-check-in');
     }
   }
 
@@ -1350,6 +1430,105 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2"><CalendarCheck className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Pre-Check-In Desk</h3></div>
+          <p className="mb-4 text-xs font-semibold text-slate-400">Arrival details captured before front desk check-in</p>
+          <div className="space-y-3">
+            {guestArrivalReadiness.map((guest) => {
+              const preCheckInEdit = getPreCheckInEdit(guest);
+
+              return (
+                <div key={`${guest.reservationId}-precheckin`} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black text-slate-950">{guest.guestName}</div>
+                      <div className="mt-1 text-xs font-bold uppercase tracking-widest text-slate-400">{guest.room} / {guest.stay}</div>
+                    </div>
+                    <StatePill state={guest.preCheckInStatus === 'submitted' ? 'Submitted' : 'Pending'} />
+                  </div>
+                  <div className="mt-3 text-xs font-bold uppercase tracking-widest text-slate-500">
+                    {guest.eta || guest.arrivalMode
+                      ? `ETA ${guest.eta || 'pending'} • ${guest.arrivalMode || 'arrival'} arrival`
+                      : 'Arrival details pending'}
+                  </div>
+                  {guest.specialRequests ? <div className="mt-2 text-sm text-slate-600">{guest.specialRequests}</div> : null}
+                  <div className="mt-3 grid gap-3">
+                    <label className="space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">ETA</span>
+                      <input
+                        aria-label={`ETA for ${guest.guestName}`}
+                        className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                        type="time"
+                        value={preCheckInEdit.eta}
+                        onChange={(event) =>
+                          setPreCheckInEdits((current) => ({
+                            ...current,
+                            [guest.reservationId]: {
+                              ...preCheckInEdit,
+                              eta: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Arrival mode</span>
+                      <select
+                        aria-label={`Arrival mode for ${guest.guestName}`}
+                        className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                        value={preCheckInEdit.arrival_mode}
+                        onChange={(event) =>
+                          setPreCheckInEdits((current) => ({
+                            ...current,
+                            [guest.reservationId]: {
+                              ...preCheckInEdit,
+                              arrival_mode: event.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">Select mode</option>
+                        <option value="self">self</option>
+                        <option value="chauffeur">chauffeur</option>
+                        <option value="airport_transfer">airport_transfer</option>
+                        <option value="group_arrival">group_arrival</option>
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Special requests</span>
+                      <input
+                        aria-label={`Special requests for ${guest.guestName}`}
+                        className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-800"
+                        value={preCheckInEdit.special_requests}
+                        onChange={(event) =>
+                          setPreCheckInEdits((current) => ({
+                            ...current,
+                            [guest.reservationId]: {
+                              ...preCheckInEdit,
+                              special_requests: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </label>
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="rounded-xl bg-slate-950 text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800"
+                        disabled={!organizationId}
+                        onClick={() => void handlePreCheckInSave(guest)}
+                      >
+                        Save Pre-Check-In
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2"><FileBadge className="h-4 w-4 text-emerald-600" /><h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Guest Arrival Readiness</h3></div>
           <p className="mb-4 text-xs font-semibold text-slate-400">Guest Documents</p>
