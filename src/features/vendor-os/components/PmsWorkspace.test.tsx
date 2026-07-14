@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildGuestAutomationEmail, PmsWorkspace } from './PmsWorkspace';
+import { buildGuestAutomationEmail, buildReservationRatePlan, PmsWorkspace } from './PmsWorkspace';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
 import { createVendorPmsRecord, listVendorPmsRecords, listVendorTeamMembers, updateVendorPmsRecord } from '../api';
 
@@ -356,6 +356,105 @@ describe('PmsWorkspace', () => {
     expect(screen.getByText('Locked on basic')).toBeInTheDocument();
     expect(screen.getByText('GST folios')).toBeInTheDocument();
     expect(screen.getByText('Upgrade to unlock')).toBeInTheDocument();
+  });
+
+  it('builds source-aware reservation rate plans from stay dates and room pricing', () => {
+    const preview = buildReservationRatePlan({
+      checkInDate: '2026-07-03',
+      checkOutDate: '2026-07-05',
+      baseRate: 8999,
+      source: 'direct',
+    });
+
+    expect(preview).toEqual(
+      expect.objectContaining({
+        ratePlanCode: 'DIRECT-WKND',
+        weekendNights: 2,
+        weekdayNights: 0,
+        sourceAdjustmentRate: -0.05,
+        totalAmount: 19663,
+      }),
+    );
+  });
+
+  it('creates reservations with suggested rate-plan pricing metadata when amount is not entered manually', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([
+        {
+          id: 'room-type-1',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          name: 'Deluxe Sea View',
+          occupancy: 2,
+          base_rate: 8999,
+          amenities: [],
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: 'room-type-1',
+          room_number: '101',
+          floor: '1',
+          status: 'available',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    vi.mocked(createVendorPmsRecord).mockResolvedValue({ id: 'reservation-1' } as never);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    await screen.findByText('Booking Rate Desk');
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Reservation source' }), 'direct');
+    await userEvent.type(screen.getByLabelText('Guest name *'), 'Aarav Mehta');
+    await userEvent.type(screen.getByLabelText('Guest email'), 'aarav@example.com');
+    await userEvent.type(screen.getByLabelText('Guest phone'), '9876543210');
+    await userEvent.type(screen.getByLabelText('Check-in date *'), '2026-07-03');
+    await userEvent.type(screen.getByLabelText('Check-out date *'), '2026-07-05');
+    await userEvent.clear(screen.getByLabelText('Adults *'));
+    await userEvent.type(screen.getByLabelText('Adults *'), '2');
+
+    expect(await screen.findByText('Apply Suggested Rate')).toBeInTheDocument();
+    expect(screen.getByText('DIRECT-WKND')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create Reservation' }));
+
+    await waitFor(() => {
+      expect(createVendorPmsRecord).toHaveBeenCalledWith(
+        'reservations',
+        'org-1',
+        'branch-1',
+        expect.objectContaining({
+          total_amount: 19663,
+          source: 'direct',
+          metadata: expect.objectContaining({
+            rate_plan_code: 'DIRECT-WKND',
+            rate_plan_name: 'Direct booking incentive / Weekend mix',
+            quoted_total_amount: 19663,
+          }),
+        }),
+      );
+    });
   });
 
   it('runs check-in and check-out lifecycle actions with room and housekeeping updates', async () => {

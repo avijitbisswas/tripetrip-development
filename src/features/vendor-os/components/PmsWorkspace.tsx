@@ -43,6 +43,17 @@ type ReservationEditDraft = {
   total_amount: string;
   notes: string;
 };
+type ReservationRatePlanPreview = {
+  ratePlanCode: string;
+  ratePlanName: string;
+  nights: number;
+  baseNightlyRate: number;
+  weekendNights: number;
+  weekdayNights: number;
+  sourceAdjustmentRate: number;
+  sourceAdjustmentLabel: string;
+  totalAmount: number;
+};
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('en-IN', {
@@ -116,6 +127,86 @@ function buildDueAtValue(baseDate: string | null, timeValue: string) {
   if (!timeValue) return null;
   const datePart = baseDate || new Date().toISOString().slice(0, 10);
   return new Date(`${datePart}T${timeValue}:00`).toISOString();
+}
+
+function getStayNightCount(checkInDate: string, checkOutDate: string) {
+  const checkIn = new Date(checkInDate);
+  const checkOut = new Date(checkOutDate);
+  const diff = checkOut.getTime() - checkIn.getTime();
+
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime()) || diff <= 0) {
+    return 0;
+  }
+
+  return Math.round(diff / (1000 * 60 * 60 * 24));
+}
+
+function getWeekendNightCount(checkInDate: string, nights: number) {
+  if (nights <= 0) return 0;
+
+  let weekendNights = 0;
+  for (let index = 0; index < nights; index += 1) {
+    const stayDate = new Date(checkInDate);
+    stayDate.setDate(stayDate.getDate() + index);
+    const day = stayDate.getDay();
+    if (day === 5 || day === 6) {
+      weekendNights += 1;
+    }
+  }
+
+  return weekendNights;
+}
+
+export function buildReservationRatePlan(input: {
+  checkInDate: string;
+  checkOutDate: string;
+  baseRate: number;
+  source: string;
+}) {
+  const nights = getStayNightCount(input.checkInDate, input.checkOutDate);
+  if (nights <= 0 || input.baseRate <= 0) return null;
+
+  const weekendNights = getWeekendNightCount(input.checkInDate, nights);
+  const weekdayNights = Math.max(nights - weekendNights, 0);
+  const weekendRate = input.baseRate * 1.15;
+  const baseTotal = weekdayNights * input.baseRate + weekendNights * weekendRate;
+  const sourceAdjustmentRate =
+    input.source === 'direct' ? -0.05 : input.source === 'ota' ? 0.12 : input.source === 'group' ? -0.08 : 0;
+  const sourceAdjustmentLabel =
+    input.source === 'direct'
+      ? 'Direct booking incentive'
+      : input.source === 'ota'
+        ? 'OTA commission recovery'
+        : input.source === 'group'
+          ? 'Group stay pricing'
+          : 'Standard rate';
+  const totalAmount = Math.round(baseTotal * (1 + sourceAdjustmentRate));
+  const ratePlanCode =
+    input.source === 'direct'
+      ? weekendNights > 0
+        ? 'DIRECT-WKND'
+        : 'DIRECT-STD'
+      : input.source === 'ota'
+        ? weekendNights > 0
+          ? 'OTA-WKND'
+          : 'OTA-STD'
+        : input.source === 'group'
+          ? 'GROUP-STAY'
+          : weekendNights > 0
+            ? 'FLEX-WKND'
+            : 'FLEX-STD';
+
+  return {
+    ratePlanCode,
+    ratePlanName: `${sourceAdjustmentLabel}${weekendNights > 0 ? ' / Weekend mix' : ''}`,
+    nights,
+    baseNightlyRate: input.baseRate,
+    weekendNights,
+    weekdayNights,
+    sourceAdjustmentRate,
+    sourceAdjustmentLabel,
+    totalAmount,
+  } satisfies ReservationRatePlanPreview;
 }
 
 export function buildGuestAutomationEmail(
@@ -226,6 +317,34 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
 
   const roomTypeMap = useMemo(() => new Map(roomTypes.map((roomType) => [roomType.id, roomType])), [roomTypes]);
   const roomMap = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
+  const selectedReservationRoom = useMemo(
+    () => rooms.find((room) => room.id === reservationForm.room_id) || null,
+    [reservationForm.room_id, rooms],
+  );
+  const selectedReservationRoomType = useMemo(
+    () =>
+      selectedReservationRoom
+        ? roomTypeMap.get(selectedReservationRoom.room_type_id || '') || null
+        : roomTypes.find((roomType) => roomType.property_id === reservationForm.property_id) || null,
+    [reservationForm.property_id, roomTypeMap, roomTypes, selectedReservationRoom],
+  );
+  const reservationRatePlanPreview = useMemo(
+    () =>
+      selectedReservationRoomType
+        ? buildReservationRatePlan({
+            checkInDate: reservationForm.check_in_date,
+            checkOutDate: reservationForm.check_out_date,
+            baseRate: Number(selectedReservationRoomType.base_rate || 0),
+            source: reservationForm.source,
+          })
+        : null,
+    [
+      reservationForm.check_in_date,
+      reservationForm.check_out_date,
+      reservationForm.source,
+      selectedReservationRoomType,
+    ],
+  );
   const propertyOptions = liveProperties.map((property) => ({ value: property.id, label: property.name }));
 
   async function refreshPmsData() {
@@ -308,6 +427,14 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       reservation.metadata && typeof reservation.metadata === 'object'
         ? Number((reservation.metadata as Record<string, unknown>).group_size || 0)
         : 0,
+    ratePlanName:
+      reservation.metadata && typeof reservation.metadata === 'object'
+        ? String((reservation.metadata as Record<string, unknown>).rate_plan_name || '')
+        : '',
+    ratePlanCode:
+      reservation.metadata && typeof reservation.metadata === 'object'
+        ? String((reservation.metadata as Record<string, unknown>).rate_plan_code || '')
+        : '',
   }));
 
   const activeReservations = useMemo(
@@ -988,11 +1115,22 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
         check_out_date: reservationForm.check_out_date,
         adults: Number(reservationForm.adults || 1),
         children: Number(reservationForm.children || 0),
-        total_amount: Number(reservationForm.total_amount || 0),
+        total_amount: Number(reservationForm.total_amount || reservationRatePlanPreview?.totalAmount || 0),
         status: 'reserved',
         source: reservationForm.source,
         payment_status: reservationForm.payment_status,
         notes: reservationForm.notes || null,
+        metadata: reservationRatePlanPreview
+          ? {
+              rate_plan_code: reservationRatePlanPreview.ratePlanCode,
+              rate_plan_name: reservationRatePlanPreview.ratePlanName,
+              weekend_nights: reservationRatePlanPreview.weekendNights,
+              weekday_nights: reservationRatePlanPreview.weekdayNights,
+              source_adjustment_rate: reservationRatePlanPreview.sourceAdjustmentRate,
+              quoted_base_rate: reservationRatePlanPreview.baseNightlyRate,
+              quoted_total_amount: reservationRatePlanPreview.totalAmount,
+            }
+          : {},
       },
       () =>
         setReservationForm((current) => ({
@@ -1320,6 +1458,59 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
               </Button>
             </div>
           </form>
+          {selectedReservationRoomType ? (
+            <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Booking Rate Desk</div>
+                  <div className="mt-1 text-sm font-black text-slate-950">{selectedReservationRoomType.name}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Base nightly rate {formatCurrency(Number(selectedReservationRoomType.base_rate || 0))}
+                  </div>
+                </div>
+                {reservationRatePlanPreview ? <StatePill state={reservationRatePlanPreview.ratePlanCode} /> : null}
+              </div>
+              {reservationRatePlanPreview ? (
+                <div className="mt-4 grid gap-3 md:grid-cols-4">
+                  <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-emerald-100">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Rate plan</div>
+                    <div className="mt-2 text-sm font-black text-slate-950">{reservationRatePlanPreview.ratePlanName}</div>
+                  </div>
+                  <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-emerald-100">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Stay mix</div>
+                    <div className="mt-2 text-sm font-black text-slate-950">{reservationRatePlanPreview.nights} nights</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {reservationRatePlanPreview.weekdayNights} weekday / {reservationRatePlanPreview.weekendNights} weekend
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-emerald-100">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Source adjustment</div>
+                    <div className="mt-2 text-sm font-black text-slate-950">
+                      {reservationRatePlanPreview.sourceAdjustmentRate === 0
+                        ? 'Standard'
+                        : `${reservationRatePlanPreview.sourceAdjustmentRate > 0 ? '+' : ''}${Math.round(reservationRatePlanPreview.sourceAdjustmentRate * 100)}%`}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">{reservationRatePlanPreview.sourceAdjustmentLabel}</div>
+                  </div>
+                  <div className="rounded-xl bg-white px-4 py-3 ring-1 ring-emerald-100">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Suggested total</div>
+                    <div className="mt-2 text-sm font-black text-slate-950">{formatCurrency(reservationRatePlanPreview.totalAmount)}</div>
+                    <button
+                      type="button"
+                      className="mt-2 text-xs font-bold uppercase tracking-widest text-emerald-700"
+                      onClick={() => setReservationForm((current) => ({ ...current, total_amount: String(reservationRatePlanPreview.totalAmount) }))}
+                    >
+                      Apply Suggested Rate
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 text-sm font-semibold text-slate-500">
+                  Add a valid stay window to generate source-aware pricing.
+                </div>
+              )}
+            </div>
+          ) : null}
           <div className="mt-4 space-y-3">
             {arrivalRows.map((move) => (
               <div key={move.id} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
@@ -1345,6 +1536,11 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                     {reservationStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
                   </select>
                 </div>
+                {move.ratePlanName ? (
+                  <div className="mt-2 text-xs font-bold uppercase tracking-widest text-emerald-700">
+                    {move.ratePlanName} / {move.ratePlanCode || 'CUSTOM'}
+                  </div>
+                ) : null}
                 {move.notes ? <div className="mt-2 text-xs text-slate-500">{move.notes}</div> : null}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button

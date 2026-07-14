@@ -33,12 +33,13 @@
 - PMS booking controls now include an assignment desk that suggests clean, conflict-free rooms for unassigned arrivals and lets front desk teams auto-assign them in one step.
 - PMS booking controls now include group-arrival visibility and a cancellation action that releases reserved inventory when no overlapping stays remain.
 - PMS booking controls now include inline reservation change management from the arrivals desk, with overlap validation for assigned rooms before stay edits are saved.
+- PMS booking controls now include a live booking rate desk with source-aware stay pricing, weekend mix logic, and reservation-linked rate-plan metadata persisted at booking time.
 - PMS guest automation now includes real booking-confirmation and pre-arrival email payloads with reservation-aware messaging from the arrivals desk.
 - PMS housekeeping automation now includes dispatch summaries, arrival-aware urgency, live owner assignment, and due-time routing from the housekeeping board.
 
 ## In Progress
 
-- Accommodation operations expansion beyond arrival foundations: deeper booking depth and payment-wall-ready controls beyond the latest guest-engagement, group-arrival, reservation-change, and front-desk finance flows.
+- Accommodation operations expansion beyond arrival foundations: deeper booking depth and payment-wall-ready controls beyond the latest guest-engagement, group-arrival, reservation-change, rate-plan, and front-desk finance flows.
 
 ## Next
 
