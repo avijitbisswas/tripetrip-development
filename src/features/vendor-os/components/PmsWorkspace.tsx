@@ -344,6 +344,57 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       sourceMix,
     };
   }, [activeReservations, reservations, roomAvailabilityRows]);
+  const reservationAssignmentRows = useMemo(
+    () =>
+      activeReservations
+        .filter((reservation) => reservation.status === 'reserved' && !reservation.room_id)
+        .map((reservation) => {
+          const totalGuests = Number(reservation.adults || 0) + Number(reservation.children || 0);
+          const suggestedRoom =
+            rooms
+              .filter(
+                (room) =>
+                  room.property_id === reservation.property_id &&
+                  room.status === 'available' &&
+                  room.housekeeping_status === 'clean',
+              )
+              .find((room) => {
+                const roomType = roomTypeMap.get(room.room_type_id || '');
+                const occupancyLimit = Number(roomType?.occupancy || 0);
+                if (occupancyLimit > 0 && totalGuests > occupancyLimit) {
+                  return false;
+                }
+
+                return !activeReservations.some(
+                  (activeReservation) =>
+                    activeReservation.id !== reservation.id &&
+                    activeReservation.room_id === room.id &&
+                    datesOverlap(
+                      activeReservation.check_in_date,
+                      activeReservation.check_out_date,
+                      reservation.check_in_date,
+                      reservation.check_out_date,
+                    ),
+                );
+              }) || null;
+
+          return {
+            id: reservation.id,
+            reservation,
+            guestName: reservation.guest_name,
+            stayWindow: `${formatDateLabel(reservation.check_in_date)} -> ${formatDateLabel(reservation.check_out_date)}`,
+            suggestedRoom,
+          };
+        }),
+    [activeReservations, roomTypeMap, rooms],
+  );
+  const reservationAssignmentSummary = useMemo(() => {
+    const assignableCount = reservationAssignmentRows.filter((row) => row.suggestedRoom).length;
+    return {
+      assignableCount,
+      unassignableCount: reservationAssignmentRows.length - assignableCount,
+    };
+  }, [reservationAssignmentRows]);
   const teamMemberMap = useMemo(() => new Map(teamMembers.map((member) => [member.id, member])), [teamMembers]);
   const housekeepingDispatchRows = useMemo(
     () =>
@@ -653,6 +704,36 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     }
   }
 
+  async function handleAutoAssignReservation(row: (typeof reservationAssignmentRows)[number]) {
+    if (!organizationId || !row.suggestedRoom) return;
+
+    setWorkspaceMessage(null);
+
+    try {
+      await updateVendorPmsRecord('reservations', organizationId, row.id, {
+        room_id: row.suggestedRoom.id,
+      });
+      await updateVendorPmsRecord('rooms', organizationId, row.suggestedRoom.id, {
+        status: 'reserved',
+        housekeeping_status: 'clean',
+      });
+
+      setReservations((current) =>
+        current.map((reservation) =>
+          reservation.id === row.id ? { ...reservation, room_id: row.suggestedRoom?.id || null } : reservation,
+        ),
+      );
+      setRooms((current) =>
+        current.map((room) =>
+          room.id === row.suggestedRoom?.id ? { ...room, status: 'reserved', housekeeping_status: 'clean' } : room,
+        ),
+      );
+      setWorkspaceMessage(`Assigned room ${row.suggestedRoom.room_number} to ${row.guestName}`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : 'Unable to auto-assign reservation');
+    }
+  }
+
   async function handleReservationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!organizationId) return;
@@ -843,6 +924,51 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                 <div className="text-sm font-black text-slate-950">{source.count}</div>
               </div>
             ))}
+          </div>
+          <div className="mt-5 border-t border-slate-100 pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-black text-slate-950">Assignment Desk</h4>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  {reservationAssignmentSummary.assignableCount}{' '}
+                  {reservationAssignmentSummary.assignableCount === 1 ? 'assignable arrival' : 'assignable arrivals'}
+                </p>
+              </div>
+              {reservationAssignmentSummary.unassignableCount > 0 ? (
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">
+                  {reservationAssignmentSummary.unassignableCount} needs manual review
+                </div>
+              ) : null}
+            </div>
+            <div className="mt-3 space-y-3">
+              {reservationAssignmentRows.map((row) => (
+                <div key={row.id} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black text-slate-950">{row.guestName}</div>
+                      <div className="mt-1 text-xs text-slate-500">{row.stayWindow}</div>
+                      <div className="mt-2 text-xs font-bold uppercase tracking-widest text-emerald-700">
+                        {row.suggestedRoom ? `Suggested room ${row.suggestedRoom.room_number}` : 'No clean room available'}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-xl text-xs font-bold uppercase tracking-widest"
+                      disabled={!row.suggestedRoom}
+                      onClick={() => handleAutoAssignReservation(row)}
+                    >
+                      Auto Assign
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {reservationAssignmentRows.length === 0 ? (
+                <div className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 ring-1 ring-slate-100">
+                  Unassigned arrivals will appear here when a booking still needs a room.
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </section>

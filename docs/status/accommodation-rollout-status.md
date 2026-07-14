@@ -28,18 +28,19 @@
 - Team workspace now includes live shift planning, attendance state tracking, branch staffing coverage summaries, and staffing audit signals backed by vendor team member records.
 - Analytics workspace now derives live occupancy, arrivals, folio settlement, collection watch, and branch reporting signals from PMS reservations, folio entries, and payment records.
 - PMS booking controls now include room availability visibility, source-mix pulse, overlap prevention for assigned rooms, and occupancy-capacity checks before reservation creation.
+- PMS booking controls now include an assignment desk that suggests clean, conflict-free rooms for unassigned arrivals and lets front desk teams auto-assign them in one step.
 - PMS guest automation now includes real booking-confirmation and pre-arrival email payloads with reservation-aware messaging from the arrivals desk.
 - PMS housekeeping automation now includes dispatch summaries, arrival-aware urgency, live owner assignment, and due-time routing from the housekeeping board.
 
 ## In Progress
 
-- Accommodation operations expansion beyond arrival foundations: deeper booking engine features.
+- Accommodation operations expansion beyond arrival foundations: deeper guest engagement and payment-wall-ready controls.
 
 ## Next
 
 - Apply the latest PMS migration to the live Supabase project so `vendor_pms_reservations` and `vendor_folio_entries` exist in production before relying on the deployed PMS workspace.
 - Apply the payment operations migration so `vendor_payment_records` exists in production before deploying the new settlement desk.
-- Extend the accommodation stack into deeper booking engine and guest engagement layers on top of the completed PMS, payments, marketplace, channel, arrival, staff-control, reporting, booking-control, transactional-email, and housekeeping-dispatch foundations.
+- Extend the accommodation stack into deeper guest engagement and payment-wall-ready controls on top of the completed PMS, payments, marketplace, channel, arrival, staff-control, reporting, booking-control, assignment-desk, transactional-email, and housekeeping-dispatch foundations.
 
 ## Deferred
 
