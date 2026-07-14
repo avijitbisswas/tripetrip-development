@@ -22,6 +22,7 @@
 - PMS workspace now supports live room type, room, reservation, housekeeping task, and folio entry creation against dedicated PMS resources.
 - PMS arrivals, housekeeping, folio panels, and operational metrics now derive from live PMS records instead of relying only on static demo arrays.
 - Payment operations slice now includes vendor payment record schema, Worker/API plumbing, and a live accounting settlement desk for reservation-linked payment capture.
+- Payment operations now include finance-side approval and rejection controls for pending manual payments, with folio and reservation balance sync when approvals close or reopen billing.
 - Marketplace inventory sync now includes admin approval routing, channel targets, per-channel distribution state, and admin publishing queue controls for accommodation vendors.
 - OTA and channel foundations now include live channel connection records, sync activity logs, manual verification, and retryable push-sync workflows for accommodation vendors.
 - Guest arrival operations now include reservation-linked document uploads, readiness tracking, and manual identity verification flows inside the PMS workspace.
@@ -34,7 +35,7 @@
 
 ## In Progress
 
-- Accommodation operations expansion beyond arrival foundations: deeper guest engagement and payment-wall-ready controls.
+- Accommodation operations expansion beyond arrival foundations: deeper guest engagement and payment-wall-ready controls beyond live front-desk and finance flows.
 
 ## Next
 

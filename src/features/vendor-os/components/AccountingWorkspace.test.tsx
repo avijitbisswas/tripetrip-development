@@ -7,6 +7,7 @@ import { AccountingWorkspace } from './AccountingWorkspace';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
+  updateRecord: vi.fn(),
   refresh: vi.fn(),
   records: [] as Record<string, unknown>[],
 }));
@@ -88,7 +89,7 @@ vi.mock('../hooks', () => ({
   }),
   useVendorOSRecordMutations: () => ({
     createRecord: hookMocks.createRecord,
-    updateRecord: vi.fn(),
+    updateRecord: hookMocks.updateRecord,
     deleteRecord: vi.fn(),
     submitting: false,
     error: null,
@@ -109,6 +110,7 @@ vi.mock('../api', async () => {
 describe('AccountingWorkspace', () => {
   beforeEach(() => {
     hookMocks.createRecord.mockReset();
+    hookMocks.updateRecord.mockReset();
     hookMocks.refresh.mockReset();
     hookMocks.records = [];
     vi.mocked(listVendorAccountingRecords).mockReset();
@@ -422,5 +424,86 @@ describe('AccountingWorkspace', () => {
       expect(updateVendorPmsRecord).toHaveBeenCalledWith('folios', 'org-1', 'folio-1', { payment_state: 'settled' });
     });
     expect(updateVendorPmsRecord).toHaveBeenCalledWith('reservations', 'org-1', 'reservation-1', { payment_status: 'paid' });
+  });
+
+  it('approves pending manual payments and closes linked balances', async () => {
+    vi.mocked(listVendorAccountingRecords).mockResolvedValueOnce([
+      {
+        id: 'payment-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        reservation_id: 'reservation-1',
+        folio_entry_id: 'folio-1',
+        manual_payment_intent_id: 'manual_1',
+        payment_method: 'upi',
+        amount: 5400,
+        status: 'pending_approval',
+        reference_number: 'RES-1-UPI',
+        collected_at: '2026-07-02T10:00:00.000Z',
+        collected_by: 'Front Desk',
+        notes: 'Awaiting finance approval',
+        created_at: '2026-07-02T10:00:00.000Z',
+      } as never,
+    ]);
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-02',
+          check_out_date: '2026-07-04',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 5400,
+          source: 'manual',
+          notes: null,
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'folio-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          entry_type: 'room_charge',
+          title: 'Room charge',
+          amount: 5400,
+          quantity: 1,
+          payment_state: 'open',
+          notes: null,
+          posted_at: '2026-07-02T10:00:00.000Z',
+          created_at: '2026-07-02T10:00:00.000Z',
+        },
+      ] as never);
+    vi.mocked(updateVendorPmsRecord).mockResolvedValue({ id: 'updated-1' } as never);
+    hookMocks.updateRecord.mockResolvedValue({ id: 'payment-1' });
+
+    render(<AccountingWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText('Pending Approval')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Approve Payment' }));
+
+    await waitFor(() => {
+      expect(hookMocks.updateRecord).toHaveBeenCalledWith(
+        'payment-1',
+        expect.objectContaining({
+          status: 'recorded',
+          approved_by: 'Finance desk',
+        }),
+      );
+    });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('folios', 'org-1', 'folio-1', { payment_state: 'settled' });
+    expect(updateVendorPmsRecord).toHaveBeenCalledWith('reservations', 'org-1', 'reservation-1', { payment_status: 'paid' });
+    expect(screen.getByText('Payment approved for Aarav Mehta')).toBeInTheDocument();
   });
 });

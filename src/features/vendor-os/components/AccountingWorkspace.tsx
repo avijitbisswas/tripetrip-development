@@ -96,6 +96,17 @@ function deriveReservationPaymentStatus(outstanding: number, billedAmount: numbe
   return 'pending';
 }
 
+function calculateBilledAmount(reservation: VendorPmsReservationRecord | undefined, linkedFolios: VendorFolioEntryRecord[]) {
+  const folioTotal = linkedFolios.reduce((sum, folio) => {
+    const quantity = Number(folio.quantity || 1);
+    const amount = Number(folio.amount || 0) * quantity;
+    if (folio.entry_type === 'discount' || folio.entry_type === 'payment') return sum - amount;
+    return sum + amount;
+  }, 0);
+
+  return Math.max(folioTotal, Number(reservation?.total_amount || 0));
+}
+
 function StatePill({ state }: { state: string }) {
   const attention = ['Due', 'Review', 'Reconcile', 'Processing'].includes(state);
   return (
@@ -168,16 +179,10 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
       reservations.map((reservation) => {
         const linkedFolios = folioEntries.filter((folio) => folio.reservation_id === reservation.id);
         const linkedPayments = payments.filter((payment) => payment.reservation_id === reservation.id && payment.status !== 'failed' && payment.status !== 'reversed');
-        const folioTotal = linkedFolios.reduce((sum, folio) => {
-          const quantity = Number(folio.quantity || 1);
-          const amount = Number(folio.amount || 0) * quantity;
-          if (folio.entry_type === 'discount' || folio.entry_type === 'payment') return sum - amount;
-          return sum + amount;
-        }, 0);
         const recordedPayments = linkedPayments
           .filter((payment) => payment.status === 'recorded' || payment.status === 'pending_approval')
           .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-        const billedAmount = Math.max(folioTotal, Number(reservation.total_amount || 0));
+        const billedAmount = calculateBilledAmount(reservation, linkedFolios);
         const outstanding = Math.max(billedAmount - recordedPayments, 0);
 
         return {
@@ -277,15 +282,7 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
           )
           .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
         const linkedFolio = paymentForm.folio_entry_id ? folioEntries.find((folio) => folio.id === paymentForm.folio_entry_id) : null;
-        const reservationBilledAmount = Math.max(
-          Number(reservation?.total_amount || 0),
-          linkedFolios.reduce((sum, folio) => {
-            const quantity = Number(folio.quantity || 1);
-            const amount = Number(folio.amount || 0) * quantity;
-            if (folio.entry_type === 'discount' || folio.entry_type === 'payment') return sum - amount;
-            return sum + amount;
-          }, 0),
-        );
+        const reservationBilledAmount = calculateBilledAmount(reservation, linkedFolios);
         const nextRecordedTotal = existingRecordedPayments + paymentAmount;
         const nextOutstanding = Math.max(reservationBilledAmount - nextRecordedTotal, 0);
 
@@ -308,6 +305,95 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
       setFormMessage('Payment recorded');
     } catch (err) {
       setFormMessage(err instanceof Error ? err.message : 'Unable to record payment');
+    }
+  }
+
+  async function handlePaymentReview(payment: VendorPaymentRecord, decision: 'approve' | 'reject') {
+    if (!organizationId) return;
+
+    setFormMessage(null);
+
+    try {
+      const nextStatus = decision === 'approve' ? 'recorded' : 'reversed';
+      const approvedAt = decision === 'approve' ? new Date().toISOString() : null;
+
+      await mutations.updateRecord(payment.id, {
+        status: nextStatus,
+        approved_at: approvedAt,
+        approved_by: 'Finance desk',
+      });
+
+      const reservation = reservations.find((entry) => entry.id === payment.reservation_id);
+      const linkedFolios = folioEntries.filter((folio) => folio.reservation_id === payment.reservation_id);
+      const linkedFolio = payment.folio_entry_id ? folioEntries.find((folio) => folio.id === payment.folio_entry_id) : null;
+      const approvedTotal = payments
+        .filter((entry) => entry.id !== payment.id && entry.reservation_id === payment.reservation_id && entry.status === 'recorded')
+        .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      const nextRecordedTotal = decision === 'approve' ? approvedTotal + Number(payment.amount || 0) : approvedTotal;
+      const reservationBilledAmount = calculateBilledAmount(reservation, linkedFolios);
+      const nextOutstanding = Math.max(reservationBilledAmount - nextRecordedTotal, 0);
+
+      if (linkedFolio) {
+        const folioTarget = Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1);
+        await updateVendorPmsRecord('folios', organizationId, linkedFolio.id, {
+          payment_state:
+            decision === 'approve'
+              ? nextRecordedTotal >= folioTarget
+                ? 'settled'
+                : 'partial'
+              : 'open',
+        });
+      }
+
+      if (reservation) {
+        await updateVendorPmsRecord('reservations', organizationId, reservation.id, {
+          payment_status: deriveReservationPaymentStatus(nextOutstanding, reservationBilledAmount),
+        });
+      }
+
+      setPayments((current) =>
+        current.map((entry) =>
+          entry.id === payment.id
+            ? {
+                ...entry,
+                status: nextStatus,
+                approved_at: approvedAt,
+                approved_by: 'Finance desk',
+              }
+            : entry,
+        ),
+      );
+      setReservations((current) =>
+        current.map((entry) =>
+          entry.id === payment.reservation_id
+            ? {
+                ...entry,
+                payment_status: deriveReservationPaymentStatus(nextOutstanding, reservationBilledAmount),
+              }
+            : entry,
+        ),
+      );
+      if (linkedFolio) {
+        setFolioEntries((current) =>
+          current.map((entry) =>
+            entry.id === linkedFolio.id
+              ? {
+                  ...entry,
+                  payment_state:
+                    decision === 'approve'
+                      ? nextRecordedTotal >= Number(linkedFolio.amount || 0) * Number(linkedFolio.quantity || 1)
+                        ? 'settled'
+                        : 'partial'
+                      : 'open',
+                }
+              : entry,
+          ),
+        );
+      }
+
+      setFormMessage(`${decision === 'approve' ? 'Payment approved' : 'Payment rejected'} for ${reservation?.guest_name || 'reservation'}`);
+    } catch (err) {
+      setFormMessage(err instanceof Error ? err.message : 'Unable to review payment');
     }
   }
 
@@ -530,7 +616,29 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
                 {payment.folioLabel ? <div className="mt-1 text-xs text-slate-500">{payment.folioLabel}</div> : null}
               </div>
               <div className="text-sm font-black text-slate-950">{formatCurrency(payment.amount)}</div>
-              <StatePill state={titleCase(payment.status)} />
+              <div className="flex items-center justify-end gap-2">
+                <StatePill state={titleCase(payment.status)} />
+                {payment.status === 'pending_approval' ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                      onClick={() => handlePaymentReview(payment, 'approve')}
+                    >
+                      Approve Payment
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                      onClick={() => handlePaymentReview(payment, 'reject')}
+                    >
+                      Reject Payment
+                    </Button>
+                  </>
+                ) : null}
+              </div>
             </div>
           ))}
         </div>
