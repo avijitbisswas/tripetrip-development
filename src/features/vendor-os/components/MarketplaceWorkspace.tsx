@@ -85,6 +85,13 @@ const providerNameOptions = ['booking.com', 'airbnb', 'expedia', 'agoda', 'direc
 const connectionStatusOptions = ['draft', 'connected', 'error', 'paused'];
 const channelSyncTypeOptions = ['inventory', 'rates', 'reservation'];
 
+const channelProviderMap: Record<string, string | null> = {
+  tripetrip: null,
+  direct_web: null,
+  booking_request: 'booking.com',
+  airbnb_request: 'airbnb',
+};
+
 function titleCase(value: string) {
   return value
     .split(/[\s_-]+/)
@@ -596,6 +603,98 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
       ['Conversion', `${averageConversion}%`, 'Average tracked'],
       ['Sync Health', syncHealth, 'PMS connected'],
     ];
+  }, [channelConnections, channelSyncLogs, liveListings]);
+
+  const mappingHealth = useMemo(() => {
+    const latestLogByConnection = new Map<
+      string,
+      {
+        rawStatus: string;
+        providerName: string;
+        updatedAt: string;
+      }
+    >();
+    channelSyncLogs.forEach((log) => {
+      if (!log.connectionId) return;
+      const existing = latestLogByConnection.get(log.connectionId);
+      if (!existing || new Date(log.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
+        latestLogByConnection.set(log.connectionId, {
+          rawStatus: log.rawStatus,
+          providerName: log.providerName,
+          updatedAt: log.updatedAt,
+        });
+      }
+    });
+
+    return inventorySummaries.map((summary) => {
+      const relatedListings = liveListings.filter(
+        (listing) => listing.propertyId === summary.propertyId && listing.roomTypeId === summary.roomTypeId,
+      );
+      const channelTargets = Array.from(
+        new Set(relatedListings.flatMap((listing) => listing.channelDistribution.map((channel) => channel.channel))),
+      );
+      const requiredProviders = channelTargets
+        .map((target) => channelProviderMap[target] || null)
+        .filter((provider): provider is string => Boolean(provider));
+      const connectedProviders = new Set(
+        channelConnections
+          .filter((connection) => connection.connectionStatus.toLowerCase() === 'connected')
+          .map((connection) => connection.providerName.toLowerCase()),
+      );
+      const blockedProviders = requiredProviders.filter((provider) => !connectedProviders.has(provider.toLowerCase()));
+      const relatedConnectionIds = channelConnections
+        .filter((connection) => requiredProviders.includes(connection.providerName))
+        .map((connection) => connection.id);
+      const failedSyncs = relatedConnectionIds.filter((connectionId) => {
+        const latestLog = latestLogByConnection.get(connectionId);
+        return latestLog?.rawStatus === 'failed' || latestLog?.rawStatus === 'conflict';
+      }).length;
+      const pendingApproval = relatedListings.filter((listing) => listing.approvalStatus.toLowerCase() === 'pending').length;
+      const readyState =
+        blockedProviders.length > 0 || failedSyncs > 0 || summary.housekeepingAttention > 0
+          ? 'Attention'
+          : summary.availableInventory > 0
+            ? 'Live'
+            : 'Review';
+
+      return {
+        ...summary,
+        blockedProviders,
+        failedSyncs,
+        pendingApproval,
+        channelTargets,
+        readyState,
+      };
+    });
+  }, [channelConnections, channelSyncLogs, inventorySummaries, liveListings]);
+
+  const otaReadinessQueue = useMemo(() => {
+    const failedLogs = channelSyncLogs
+      .filter((log) => log.rawStatus === 'failed' || log.rawStatus === 'conflict')
+      .map((log) => ({
+        id: `log-${log.id}`,
+        title: `${titleCase(log.providerName)} ${titleCase(log.syncType)} sync blocked`,
+        detail: log.errorSummary || log.payloadSummary,
+        state: 'Attention',
+      }));
+    const disconnectedProviders = channelConnections
+      .filter((connection) => connection.connectionStatus.toLowerCase() !== 'connected')
+      .map((connection) => ({
+        id: `connection-${connection.id}`,
+        title: `${titleCase(connection.providerName)} verification pending`,
+        detail: `${titleCase(connection.syncType)} sync is ${connection.connectionStatus.toLowerCase()} until the channel is verified.`,
+        state: 'Review',
+      }));
+    const pendingListings = liveListings
+      .filter((listing) => listing.approvalStatus.toLowerCase() === 'pending')
+      .map((listing) => ({
+        id: `listing-${listing.id}`,
+        title: `${listing.title} awaiting publishing approval`,
+        detail: `${listing.channels} cannot go live until the publishing queue clears this change.`,
+        state: 'Review',
+      }));
+
+    return [...failedLogs, ...disconnectedProviders, ...pendingListings].slice(0, 6);
   }, [channelConnections, channelSyncLogs, liveListings]);
 
   return (
@@ -1144,7 +1243,7 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Inventory Mapping</h3>
           </div>
           <div className="space-y-3">
-            {inventorySummaries.slice(0, 6).map((summary) => (
+            {mappingHealth.slice(0, 6).map((summary) => (
               <div
                 key={`${summary.propertyId}-${summary.roomTypeId}`}
                 className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4"
@@ -1154,7 +1253,7 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
                     <div className="text-sm font-black text-slate-950">{summary.propertyName}</div>
                     <div className="mt-1 text-xs text-slate-500">{summary.roomTypeName}</div>
                   </div>
-                  <StatePill state={summary.availableInventory > 0 ? 'Live' : 'Attention'} />
+                  <StatePill state={summary.readyState} />
                 </div>
                 <div className="mt-3 text-sm font-bold text-slate-800">
                   {summary.availableInventory}/{summary.totalInventory} rooms available
@@ -1162,6 +1261,21 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
                 <div className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-700">
                   {summary.occupancyRate}% occupied
                 </div>
+                <div className="mt-2 text-xs text-slate-600">
+                  {summary.channelTargets.length > 0
+                    ? `${summary.channelTargets.map((target) => titleCase(target)).join(', ')} mapped`
+                    : 'Tripetrip and direct web ready'}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  <span>{summary.housekeepingAttention} housekeeping alerts</span>
+                  <span>{summary.failedSyncs} sync exceptions</span>
+                  <span>{summary.pendingApproval} approvals open</span>
+                </div>
+                {summary.blockedProviders.length > 0 ? (
+                  <div className="mt-2 text-xs font-bold text-amber-700">
+                    Connection required: {summary.blockedProviders.map((provider) => titleCase(provider)).join(', ')}
+                  </div>
+                ) : null}
               </div>
             ))}
             {inventorySummaries.length === 0 && mappings.map((mapping) => (
@@ -1198,10 +1312,10 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <ClipboardList className="h-4 w-4 text-emerald-600" />
-            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Publishing Queue</h3>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">OTA Readiness Queue</h3>
           </div>
           <div className="space-y-3">
-            {publishingQueue.map((item) => (
+            {otaReadinessQueue.map((item) => (
               <div key={item.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -1212,6 +1326,19 @@ export function MarketplaceWorkspace({ organizationId, branchId, accommodationAc
                 </div>
               </div>
             ))}
+            {otaReadinessQueue.length === 0
+              ? publishingQueue.map((item) => (
+                  <div key={item.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-black text-slate-950">{item.title}</div>
+                        <div className="mt-1 text-xs text-slate-500">{item.detail}</div>
+                      </div>
+                      <StatePill state={item.state} />
+                    </div>
+                  </div>
+                ))
+              : null}
           </div>
         </div>
       </section>

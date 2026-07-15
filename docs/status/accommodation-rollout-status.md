@@ -32,6 +32,7 @@
 - Team workspace now includes live shift planning, attendance state tracking, branch staffing coverage summaries, and staffing audit signals backed by vendor team member records.
 - Analytics workspace now derives live occupancy, arrivals, folio settlement, collection watch, and branch reporting signals from PMS reservations, folio entries, and payment records.
 - Analytics and PMS now include multi-property focus controls, portfolio rollups, and property-scoped operational filtering without splitting enterprise operations into a separate console.
+- Marketplace and AI assistant now derive live OTA-readiness, sync-exception, collections, housekeeping, and approval-risk signals from PMS, accounting, and marketplace records instead of relying only on static placeholder operations cues.
 - PMS booking controls now include room availability visibility, source-mix pulse, overlap prevention for assigned rooms, and occupancy-capacity checks before reservation creation.
 - PMS booking controls now include an assignment desk that suggests clean, conflict-free rooms for unassigned arrivals and lets front desk teams auto-assign them in one step.
 - PMS booking controls now include group-arrival visibility and a cancellation action that releases reserved inventory when no overlapping stays remain.

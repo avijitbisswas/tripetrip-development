@@ -1,17 +1,23 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AIAssistantWorkspace } from './AIAssistantWorkspace';
 
 const hookMocks = vi.hoisted(() => ({
   createRecord: vi.fn(),
   refresh: vi.fn(),
-  records: [] as Record<string, unknown>[],
+  aiRecords: [] as Record<string, unknown>[],
+  marketplaceRecords: [] as Record<string, unknown>[],
+}));
+
+const apiMocks = vi.hoisted(() => ({
+  listVendorPmsRecords: vi.fn(),
+  listVendorAccountingRecords: vi.fn(),
 }));
 
 vi.mock('../hooks', () => ({
-  useVendorOSRecords: () => ({
-    records: hookMocks.records,
+  useVendorOSRecords: (module: string) => ({
+    records: module === 'marketplace' ? hookMocks.marketplaceRecords : hookMocks.aiRecords,
     loading: false,
     error: null,
     refresh: hookMocks.refresh,
@@ -25,11 +31,103 @@ vi.mock('../hooks', () => ({
   }),
 }));
 
+vi.mock('../api', () => ({
+  listVendorPmsRecords: apiMocks.listVendorPmsRecords,
+  listVendorAccountingRecords: apiMocks.listVendorAccountingRecords,
+}));
+
 describe('AIAssistantWorkspace', () => {
   beforeEach(() => {
     hookMocks.createRecord.mockReset();
     hookMocks.refresh.mockReset();
-    hookMocks.records = [];
+    hookMocks.aiRecords = [];
+    hookMocks.marketplaceRecords = [];
+    apiMocks.listVendorPmsRecords.mockReset();
+    apiMocks.listVendorAccountingRecords.mockReset();
+    vi.setSystemTime(new Date('2026-07-15T09:00:00.000Z'));
+    apiMocks.listVendorPmsRecords.mockImplementation(async (resource: string) => {
+      if (resource === 'reservations') {
+        return [
+          {
+            id: 'reservation-1',
+            organization_id: 'org-1',
+            branch_id: 'branch-1',
+            property_id: 'property-1',
+            room_id: 'room-101',
+            guest_name: 'Aarav',
+            guest_email: null,
+            guest_phone: null,
+            check_in_date: '2026-07-15',
+            check_out_date: '2026-07-16',
+            adults: 2,
+            children: 0,
+            status: 'reserved',
+            payment_status: 'pending',
+            total_amount: 7600,
+            source: 'manual',
+            notes: null,
+            created_at: '2026-07-15T08:00:00.000Z',
+          },
+        ];
+      }
+
+      if (resource === 'rooms') {
+        return [
+          {
+            id: 'room-101',
+            organization_id: 'org-1',
+            property_id: 'property-1',
+            room_type_id: 'room-type-1',
+            room_number: '101',
+            floor: '1',
+            status: 'available',
+            housekeeping_status: 'dirty',
+            metadata: {},
+            created_at: '2026-07-15T08:00:00.000Z',
+          },
+        ];
+      }
+
+      if (resource === 'folio_entries') {
+        return [
+          {
+            id: 'folio-1',
+            organization_id: 'org-1',
+            branch_id: 'branch-1',
+            property_id: 'property-1',
+            reservation_id: 'reservation-1',
+            entry_type: 'room_charge',
+            title: 'Ocean Suite',
+            amount: 7600,
+            quantity: 1,
+            payment_state: 'open',
+            notes: null,
+            posted_at: '2026-07-15T08:00:00.000Z',
+            created_at: '2026-07-15T08:00:00.000Z',
+          },
+        ];
+      }
+
+      return [];
+    });
+    apiMocks.listVendorAccountingRecords.mockResolvedValue([
+      {
+        id: 'payment-1',
+        organization_id: 'org-1',
+        branch_id: 'branch-1',
+        reservation_id: 'reservation-1',
+        folio_entry_id: 'folio-1',
+        manual_payment_intent_id: null,
+        payment_method: 'upi',
+        amount: 3000,
+        status: 'pending',
+        reference_number: 'UPI-1',
+        collected_at: '2026-07-15T08:15:00.000Z',
+        collected_by: null,
+        notes: null,
+        created_at: '2026-07-15T08:15:00.000Z',
+      },
+    ]);
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -42,6 +140,10 @@ describe('AIAssistantWorkspace', () => {
         }),
       }),
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders daily brief, risk alerts, reply drafts, pricing, automation, and approval controls', () => {
@@ -80,7 +182,7 @@ describe('AIAssistantWorkspace', () => {
   });
 
   it('renders live AI insight records when available', () => {
-    hookMocks.records = [
+    hookMocks.aiRecords = [
       {
         id: 'insight-1',
         organization_id: 'org-1',
@@ -121,5 +223,26 @@ describe('AIAssistantWorkspace', () => {
       status: 'review',
     });
     expect(hookMocks.refresh).toHaveBeenCalled();
+  });
+
+  it('derives live operational AI signals from PMS, accounting, and marketplace data', async () => {
+    hookMocks.marketplaceRecords = [
+      {
+        id: 'sync-1',
+        organization_id: 'org-1',
+        sync_status: 'failed',
+        metadata: {
+          listing_title: 'Private Villa Goa',
+          approval_status: 'pending',
+        },
+      },
+    ];
+
+    render(<AIAssistantWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText(/payments awaiting review/i)).toBeInTheDocument();
+    expect(screen.getByText(/rooms are not clean for active or incoming stays/i)).toBeInTheDocument();
+    expect(screen.getByText(/open folios can trigger payment reminders before checkout/i)).toBeInTheDocument();
+    expect(screen.getByText(/failed syncs and 1 approval-gated listing changes are waiting/i)).toBeInTheDocument();
   });
 });

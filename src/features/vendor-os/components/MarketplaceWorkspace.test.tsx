@@ -73,6 +73,10 @@ const accommodationAccess: ResolvedVendorAccommodationAccess = {
     'guest.manual_communication': true,
     'guest.automated_confirmations': false,
     'guest.whatsapp_automation': false,
+    'bookings.reservation_changes': false,
+    'bookings.rate_plan_controls': false,
+    'billing.refund_controls': false,
+    'billing.night_audit': false,
   },
   resolvedApprovals: {
     pricing_changes: 'vendor_owner_only',
@@ -195,7 +199,7 @@ describe('MarketplaceWorkspace', () => {
     expect(screen.getByText('Direct Deals Desk')).toBeInTheDocument();
     expect(screen.getByText('Inventory Mapping')).toBeInTheDocument();
     expect(screen.getByText('Conversion Health')).toBeInTheDocument();
-    expect(screen.getByText('Publishing Queue')).toBeInTheDocument();
+    expect(screen.getByText('OTA Readiness Queue')).toBeInTheDocument();
     expect(screen.getByText('Channel Connections')).toBeInTheDocument();
     expect(screen.getByText('Sync Activity')).toBeInTheDocument();
     expect(screen.getAllByText('Goa Beach Escape')).toHaveLength(2);
@@ -431,5 +435,75 @@ describe('MarketplaceWorkspace', () => {
         status: 'failed',
       }),
     );
+  });
+
+  it('surfaces mapping readiness and OTA queue issues from live records', async () => {
+    hookMocks.propertyRecords = [{ id: 'property-1', name: 'Goa Beach Retreat' }];
+    hookMocks.records = [
+      {
+        id: 'sync-1',
+        organization_id: 'org-1',
+        module: 'pms',
+        sync_status: 'synced',
+        conversion_rate: 8.4,
+        metadata: {
+          listing_title: 'Private Villa Goa',
+          public_slug: 'private-villa-goa',
+          direct_deal_enabled: true,
+          deal_badge: '30% off',
+          room_type_name: 'Ocean Suite',
+          property_id: 'property-1',
+          room_type_id: 'room-type-1',
+          total_inventory: 2,
+          available_inventory: 1,
+          nightly_rate: 8100,
+          listing_state: 'live',
+          approval_status: 'pending',
+          channel_targets: ['tripetrip', 'booking_request'],
+          channel_distribution: {
+            tripetrip: { status: 'live', mode: 'direct' },
+            booking_request: { status: 'pending_approval', mode: 'request' },
+          },
+        },
+      },
+      {
+        id: 'connection-1',
+        organization_id: 'org-1',
+        module: 'pms',
+        sync_status: 'draft',
+        metadata: {
+          record_type: 'channel_connection',
+          provider_name: 'booking.com',
+          connection_status: 'draft',
+          credential_label: 'Prod OTA token',
+          sync_type: 'inventory',
+          enabled: true,
+        },
+      },
+      {
+        id: 'log-1',
+        organization_id: 'org-1',
+        module: 'pms',
+        sync_status: 'failed',
+        created_at: '2026-07-15T08:00:00.000Z',
+        metadata: {
+          record_type: 'channel_sync_log',
+          connection_id: 'connection-1',
+          provider_name: 'booking.com',
+          sync_type: 'inventory',
+          direction: 'outbound',
+          status: 'failed',
+          payload_summary: 'Inventory push attempted',
+          error_summary: 'Connection must be verified before sending channel updates',
+        },
+      },
+    ];
+
+    render(<MarketplaceWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText(/mapped/i)).toBeInTheDocument();
+    expect(screen.getByText(/Connection required: Booking\.com/i)).toBeInTheDocument();
+    expect(screen.getByText(/Booking\.com Inventory sync blocked/i)).toBeInTheDocument();
+    expect(screen.getByText(/Private Villa Goa awaiting publishing approval/i)).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   AlertTriangle,
   Bot,
@@ -14,42 +14,14 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { listVendorAccountingRecords, listVendorPmsRecords } from '../api';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
+import type { VendorFolioEntryRecord, VendorPaymentRecord, VendorPmsReservationRecord, VendorRoomRecord } from '../types';
 
 interface AIAssistantWorkspaceProps {
   organizationId?: string;
   branchId?: string | null;
 }
-
-const briefItems = [
-  { title: 'Morning operations brief', detail: '14 arrivals, 6 dirty rooms, 3 high-value leads, 2 permit risks', state: 'Ready' },
-  { title: 'Revenue watch', detail: 'Goa villa weekend demand spike and Bali package margin shift', state: 'Review' },
-  { title: 'Team workload', detail: 'Inbox SLA risk on transport and PMS handoff', state: 'Attention' },
-];
-
-const riskAlerts = [
-  { title: 'Housekeeping risk', module: 'PMS', detail: '6 dirty rooms before 2 PM arrivals', state: 'Urgent' },
-  { title: 'Luxury SUV permit expiry', module: 'Fleet', detail: 'Insurance expires in 18 days', state: 'Attention' },
-  { title: 'Dubai supplier hold', module: 'Tours', detail: '6 rooms awaiting confirmation', state: 'Review' },
-];
-
-const replyDrafts = [
-  { title: 'Airport pickup reply', channel: 'Inbox', detail: 'Driver number and ETA drafted for traveler', state: 'Drafted' },
-  { title: 'Goa villa quote follow-up', channel: 'CRM', detail: 'Direct-deal savings highlighted', state: 'Ready' },
-  { title: 'Scuba waiver reminder', channel: 'Activities', detail: 'Safety checklist link included', state: 'Review' },
-];
-
-const pricingSuggestions = [
-  { title: 'Raise Goa villa weekend price', detail: 'Demand spike against 3 villas left', value: '+12%', state: 'Review' },
-  { title: 'Flash sale Bali villa', detail: 'Unsold weekday inventory', value: 'Save INR 5,500', state: 'Ready' },
-  { title: 'Hold SUV promo', detail: 'Permit risk may affect fulfillment', value: 'Pause', state: 'Attention' },
-];
-
-const automations = [
-  { title: 'Create follow-up tasks', detail: '9 CRM leads due today', state: 'Queued' },
-  { title: 'Notify branch manager', detail: 'Housekeeping arrival risk summary', state: 'Needs approval' },
-  { title: 'Draft marketplace update', detail: 'Luxury SUV listing permit note', state: 'Drafted' },
-];
 
 const approvalSignals: Array<{ title: string; detail: string; icon: LucideIcon }> = [
   {
@@ -106,6 +78,7 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 
 export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWorkspaceProps) {
   const records = useVendorOSRecords('ai_assistant', organizationId);
+  const marketplaceRecords = useVendorOSRecords('marketplace', organizationId);
   const mutations = useVendorOSRecordMutations('ai_assistant', organizationId, branchId);
   const [insightForm, setInsightForm] = useState({
     title: '',
@@ -115,6 +88,11 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
   });
   const [generating, setGenerating] = useState(false);
   const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
+  const [rooms, setRooms] = useState<VendorRoomRecord[]>([]);
+  const [folioEntries, setFolioEntries] = useState<VendorFolioEntryRecord[]>([]);
+  const [payments, setPayments] = useState<VendorPaymentRecord[]>([]);
+  const [operationsError, setOperationsError] = useState<string | null>(null);
   const liveInsights = useMemo(
     () =>
       records.records.map((record) => ({
@@ -128,6 +106,232 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
         state: titleCase(String(record.status || 'review')),
       })),
     [records.records],
+  );
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadOperationsSignals() {
+      if (!organizationId) {
+        if (active) {
+          setReservations([]);
+          setRooms([]);
+          setFolioEntries([]);
+          setPayments([]);
+          setOperationsError(null);
+        }
+        return;
+      }
+
+      setOperationsError(null);
+
+      try {
+        const [reservationRows, roomRows, folioRows, paymentRows] = await Promise.all([
+          listVendorPmsRecords('reservations', organizationId),
+          listVendorPmsRecords('rooms', organizationId),
+          listVendorPmsRecords('folio_entries', organizationId),
+          listVendorAccountingRecords('payments', organizationId),
+        ]);
+
+        if (!active) return;
+        setReservations(reservationRows);
+        setRooms(roomRows);
+        setFolioEntries(folioRows);
+        setPayments(paymentRows);
+      } catch (error) {
+        if (!active) return;
+        setOperationsError(error instanceof Error ? error.message : 'Unable to load live AI signals');
+      }
+    }
+
+    void loadOperationsSignals();
+
+    return () => {
+      active = false;
+    };
+  }, [organizationId]);
+
+  const liveMarketplaceSignals = useMemo(() => {
+    const syncs = marketplaceRecords.records.map((record) => {
+      const metadata = (record.metadata as Record<string, unknown> | null) || {};
+      return {
+        title: String(metadata.listing_title || record.title || 'Marketplace listing'),
+        syncStatus: String(record.sync_status || metadata.sync_status || 'pending'),
+        approvalStatus: String(metadata.approval_status || 'open'),
+      };
+    });
+
+    return {
+      pendingApprovals: syncs.filter((record) => record.approvalStatus === 'pending').length,
+      failedSyncs: syncs.filter((record) => record.syncStatus === 'failed').length,
+      liveListings: syncs.filter((record) => record.syncStatus === 'synced').length,
+    };
+  }, [marketplaceRecords.records]);
+
+  const operationalSignals = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayIso = today.toISOString().slice(0, 10);
+    const activeStatuses = new Set(['reserved', 'confirmed', 'checked_in']);
+    const openPaymentStates = new Set(['open', 'pending']);
+    const reviewPaymentStatuses = new Set(['pending', 'pending_review']);
+    const dirtyRooms = rooms.filter((room) => room.housekeeping_status.toLowerCase() !== 'clean');
+    const activeReservations = reservations.filter((reservation) => activeStatuses.has(reservation.status));
+    const arrivalsToday = activeReservations.filter((reservation) => reservation.check_in_date === todayIso);
+    const checkedIn = reservations.filter((reservation) => reservation.status === 'checked_in');
+    const occupiedPercent =
+      rooms.length > 0 ? Math.round((checkedIn.length / rooms.length) * 100) : Math.min(activeReservations.length * 10, 100);
+    const openFolios = folioEntries.filter((entry) => openPaymentStates.has(entry.payment_state.toLowerCase()));
+    const openBalance = openFolios.reduce((total, entry) => total + Number(entry.amount || 0) * Number(entry.quantity || 1), 0);
+    const pendingPayments = payments.filter((payment) => reviewPaymentStatuses.has(payment.status.toLowerCase()));
+
+    return {
+      arrivalsToday,
+      dirtyRooms,
+      activeReservations,
+      occupiedPercent,
+      openFolios,
+      openBalance,
+      pendingPayments,
+    };
+  }, [folioEntries, payments, reservations, rooms]);
+
+  const liveMetricCards = useMemo(
+    () => [
+      ['Insights', String(liveInsights.length + 3), 'Auditable decisions'],
+      ['Draft Replies', String(Math.max(operationalSignals.arrivalsToday.length, 1) + liveMarketplaceSignals.pendingApprovals), 'Ready'],
+      ['Revenue Ideas', String(Math.max(liveMarketplaceSignals.liveListings, 1) + (operationalSignals.occupiedPercent >= 75 ? 1 : 0)), 'High impact'],
+      [
+        'Risk Alerts',
+        String(
+          operationalSignals.dirtyRooms.length +
+            operationalSignals.pendingPayments.length +
+            liveMarketplaceSignals.failedSyncs +
+            (operationalSignals.openBalance > 0 ? 1 : 0),
+        ),
+        'Needs review',
+      ],
+    ],
+    [liveInsights.length, liveMarketplaceSignals, operationalSignals],
+  );
+
+  const computedBriefItems = useMemo(
+    () => [
+      {
+        title: 'Morning operations brief',
+        detail: `${operationalSignals.arrivalsToday.length} arrivals, ${operationalSignals.dirtyRooms.length} dirty rooms, ${operationalSignals.pendingPayments.length} payments awaiting review, ${liveMarketplaceSignals.pendingApprovals} listings awaiting approval`,
+        state:
+          operationalSignals.dirtyRooms.length > 0 || operationalSignals.pendingPayments.length > 0 ? 'Review' : 'Ready',
+      },
+      {
+        title: 'Revenue watch',
+        detail: `${operationalSignals.occupiedPercent}% occupied with INR ${Math.round(operationalSignals.openBalance).toLocaleString('en-IN')} open folios still collectible`,
+        state: operationalSignals.occupiedPercent >= 80 ? 'Ready' : 'Review',
+      },
+      {
+        title: 'Distribution health',
+        detail: `${liveMarketplaceSignals.liveListings} live listings, ${liveMarketplaceSignals.failedSyncs} failed syncs, ${liveMarketplaceSignals.pendingApprovals} approvals in queue`,
+        state: liveMarketplaceSignals.failedSyncs > 0 ? 'Attention' : 'Ready',
+      },
+    ],
+    [liveMarketplaceSignals, operationalSignals],
+  );
+
+  const computedRiskAlerts = useMemo(
+    () => [
+      {
+        title: 'Housekeeping risk',
+        module: 'PMS',
+        detail: `${operationalSignals.dirtyRooms.length} rooms are not clean for active or incoming stays.`,
+        state: operationalSignals.dirtyRooms.length > 0 ? 'Urgent' : 'Ready',
+      },
+      {
+        title: 'Collections watch',
+        module: 'Accounting',
+        detail: `${operationalSignals.openFolios.length} folio entries remain open with INR ${Math.round(operationalSignals.openBalance).toLocaleString('en-IN')} outstanding.`,
+        state: operationalSignals.openBalance > 0 ? 'Attention' : 'Ready',
+      },
+      {
+        title: 'Channel sync health',
+        module: 'Marketplace',
+        detail: `${liveMarketplaceSignals.failedSyncs} failed syncs and ${liveMarketplaceSignals.pendingApprovals} approval-gated listing changes are waiting.`,
+        state: liveMarketplaceSignals.failedSyncs > 0 ? 'Review' : 'Ready',
+      },
+    ],
+    [liveMarketplaceSignals, operationalSignals],
+  );
+
+  const computedReplyDrafts = useMemo(
+    () => [
+      {
+        title: 'Arrival prep reply',
+        channel: 'PMS',
+        detail: `${operationalSignals.arrivalsToday.length} arriving guests can receive readiness and check-in guidance today.`,
+        state: operationalSignals.arrivalsToday.length > 0 ? 'Ready' : 'Drafted',
+      },
+      {
+        title: 'Outstanding folio follow-up',
+        channel: 'Accounting',
+        detail: `${operationalSignals.openFolios.length} open folios can trigger payment reminders before checkout.`,
+        state: operationalSignals.openFolios.length > 0 ? 'Review' : 'Drafted',
+      },
+      {
+        title: 'Listing approval follow-up',
+        channel: 'Marketplace',
+        detail: `${liveMarketplaceSignals.pendingApprovals} listing changes are ready for ops-to-admin escalation.`,
+        state: liveMarketplaceSignals.pendingApprovals > 0 ? 'Ready' : 'Drafted',
+      },
+    ],
+    [liveMarketplaceSignals.pendingApprovals, operationalSignals],
+  );
+
+  const computedPricingSuggestions = useMemo(
+    () => [
+      {
+        title: operationalSignals.occupiedPercent >= 75 ? 'Hold or raise premium inventory' : 'Stimulate direct demand',
+        detail:
+          operationalSignals.occupiedPercent >= 75
+            ? `Occupancy is ${operationalSignals.occupiedPercent}% with limited clean inventory left.`
+            : `Occupancy is ${operationalSignals.occupiedPercent}% so packages and direct deals can lift conversion.`,
+        value: operationalSignals.occupiedPercent >= 75 ? '+8%' : 'Flash sale',
+        state: operationalSignals.occupiedPercent >= 75 ? 'Review' : 'Ready',
+      },
+      {
+        title: 'Protect cash collection',
+        detail: `${operationalSignals.pendingPayments.length} payments still need review before more manual credit extensions.`,
+        value: `INR ${Math.round(operationalSignals.openBalance).toLocaleString('en-IN')}`,
+        state: operationalSignals.pendingPayments.length > 0 ? 'Attention' : 'Ready',
+      },
+      {
+        title: 'Recover stalled listings',
+        detail: `${liveMarketplaceSignals.failedSyncs} failed syncs are suppressing sellable inventory on external channels.`,
+        value: `${liveMarketplaceSignals.failedSyncs} blocked`,
+        state: liveMarketplaceSignals.failedSyncs > 0 ? 'Review' : 'Ready',
+      },
+    ],
+    [liveMarketplaceSignals.failedSyncs, operationalSignals],
+  );
+
+  const computedAutomations = useMemo(
+    () => [
+      {
+        title: 'Create housekeeping rescue list',
+        detail: `${operationalSignals.dirtyRooms.length} dirty rooms can be routed to supervisors before arrival windows.`,
+        state: operationalSignals.dirtyRooms.length > 0 ? 'Queued' : 'Drafted',
+      },
+      {
+        title: 'Escalate payment review',
+        detail: `${operationalSignals.pendingPayments.length} pending payments can be grouped into one finance approval pass.`,
+        state: operationalSignals.pendingPayments.length > 0 ? 'Needs approval' : 'Drafted',
+      },
+      {
+        title: 'Push channel recovery checklist',
+        detail: `${liveMarketplaceSignals.failedSyncs + liveMarketplaceSignals.pendingApprovals} marketplace issues can be dispatched to distribution ops.`,
+        state:
+          liveMarketplaceSignals.failedSyncs > 0 || liveMarketplaceSignals.pendingApprovals > 0 ? 'Queued' : 'Drafted',
+      },
+    ],
+    [liveMarketplaceSignals, operationalSignals],
   );
 
   async function handleInsightSubmit(event: FormEvent<HTMLFormElement>) {
@@ -173,10 +377,10 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
           organizationName: 'Tripetrip Vendor OS',
           branchName: branchId ? 'Selected branch' : 'All branches',
           signals: [
-            '14 arrivals today',
-            '6 dirty rooms before 2 PM arrivals',
-            '3 high-value direct booking leads',
-            '1 fleet permit requires review',
+            `${operationalSignals.arrivalsToday.length} arrivals today`,
+            `${operationalSignals.dirtyRooms.length} dirty rooms awaiting dispatch`,
+            `${operationalSignals.pendingPayments.length} payments pending review`,
+            `${liveMarketplaceSignals.failedSyncs} marketplace sync failures`,
           ],
         }),
       });
@@ -304,16 +508,17 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
             Create AI Insight
           </Button>
         </form>
-        {(formMessage || mutations.error || records.error) && (
-          <p className="mt-3 text-xs font-bold text-slate-500">{formMessage || mutations.error || records.error}</p>
+        {(formMessage || mutations.error || records.error || marketplaceRecords.error || operationsError) && (
+          <p className="mt-3 text-xs font-bold text-slate-500">
+            {formMessage || mutations.error || records.error || marketplaceRecords.error || operationsError}
+          </p>
         )}
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <Metric label="Insights" value="8" detail="Today" />
-        <Metric label="Draft Replies" value="14" detail="Ready" />
-        <Metric label="Revenue Ideas" value="5" detail="High impact" />
-        <Metric label="Risk Alerts" value="6" detail="Needs review" />
+        {liveMetricCards.map(([label, value, detail]) => (
+          <Metric key={label} label={label} value={value} detail={detail} />
+        ))}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -335,7 +540,7 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
                 </div>
               </div>
             ))}
-            {briefItems.map((item) => (
+            {computedBriefItems.map((item) => (
               <div key={item.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -355,7 +560,7 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Risk Alerts</h3>
           </div>
           <div className="space-y-3">
-            {riskAlerts.map((alert) => (
+            {computedRiskAlerts.map((alert) => (
               <div key={alert.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -378,7 +583,7 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Reply Drafts</h3>
           </div>
           <div className="space-y-3">
-            {replyDrafts.map((draft) => (
+            {computedReplyDrafts.map((draft) => (
               <div key={draft.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -399,7 +604,7 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Pricing Suggestions</h3>
           </div>
           <div className="space-y-3">
-            {pricingSuggestions.map((price) => (
+            {computedPricingSuggestions.map((price) => (
               <div key={price.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -420,7 +625,7 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Automation Queue</h3>
           </div>
           <div className="space-y-3">
-            {automations.map((automation) => (
+            {computedAutomations.map((automation) => (
               <div key={automation.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
