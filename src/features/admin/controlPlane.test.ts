@@ -125,7 +125,11 @@ describe('admin accommodation control plane', () => {
                     planTier: 'paid',
                     enforcementMode: 'enforced',
                     moduleOverrides: {},
-                    capabilityOverrides: { 'guest.whatsapp_automation': true },
+                    capabilityOverrides: {
+                      'guest.whatsapp_automation': true,
+                      'bookings.rate_plan_controls': false,
+                      'billing.night_audit': false,
+                    },
                     approvalOverrides: {},
                     updatedAt: '2026-06-26T10:00:00.000Z',
                   })}`,
@@ -148,8 +152,16 @@ describe('admin accommodation control plane', () => {
     const vendors = await listAdminAccommodationAccess(supabase as never);
 
     expect(vendors[0]?.access).toMatchObject({
-      capabilityOverrides: { 'guest.whatsapp_automation': true },
-      resolvedCapabilities: expect.objectContaining({ 'guest.whatsapp_automation': true }),
+      capabilityOverrides: {
+        'guest.whatsapp_automation': true,
+        'bookings.rate_plan_controls': false,
+        'billing.night_audit': false,
+      },
+      resolvedCapabilities: expect.objectContaining({
+        'guest.whatsapp_automation': true,
+        'bookings.rate_plan_controls': false,
+        'billing.night_audit': false,
+      }),
     });
   });
 

@@ -56,7 +56,14 @@ const accommodationApprovalModes = ['open', 'vendor_owner_only', 'admin_approval
 const accommodationCapabilityGroups: Array<{ title: string; capabilities: AccommodationCapabilityKey[] }> = [
   {
     title: 'Bookings',
-    capabilities: ['bookings.manual_entry', 'bookings.online_engine', 'bookings.group_bookings', 'bookings.ai_chatbot'],
+    capabilities: [
+      'bookings.manual_entry',
+      'bookings.online_engine',
+      'bookings.group_bookings',
+      'bookings.reservation_changes',
+      'bookings.rate_plan_controls',
+      'bookings.ai_chatbot',
+    ],
   },
   {
     title: 'Inventory',
@@ -68,7 +75,13 @@ const accommodationCapabilityGroups: Array<{ title: string; capabilities: Accomm
   },
   {
     title: 'Billing',
-    capabilities: ['billing.manual_folios', 'billing.gst_invoice', 'billing.integrated_payments'],
+    capabilities: [
+      'billing.manual_folios',
+      'billing.gst_invoice',
+      'billing.integrated_payments',
+      'billing.refund_controls',
+      'billing.night_audit',
+    ],
   },
   {
     title: 'Housekeeping',

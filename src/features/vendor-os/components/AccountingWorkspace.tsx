@@ -153,6 +153,14 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
   const records = useVendorOSRecords('accounting', organizationId);
   const mutations = useVendorOSRecordMutations('accounting', organizationId, branchId);
   const accommodationInsight = getAccommodationModuleInsights('accounting', accommodationAccess);
+  const canRefundControls =
+    !accommodationAccess?.isAccommodationProvider ||
+    accommodationAccess.enforcementMode === 'open' ||
+    accommodationAccess.resolvedCapabilities['billing.refund_controls'];
+  const canNightAudit =
+    !accommodationAccess?.isAccommodationProvider ||
+    accommodationAccess.enforcementMode === 'open' ||
+    accommodationAccess.resolvedCapabilities['billing.night_audit'];
   const [invoiceForm, setInvoiceForm] = useState({
     invoice_number: '',
     booking_reference: '',
@@ -697,37 +705,45 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
             <Calculator className="h-4 w-4 text-emerald-600" />
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Night Audit Desk</h3>
           </div>
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Outstanding</div>
-              <div className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(nightAuditSummary.outstanding)}</div>
-              <div className="mt-1 text-xs text-slate-500">Open guest balances</div>
+          {canNightAudit ? (
+            <>
+              <div className="grid gap-3 md:grid-cols-4">
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Outstanding</div>
+                  <div className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(nightAuditSummary.outstanding)}</div>
+                  <div className="mt-1 text-xs text-slate-500">Open guest balances</div>
+                </div>
+                <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">Checked-out pending</div>
+                  <div className="mt-2 text-2xl font-black text-slate-950">{nightAuditSummary.checkedOutPending}</div>
+                  <div className="mt-1 text-xs text-slate-500">Departed stays still open</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Open folios</div>
+                  <div className="mt-2 text-2xl font-black text-slate-950">{nightAuditSummary.openFolios}</div>
+                  <div className="mt-1 text-xs text-slate-500">Need settlement follow-up</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Refunds today</div>
+                  <div className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(paymentTotals.refunds)}</div>
+                  <div className="mt-1 text-xs text-slate-500">{nightAuditSummary.pendingApprovals} approvals pending</div>
+                </div>
+              </div>
+              <div className="mt-4 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Night audit state</div>
+                <div className="mt-2 text-sm font-black text-slate-950">
+                  {nightAuditSummary.closeable ? 'Ready to close day' : 'Night audit requires review'}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Close only after balances, folios, approvals, and refunds are reconciled.
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-500">
+              Night audit is locked on the current accommodation plan. Core invoicing and payment capture remain available.
             </div>
-            <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">Checked-out pending</div>
-              <div className="mt-2 text-2xl font-black text-slate-950">{nightAuditSummary.checkedOutPending}</div>
-              <div className="mt-1 text-xs text-slate-500">Departed stays still open</div>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Open folios</div>
-              <div className="mt-2 text-2xl font-black text-slate-950">{nightAuditSummary.openFolios}</div>
-              <div className="mt-1 text-xs text-slate-500">Need settlement follow-up</div>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Refunds today</div>
-              <div className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(paymentTotals.refunds)}</div>
-              <div className="mt-1 text-xs text-slate-500">{nightAuditSummary.pendingApprovals} approvals pending</div>
-            </div>
-          </div>
-          <div className="mt-4 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Night audit state</div>
-            <div className="mt-2 text-sm font-black text-slate-950">
-              {nightAuditSummary.closeable ? 'Ready to close day' : 'Night audit requires review'}
-            </div>
-            <div className="mt-1 text-xs text-slate-500">
-              Close only after balances, folios, approvals, and refunds are reconciled.
-            </div>
-          </div>
+          )}
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -901,7 +917,7 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
                     </Button>
                   </>
                 ) : null}
-                {(payment.status === 'recorded' || payment.status === 'partially_refunded') && payment.netAmount > 0 ? (
+                {canRefundControls && (payment.status === 'recorded' || payment.status === 'partially_refunded') && payment.netAmount > 0 ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -919,7 +935,7 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
                   </Button>
                 ) : null}
               </div>
-              {refundDrafts[payment.id]?.open ? (
+              {refundDrafts[payment.id]?.open && canRefundControls ? (
                 <div className="md:col-span-3 grid gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-100 md:grid-cols-[0.6fr_1fr_auto]">
                   <input
                     aria-label={`Refund amount for ${payment.reservationLabel}`}
@@ -962,6 +978,11 @@ export function AccountingWorkspace({ organizationId, branchId, accommodationAcc
                   >
                     Process Refund
                   </Button>
+                </div>
+              ) : null}
+              {!canRefundControls ? (
+                <div className="md:col-span-3 text-xs font-semibold text-slate-500">
+                  Refund controls are locked on the current accommodation plan.
                 </div>
               ) : null}
             </div>

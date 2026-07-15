@@ -48,6 +48,8 @@ const accommodationAccess: ResolvedVendorAccommodationAccess = {
     'bookings.manual_entry': true,
     'bookings.online_engine': false,
     'bookings.group_bookings': false,
+    'bookings.reservation_changes': false,
+    'bookings.rate_plan_controls': false,
     'bookings.ai_chatbot': false,
     'inventory.manual_updates': true,
     'inventory.ota_sync': false,
@@ -59,6 +61,8 @@ const accommodationAccess: ResolvedVendorAccommodationAccess = {
     'billing.manual_folios': true,
     'billing.gst_invoice': false,
     'billing.integrated_payments': false,
+    'billing.refund_controls': false,
+    'billing.night_audit': false,
     'housekeeping.room_status': true,
     'housekeeping.mobile_tasks': false,
     'housekeeping.predictive_scheduling': false,
@@ -354,8 +358,109 @@ describe('PmsWorkspace', () => {
     expect(screen.getByText('Accommodation controls')).toBeInTheDocument();
     expect(screen.getByText('Mobile check-in')).toBeInTheDocument();
     expect(screen.getByText('Locked on basic')).toBeInTheDocument();
+    expect(screen.getByText('Reservation changes')).toBeInTheDocument();
+    expect(screen.getByText('Rate plan controls')).toBeInTheDocument();
     expect(screen.getByText('GST folios')).toBeInTheDocument();
-    expect(screen.getByText('Upgrade to unlock')).toBeInTheDocument();
+    expect(screen.getAllByText('Upgrade to unlock').length).toBeGreaterThan(0);
+  });
+
+  it('keeps core reservation entry available when premium PMS controls are locked', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([
+        {
+          id: 'room-type-1',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          name: 'Deluxe Sea View',
+          occupancy: 2,
+          base_rate: 8999,
+          amenities: [],
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: 'room-type-1',
+          room_number: '101',
+          floor: '1',
+          status: 'available',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-12',
+          check_out_date: '2026-07-14',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    vi.mocked(createVendorPmsRecord).mockResolvedValue({ id: 'reservation-2' } as never);
+
+    render(
+      <PmsWorkspace
+        organizationId="org-1"
+        branchId="branch-1"
+        accommodationAccess={accommodationAccess}
+      />,
+    );
+
+    expect(await screen.findByText('Rate plan controls are locked on the current accommodation plan. Core reservation entry stays available.')).toBeInTheDocument();
+    expect(screen.queryByText('Booking Rate Desk')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit Reservation' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel Reservation' })).not.toBeInTheDocument();
+    expect(screen.getByText('Reservation change controls are locked on the current accommodation plan.')).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Guest name *'), 'Locked Plan Guest');
+    await userEvent.type(screen.getByLabelText('Check-in date *'), '2026-07-20');
+    await userEvent.type(screen.getByLabelText('Check-out date *'), '2026-07-22');
+    await userEvent.click(screen.getByRole('button', { name: 'Create Reservation' }));
+
+    await waitFor(() => {
+      expect(createVendorPmsRecord).toHaveBeenCalledWith(
+        'reservations',
+        'org-1',
+        'branch-1',
+        expect.objectContaining({
+          guest_name: 'Locked Plan Guest',
+          check_in_date: '2026-07-20',
+          check_out_date: '2026-07-22',
+        }),
+      );
+    });
   });
 
   it('builds source-aware reservation rate plans from stay dates and room pricing', () => {

@@ -44,20 +44,28 @@ export function getAccommodationModuleInsights(
               : `Locked on ${access.planTier}`,
         },
         {
+          label: 'Reservation changes',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['bookings.reservation_changes']
+              ? 'Enabled'
+              : 'Upgrade to unlock',
+        },
+        {
+          label: 'Rate plan controls',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['bookings.rate_plan_controls']
+              ? 'Enabled'
+              : 'Locked on current plan',
+        },
+        {
           label: 'GST folios',
           status: isOpen
             ? 'Open'
             : access.resolvedCapabilities['billing.gst_invoice']
               ? 'Enabled'
               : 'Upgrade to unlock',
-        },
-        {
-          label: 'Housekeeping mobile tasks',
-          status: isOpen
-            ? 'Open'
-            : access.resolvedCapabilities['housekeeping.mobile_tasks']
-              ? 'Enabled'
-              : 'Locked',
         },
       ],
     };
@@ -170,6 +178,22 @@ export function getAccommodationModuleInsights(
         {
           label: 'Refund actions',
           status: isOpen ? 'Open' : formatApproval(access.resolvedApprovals.refund_actions),
+        },
+        {
+          label: 'Refund controls',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['billing.refund_controls']
+              ? 'Enabled'
+              : 'Locked on current plan',
+        },
+        {
+          label: 'Night audit',
+          status: isOpen
+            ? 'Open'
+            : access.resolvedCapabilities['billing.night_audit']
+              ? 'Enabled'
+              : 'Upgrade to unlock',
         },
       ],
     };

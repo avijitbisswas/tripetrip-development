@@ -38,6 +38,8 @@ const buildAccess = (
     'bookings.manual_entry': true,
     'bookings.online_engine': false,
     'bookings.group_bookings': false,
+    'bookings.reservation_changes': false,
+    'bookings.rate_plan_controls': false,
     'bookings.ai_chatbot': false,
     'inventory.manual_updates': true,
     'inventory.ota_sync': false,
@@ -49,6 +51,8 @@ const buildAccess = (
     'billing.manual_folios': true,
     'billing.gst_invoice': false,
     'billing.integrated_payments': false,
+    'billing.refund_controls': false,
+    'billing.night_audit': false,
     'housekeeping.room_status': true,
     'housekeeping.mobile_tasks': false,
     'housekeeping.predictive_scheduling': false,
@@ -87,6 +91,8 @@ describe('getAccommodationModuleInsights', () => {
     expect(insight?.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ label: 'Mobile check-in', status: 'Locked on basic' }),
+        expect.objectContaining({ label: 'Reservation changes', status: 'Upgrade to unlock' }),
+        expect.objectContaining({ label: 'Rate plan controls', status: 'Locked on current plan' }),
         expect.objectContaining({ label: 'GST folios', status: 'Upgrade to unlock' }),
       ]),
     );
@@ -124,6 +130,8 @@ describe('getAccommodationModuleInsights', () => {
       expect.arrayContaining([
         expect.objectContaining({ label: 'Payout actions', status: 'Open' }),
         expect.objectContaining({ label: 'Refund actions', status: 'Open' }),
+        expect.objectContaining({ label: 'Refund controls', status: 'Locked on current plan' }),
+        expect.objectContaining({ label: 'Night audit', status: 'Upgrade to unlock' }),
       ]),
     );
   });

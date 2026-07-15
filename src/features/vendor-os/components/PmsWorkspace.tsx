@@ -263,6 +263,14 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   const documentMutations = useVendorOSRecordMutations('documents', organizationId, branchId, accommodationAccess);
   const documentUploads = useVendorDocumentUpload(organizationId, branchId, accommodationAccess);
   const accommodationInsight = getAccommodationModuleInsights('pms', accommodationAccess);
+  const canReservationChangeControls =
+    !accommodationAccess?.isAccommodationProvider ||
+    accommodationAccess.enforcementMode === 'open' ||
+    accommodationAccess.resolvedCapabilities['bookings.reservation_changes'];
+  const canRatePlanControls =
+    !accommodationAccess?.isAccommodationProvider ||
+    accommodationAccess.enforcementMode === 'open' ||
+    accommodationAccess.resolvedCapabilities['bookings.rate_plan_controls'];
   const uploadedDocuments = useVendorOSDocuments(organizationId);
 
   const [roomTypes, setRoomTypes] = useState<VendorRoomTypeRecord[]>([]);
@@ -1458,7 +1466,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
               </Button>
             </div>
           </form>
-          {selectedReservationRoomType ? (
+          {selectedReservationRoomType && canRatePlanControls ? (
             <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1511,6 +1519,11 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
               )}
             </div>
           ) : null}
+          {selectedReservationRoomType && !canRatePlanControls ? (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-500">
+              Rate plan controls are locked on the current accommodation plan. Core reservation entry stays available.
+            </div>
+          ) : null}
           <div className="mt-4 space-y-3">
             {arrivalRows.map((move) => (
               <div key={move.id} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
@@ -1543,22 +1556,24 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                 ) : null}
                 {move.notes ? <div className="mt-2 text-xs text-slate-500">{move.notes}</div> : null}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
-                    disabled={move.type === 'cancelled' || move.type === 'checked_out' || move.type === 'no_show'}
-                    onClick={() => {
-                      setEditingReservationId((current) => (current === move.id ? null : move.id));
-                      setReservationEditDrafts((current) => ({
-                        ...current,
-                        [move.id]: current[move.id] || getReservationEditDraft(move),
-                      }));
-                    }}
-                  >
-                    Edit Reservation
-                  </Button>
+                  {canReservationChangeControls ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                      disabled={move.type === 'cancelled' || move.type === 'checked_out' || move.type === 'no_show'}
+                      onClick={() => {
+                        setEditingReservationId((current) => (current === move.id ? null : move.id));
+                        setReservationEditDrafts((current) => ({
+                          ...current,
+                          [move.id]: current[move.id] || getReservationEditDraft(move),
+                        }));
+                      }}
+                    >
+                      Edit Reservation
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     size="sm"
@@ -1598,26 +1613,28 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                   >
                     Check Out
                   </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
-                    disabled={move.type === 'cancelled' || move.type === 'checked_out' || move.type === 'no_show'}
-                    onClick={() =>
-                      void handleReservationCancellation({
-                        id: move.id,
-                        roomId: move.roomId,
-                        guest: move.guest,
-                        checkInDate: move.checkInDate,
-                        checkOutDate: move.checkOutDate,
-                      })
-                    }
-                  >
-                    Cancel Reservation
-                  </Button>
+                  {canReservationChangeControls ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl text-[10px] font-bold uppercase tracking-widest"
+                      disabled={move.type === 'cancelled' || move.type === 'checked_out' || move.type === 'no_show'}
+                      onClick={() =>
+                        void handleReservationCancellation({
+                          id: move.id,
+                          roomId: move.roomId,
+                          guest: move.guest,
+                          checkInDate: move.checkInDate,
+                          checkOutDate: move.checkOutDate,
+                        })
+                      }
+                    >
+                      Cancel Reservation
+                    </Button>
+                  ) : null}
                 </div>
-                {editingReservationId === move.id ? (
+                {editingReservationId === move.id && canReservationChangeControls ? (
                   <div className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white p-3 md:grid-cols-2">
                     <input
                       aria-label={`Edit check-in for ${move.guest}`}
@@ -1699,6 +1716,11 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                         Close Edit
                       </Button>
                     </div>
+                  </div>
+                ) : null}
+                {!canReservationChangeControls ? (
+                  <div className="mt-3 text-xs font-semibold text-slate-500">
+                    Reservation change controls are locked on the current accommodation plan.
                   </div>
                 ) : null}
                 <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">

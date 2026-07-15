@@ -24,6 +24,7 @@
 - Payment operations slice now includes vendor payment record schema, Worker/API plumbing, and a live accounting settlement desk for reservation-linked payment capture.
 - Payment operations now include finance-side approval and rejection controls for pending manual payments, with folio and reservation balance sync when approvals close or reopen billing.
 - Payment operations now include GST invoice capture, refund processing with folio/reservation resync, and a live night-audit desk for end-of-day finance review.
+- Accommodation entitlement controls now cover reservation changes, rate-plan controls, refund controls, and night-audit visibility so launch can stay open now and switch to gated plans later without rewiring the vendor workflows.
 - Marketplace inventory sync now includes admin approval routing, channel targets, per-channel distribution state, and admin publishing queue controls for accommodation vendors.
 - OTA and channel foundations now include live channel connection records, sync activity logs, manual verification, and retryable push-sync workflows for accommodation vendors.
 - Guest arrival operations now include reservation-linked document uploads, readiness tracking, and manual identity verification flows inside the PMS workspace.

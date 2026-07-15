@@ -9,6 +9,8 @@ export type AccommodationCapabilityKey =
   | 'bookings.manual_entry'
   | 'bookings.online_engine'
   | 'bookings.group_bookings'
+  | 'bookings.reservation_changes'
+  | 'bookings.rate_plan_controls'
   | 'bookings.ai_chatbot'
   | 'inventory.manual_updates'
   | 'inventory.ota_sync'
@@ -20,6 +22,8 @@ export type AccommodationCapabilityKey =
   | 'billing.manual_folios'
   | 'billing.gst_invoice'
   | 'billing.integrated_payments'
+  | 'billing.refund_controls'
+  | 'billing.night_audit'
   | 'housekeeping.room_status'
   | 'housekeeping.mobile_tasks'
   | 'housekeeping.predictive_scheduling'
@@ -113,6 +117,8 @@ const tierCapabilities: Record<VendorPlanTier, AccommodationCapabilityKey[]> = {
     'bookings.manual_entry',
     'bookings.online_engine',
     'bookings.group_bookings',
+    'bookings.reservation_changes',
+    'bookings.rate_plan_controls',
     'inventory.manual_updates',
     'inventory.ota_sync',
     'inventory.rule_based_rates',
@@ -122,6 +128,8 @@ const tierCapabilities: Record<VendorPlanTier, AccommodationCapabilityKey[]> = {
     'billing.manual_folios',
     'billing.gst_invoice',
     'billing.integrated_payments',
+    'billing.refund_controls',
+    'billing.night_audit',
     'housekeeping.room_status',
     'housekeeping.mobile_tasks',
     'staff.manual_attendance',
@@ -135,6 +143,8 @@ const tierCapabilities: Record<VendorPlanTier, AccommodationCapabilityKey[]> = {
     'bookings.manual_entry',
     'bookings.online_engine',
     'bookings.group_bookings',
+    'bookings.reservation_changes',
+    'bookings.rate_plan_controls',
     'bookings.ai_chatbot',
     'inventory.manual_updates',
     'inventory.ota_sync',
@@ -146,6 +156,8 @@ const tierCapabilities: Record<VendorPlanTier, AccommodationCapabilityKey[]> = {
     'billing.manual_folios',
     'billing.gst_invoice',
     'billing.integrated_payments',
+    'billing.refund_controls',
+    'billing.night_audit',
     'housekeeping.room_status',
     'housekeeping.mobile_tasks',
     'housekeeping.predictive_scheduling',
@@ -174,6 +186,8 @@ export const accommodationCapabilities: AccommodationCapabilityKey[] = [
   'bookings.manual_entry',
   'bookings.online_engine',
   'bookings.group_bookings',
+  'bookings.reservation_changes',
+  'bookings.rate_plan_controls',
   'bookings.ai_chatbot',
   'inventory.manual_updates',
   'inventory.ota_sync',
@@ -185,6 +199,8 @@ export const accommodationCapabilities: AccommodationCapabilityKey[] = [
   'billing.manual_folios',
   'billing.gst_invoice',
   'billing.integrated_payments',
+  'billing.refund_controls',
+  'billing.night_audit',
   'housekeeping.room_status',
   'housekeeping.mobile_tasks',
   'housekeeping.predictive_scheduling',
