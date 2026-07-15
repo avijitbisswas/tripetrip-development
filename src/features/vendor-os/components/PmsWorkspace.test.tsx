@@ -253,6 +253,132 @@ describe('PmsWorkspace', () => {
     expect(screen.getByText('Candolim Beach Road')).toBeInTheDocument();
   });
 
+  it('filters PMS operational views by property focus while keeping portfolio totals visible', async () => {
+    hookMocks.records = [
+      {
+        id: 'property-1',
+        organization_id: 'org-1',
+        name: 'Goa Luxe Villas',
+        property_type: 'villa',
+        address: 'Candolim Beach Road',
+        is_active: true,
+      },
+      {
+        id: 'property-2',
+        organization_id: 'org-1',
+        name: 'Manali Ridge Hotel',
+        property_type: 'hotel',
+        address: 'Mall Road',
+        is_active: true,
+      },
+    ];
+
+    vi.mocked(listVendorPmsRecords)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'room-101',
+          organization_id: 'org-1',
+          property_id: 'property-1',
+          room_type_id: null,
+          room_number: '101',
+          floor: '1',
+          status: 'reserved',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+        {
+          id: 'room-201',
+          organization_id: 'org-1',
+          property_id: 'property-2',
+          room_type_id: null,
+          room_number: '201',
+          floor: '2',
+          status: 'occupied',
+          housekeeping_status: 'clean',
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'reservation-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          room_id: 'room-101',
+          guest_name: 'Aarav Mehta',
+          guest_email: 'aarav@example.com',
+          guest_phone: '9876543210',
+          check_in_date: '2026-07-12',
+          check_out_date: '2026-07-14',
+          adults: 2,
+          children: 0,
+          status: 'reserved',
+          payment_status: 'pending',
+          total_amount: 12000,
+          source: 'manual',
+          notes: null,
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+        {
+          id: 'reservation-2',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-2',
+          room_id: 'room-201',
+          guest_name: 'Mira Sen',
+          guest_email: 'mira@example.com',
+          guest_phone: '8888888888',
+          check_in_date: '2026-07-15',
+          check_out_date: '2026-07-17',
+          adults: 2,
+          children: 0,
+          status: 'checked_in',
+          payment_status: 'paid',
+          total_amount: 18000,
+          source: 'direct',
+          notes: null,
+          metadata: {},
+          created_at: '2026-07-01T10:00:00.000Z',
+        },
+      ] as never)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'folio-1',
+          organization_id: 'org-1',
+          branch_id: 'branch-1',
+          property_id: 'property-1',
+          reservation_id: 'reservation-1',
+          entry_type: 'room_charge',
+          title: 'Goa folio',
+          amount: 12000,
+          quantity: 1,
+          payment_state: 'open',
+          notes: null,
+          posted_at: '2026-07-02T08:00:00.000Z',
+          created_at: '2026-07-02T08:00:00.000Z',
+        },
+      ] as never);
+
+    render(<PmsWorkspace organizationId="org-1" branchId="branch-1" />);
+
+    expect(await screen.findByText('Portfolio Focus')).toBeInTheDocument();
+    expect(screen.getByText('Tracked properties')).toBeInTheDocument();
+    expect(screen.getAllByText('Goa Luxe Villas').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Manali Ridge Hotel').length).toBeGreaterThan(0);
+
+    await userEvent.selectOptions(screen.getByLabelText('PMS property focus'), 'property-1');
+
+    expect(screen.getAllByText('Aarav Mehta').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Mira Sen')).not.toBeInTheDocument();
+    expect(screen.getByText('Room 101')).toBeInTheDocument();
+    expect(screen.queryByText('Room 201')).not.toBeInTheDocument();
+  });
+
   it('creates room inventory, reservations, housekeeping tasks, and folio entries through live PMS actions', async () => {
     hookMocks.records = [
       {

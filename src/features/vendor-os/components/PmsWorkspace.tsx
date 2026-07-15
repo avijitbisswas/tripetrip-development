@@ -288,6 +288,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   const [preCheckInEdits, setPreCheckInEdits] = useState<Record<string, PreCheckInEdit>>({});
   const [reservationEditDrafts, setReservationEditDrafts] = useState<Record<string, ReservationEditDraft>>({});
   const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
+  const [selectedPropertyView, setSelectedPropertyView] = useState<'all' | string>('all');
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
 
   const [propertyForm, setPropertyForm] = useState({ name: '', property_type: 'hotel', address: '' });
@@ -354,6 +355,53 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     ],
   );
   const propertyOptions = liveProperties.map((property) => ({ value: property.id, label: property.name }));
+  const filteredRooms = useMemo(
+    () => (selectedPropertyView === 'all' ? rooms : rooms.filter((room) => room.property_id === selectedPropertyView)),
+    [rooms, selectedPropertyView],
+  );
+  const filteredReservations = useMemo(
+    () =>
+      selectedPropertyView === 'all'
+        ? reservations
+        : reservations.filter((reservation) => reservation.property_id === selectedPropertyView),
+    [reservations, selectedPropertyView],
+  );
+  const filteredFolioEntries = useMemo(
+    () =>
+      selectedPropertyView === 'all'
+        ? folioEntries
+        : folioEntries.filter((folio) => folio.property_id === selectedPropertyView),
+    [folioEntries, selectedPropertyView],
+  );
+  const filteredHousekeepingTasks = useMemo(
+    () =>
+      selectedPropertyView === 'all'
+        ? housekeepingTasks
+        : housekeepingTasks.filter((task) => task.property_id === selectedPropertyView),
+    [housekeepingTasks, selectedPropertyView],
+  );
+  const enterpriseSummary = useMemo(() => {
+    const activeProperties = liveProperties.filter(
+      (property) =>
+        rooms.some((room) => room.property_id === property.id) ||
+        reservations.some((reservation) => reservation.property_id === property.id),
+    );
+    const readyProperties = activeProperties.filter((property) => {
+      const propertyReservations = reservations.filter((reservation) => reservation.property_id === property.id);
+      const propertyFolios = folioEntries.filter((folio) => folio.property_id === property.id);
+      return (
+        propertyReservations.filter((reservation) => reservation.status === 'reserved').length === 0 &&
+        propertyFolios.filter((folio) => folio.payment_state !== 'settled' && folio.payment_state !== 'void').length === 0
+      );
+    }).length;
+
+    return {
+      propertyCount: activeProperties.length,
+      readyProperties,
+      flaggedProperties: Math.max(activeProperties.length - readyProperties, 0),
+      activeRooms: rooms.length,
+    };
+  }, [folioEntries, liveProperties, reservations, rooms]);
 
   async function refreshPmsData() {
     if (!organizationId) return;
@@ -393,11 +441,11 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   }, [liveProperties]);
 
   const metrics = useMemo(() => {
-    const roomCount = rooms.length;
-    const occupiedCount = rooms.filter((room) => ['occupied', 'reserved'].includes(room.status)).length;
-    const dirtyCount = rooms.filter((room) => room.housekeeping_status === 'dirty' || room.status === 'dirty').length;
-    const arrivalsCount = reservations.filter((reservation) => reservation.status === 'reserved').length;
-    const openFoliosCount = folioEntries.filter((folio) => folio.payment_state !== 'settled' && folio.payment_state !== 'void').length;
+    const roomCount = filteredRooms.length;
+    const occupiedCount = filteredRooms.filter((room) => ['occupied', 'reserved'].includes(room.status)).length;
+    const dirtyCount = filteredRooms.filter((room) => room.housekeeping_status === 'dirty' || room.status === 'dirty').length;
+    const arrivalsCount = filteredReservations.filter((reservation) => reservation.status === 'reserved').length;
+    const openFoliosCount = filteredFolioEntries.filter((folio) => folio.payment_state !== 'settled' && folio.payment_state !== 'void').length;
 
     return {
       occupancy: roomCount > 0 ? `${Math.round((occupiedCount / roomCount) * 100)}%` : '0%',
@@ -409,9 +457,9 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       openFolios: String(openFoliosCount),
       openFoliosDetail: 'Awaiting settlement',
     };
-  }, [folioEntries, reservations, rooms]);
+  }, [filteredFolioEntries, filteredReservations, filteredRooms]);
 
-  const arrivalRows = reservations.map((reservation) => ({
+  const arrivalRows = filteredReservations.map((reservation) => ({
     id: reservation.id,
     guest: reservation.guest_name,
     guestEmail: reservation.guest_email || 'Email pending',
@@ -446,13 +494,13 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   }));
 
   const activeReservations = useMemo(
-    () => reservations.filter((reservation) => !['cancelled', 'no_show', 'checked_out'].includes(reservation.status)),
-    [reservations],
+    () => filteredReservations.filter((reservation) => !['cancelled', 'no_show', 'checked_out'].includes(reservation.status)),
+    [filteredReservations],
   );
 
   const roomAvailabilityRows = useMemo(
     () =>
-      rooms.map((room) => {
+      filteredRooms.map((room) => {
         const roomReservations = activeReservations.filter((reservation) => reservation.room_id === room.id);
         const leadReservation = roomReservations[0] || null;
         const roomType = roomTypeMap.get(room.room_type_id || '');
@@ -482,7 +530,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
                     : 'Open',
         };
       }),
-    [activeReservations, roomTypeMap, rooms],
+    [activeReservations, filteredRooms, roomTypeMap],
   );
 
   const bookingControlSummary = useMemo(() => {
@@ -500,7 +548,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       blockedRooms,
       sourceMix,
     };
-  }, [activeReservations, reservations, roomAvailabilityRows]);
+  }, [activeReservations, filteredReservations, roomAvailabilityRows]);
   const reservationAssignmentRows = useMemo(
     () =>
       activeReservations
@@ -508,7 +556,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
         .map((reservation) => {
           const totalGuests = Number(reservation.adults || 0) + Number(reservation.children || 0);
           const suggestedRoom =
-            rooms
+            filteredRooms
               .filter(
                 (room) =>
                   room.property_id === reservation.property_id &&
@@ -543,7 +591,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
             suggestedRoom,
           };
         }),
-    [activeReservations, roomTypeMap, rooms],
+    [activeReservations, filteredRooms, roomTypeMap],
   );
   const reservationAssignmentSummary = useMemo(() => {
     const assignableCount = reservationAssignmentRows.filter((row) => row.suggestedRoom).length;
@@ -555,7 +603,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   const teamMemberMap = useMemo(() => new Map(teamMembers.map((member) => [member.id, member])), [teamMembers]);
   const housekeepingDispatchRows = useMemo(
     () =>
-      housekeepingTasks.map((task) => {
+      filteredHousekeepingTasks.map((task) => {
         const room = task.room_id ? roomMap.get(task.room_id) : null;
         const roomReservations = task.room_id
           ? reservations.filter(
@@ -589,7 +637,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
           dueLabel: formatDateTimeLabel(task.due_at),
         };
       }),
-    [housekeepingTasks, reservations, roomMap, teamMemberMap],
+    [filteredHousekeepingTasks, filteredReservations, roomMap, teamMemberMap],
   );
   const housekeepingDispatchSummary = useMemo(() => {
     const urgentCount = housekeepingDispatchRows.filter((row) => row.priority === 'Arrival first').length;
@@ -605,7 +653,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
 
   const guestArrivalReadiness = useMemo(
     () =>
-      reservations.map((reservation) => {
+      filteredReservations.map((reservation) => {
         const reservationMetadata =
           reservation.metadata && typeof reservation.metadata === 'object'
             ? (reservation.metadata as Record<string, unknown>)
@@ -648,7 +696,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
           documentLabel: latestDocument?.name || 'No ID uploaded',
         };
       }),
-    [guestDocuments, reservations, roomMap],
+    [filteredReservations, guestDocuments, roomMap],
   );
 
   function getPreCheckInEdit(guest: (typeof guestArrivalReadiness)[number]) {
@@ -1185,6 +1233,55 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       </section>
 
       <AccommodationInsightPanel insight={accommodationInsight} />
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Portfolio Focus</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">
+              Switch between an all-properties operations view and a single-property lens without leaving the PMS workspace.
+            </p>
+          </div>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Property focus</span>
+            <select
+              aria-label="PMS property focus"
+              className="h-11 min-w-[240px] rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              value={selectedPropertyView}
+              onChange={(event) => setSelectedPropertyView(event.target.value)}
+            >
+              <option value="all">All properties</option>
+              {propertyOptions.map((property) => (
+                <option key={property.value} value={property.value}>
+                  {property.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Tracked properties</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">{enterpriseSummary.propertyCount}</div>
+            <div className="mt-1 text-xs text-slate-500">Properties with active room or reservation records</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Ready sites</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">{enterpriseSummary.readyProperties}</div>
+            <div className="mt-1 text-xs text-slate-500">No queued arrivals or open folios</div>
+          </div>
+          <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">Flagged sites</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">{enterpriseSummary.flaggedProperties}</div>
+            <div className="mt-1 text-xs text-slate-500">Need front-desk or settlement attention</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Active rooms</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">{enterpriseSummary.activeRooms}</div>
+            <div className="mt-1 text-xs text-slate-500">Across the accommodation portfolio</div>
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">

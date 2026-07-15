@@ -129,6 +129,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
   const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
   const [folioEntries, setFolioEntries] = useState<VendorFolioEntryRecord[]>([]);
   const [payments, setPayments] = useState<VendorPaymentRecord[]>([]);
+  const [selectedPropertyView, setSelectedPropertyView] = useState<'all' | string>('all');
   const [snapshotForm, setSnapshotForm] = useState({
     module: 'marketplace',
     snapshot_date: '',
@@ -147,23 +148,96 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
       })),
     [records.records],
   );
+  const branchRollups = useMemo(() => {
+    const getLabel = (propertyId: string) =>
+      propertyId === 'unassigned-property' ? 'Unassigned Property' : titleCase(propertyId.replace(/[-_]+/g, ' '));
+    const createEmpty = (propertyId: string) => ({
+      propertyId,
+      name: getLabel(propertyId),
+      revenue: 0,
+      checkedIn: 0,
+      total: 0,
+      arrivals: 0,
+      openFolios: 0,
+      collected: 0,
+    });
+    const byProperty = new Map<string, ReturnType<typeof createEmpty>>();
+
+    for (const reservation of reservations) {
+      const propertyId = reservation.property_id || 'unassigned-property';
+      const current = byProperty.get(propertyId) || createEmpty(propertyId);
+      current.revenue += Number(reservation.total_amount || 0);
+      current.total += 1;
+      if (reservation.status === 'checked_in') current.checkedIn += 1;
+      if (reservation.status === 'reserved') current.arrivals += 1;
+      byProperty.set(propertyId, current);
+    }
+
+    for (const folio of folioEntries) {
+      const propertyId = folio.property_id || 'unassigned-property';
+      const current = byProperty.get(propertyId) || createEmpty(propertyId);
+      if (folio.payment_state !== 'settled' && folio.payment_state !== 'void') current.openFolios += 1;
+      byProperty.set(propertyId, current);
+    }
+
+    const reservationPropertyMap = new Map(
+      reservations.map((reservation) => [reservation.id, reservation.property_id || 'unassigned-property']),
+    );
+    for (const payment of payments) {
+      const propertyId = reservationPropertyMap.get(payment.reservation_id || '') || 'unassigned-property';
+      const current = byProperty.get(propertyId) || createEmpty(propertyId);
+      if (payment.status === 'recorded' || payment.status === 'pending_approval') {
+        current.collected += Number(payment.amount || 0);
+      }
+      byProperty.set(propertyId, current);
+    }
+
+    return Array.from(byProperty.values()).map((branch) => ({
+      ...branch,
+      occupancyRate: branch.total > 0 ? Math.round((branch.checkedIn / branch.total) * 100) : 0,
+    }));
+  }, [folioEntries, payments, reservations]);
+  const propertyViewOptions = useMemo(
+    () => branchRollups.map((branch) => ({ value: branch.propertyId, label: branch.name })),
+    [branchRollups],
+  );
+  const filteredReservations = useMemo(
+    () =>
+      selectedPropertyView === 'all'
+        ? reservations
+        : reservations.filter((reservation) => (reservation.property_id || 'unassigned-property') === selectedPropertyView),
+    [reservations, selectedPropertyView],
+  );
+  const filteredFolios = useMemo(
+    () =>
+      selectedPropertyView === 'all'
+        ? folioEntries
+        : folioEntries.filter((folio) => (folio.property_id || 'unassigned-property') === selectedPropertyView),
+    [folioEntries, selectedPropertyView],
+  );
+  const filteredPayments = useMemo(() => {
+    if (selectedPropertyView === 'all') return payments;
+    const reservationIds = new Set(filteredReservations.map((reservation) => reservation.id));
+    return payments.filter((payment) => reservationIds.has(payment.reservation_id || ''));
+  }, [filteredReservations, payments, selectedPropertyView]);
   const liveOperations = useMemo(() => {
-    const occupiedReservations = reservations.filter((reservation) => reservation.status === 'checked_in');
-    const occupancyRate = reservations.length > 0 ? Math.round((occupiedReservations.length / reservations.length) * 100) : 0;
-    const upcomingArrivals = reservations.filter((reservation) => reservation.status === 'reserved');
-    const openFolios = folioEntries.filter((folio) => folio.payment_state !== 'settled' && folio.payment_state !== 'void');
-    const settledFolios = folioEntries.filter((folio) => folio.payment_state === 'settled');
-    const recordedPayments = payments
+    const occupiedReservations = filteredReservations.filter((reservation) => reservation.status === 'checked_in');
+    const occupancyRate =
+      filteredReservations.length > 0 ? Math.round((occupiedReservations.length / filteredReservations.length) * 100) : 0;
+    const upcomingArrivals = filteredReservations.filter((reservation) => reservation.status === 'reserved');
+    const openFolios = filteredFolios.filter((folio) => folio.payment_state !== 'settled' && folio.payment_state !== 'void');
+    const settledFolios = filteredFolios.filter((folio) => folio.payment_state === 'settled');
+    const recordedPayments = filteredPayments
       .filter((payment) => payment.status === 'recorded' || payment.status === 'pending_approval')
       .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    const billedRevenue = reservations.reduce((sum, reservation) => sum + Number(reservation.total_amount || 0), 0);
+    const billedRevenue = filteredReservations.reduce((sum, reservation) => sum + Number(reservation.total_amount || 0), 0);
     const outstandingRevenue = upcomingArrivals
       .filter((reservation) => reservation.payment_status !== 'paid')
       .reduce((sum, reservation) => sum + Number(reservation.total_amount || 0), 0);
 
     return {
       occupancyRate,
-      occupancyDetail: `${occupiedReservations.length}/${reservations.length || 0} rooms occupied`,
+      occupancyDetail: `${occupiedReservations.length}/${filteredReservations.length || 0} rooms occupied`,
       arrivalsCount: upcomingArrivals.length,
       nextArrival: upcomingArrivals[0] || null,
       openFoliosCount: openFolios.length,
@@ -172,32 +246,31 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
       billedRevenue,
       outstandingRevenue,
     };
-  }, [folioEntries, payments, reservations]);
+  }, [filteredFolios, filteredPayments, filteredReservations]);
+  const enterpriseSummary = useMemo(
+    () => ({
+      propertyCount: branchRollups.length,
+      readyProperties: branchRollups.filter((branch) => branch.arrivals === 0 && branch.openFolios === 0).length,
+      flaggedProperties: branchRollups.filter((branch) => branch.arrivals > 0 || branch.openFolios > 0).length,
+      totalCollected: branchRollups.reduce((sum, branch) => sum + branch.collected, 0),
+    }),
+    [branchRollups],
+  );
   const branchInsights = useMemo(() => {
-    if (reservations.length === 0) {
+    if (branchRollups.length === 0) {
       return branches;
     }
-
-    const byProperty = new Map<string, { name: string; revenue: number; checkedIn: number; total: number; arrivals: number }>();
-    for (const reservation of reservations) {
-      const key = reservation.property_id || 'unassigned-property';
-      const current = byProperty.get(key) || { name: titleCase(key.replace(/-/g, ' ')), revenue: 0, checkedIn: 0, total: 0, arrivals: 0 };
-      current.revenue += Number(reservation.total_amount || 0);
-      current.total += 1;
-      if (reservation.status === 'checked_in') current.checkedIn += 1;
-      if (reservation.status === 'reserved') current.arrivals += 1;
-      byProperty.set(key, current);
-    }
-
-    return Array.from(byProperty.values()).map((branch) => ({
-      name: branch.name,
-      revenue: formatCurrency(branch.revenue),
-      signal: `${branch.total > 0 ? Math.round((branch.checkedIn / branch.total) * 100) : 0}% occupancy`,
-      state: branch.arrivals > 0 ? 'Arrivals due' : 'Stable',
-    }));
-  }, [reservations]);
+    return branchRollups
+      .filter((branch) => selectedPropertyView === 'all' || branch.propertyId === selectedPropertyView)
+      .map((branch) => ({
+        name: branch.name,
+        revenue: formatCurrency(branch.revenue),
+        signal: `${branch.occupancyRate}% occupancy / ${branch.openFolios} open folios`,
+        state: branch.arrivals > 0 ? 'Arrivals due' : branch.openFolios > 0 ? 'Review' : 'Stable',
+      }));
+  }, [branchRollups, selectedPropertyView]);
   const categoryInsights = useMemo(() => {
-    if (reservations.length === 0 && folioEntries.length === 0) {
+    if (filteredReservations.length === 0 && filteredFolios.length === 0) {
       return categories;
     }
 
@@ -227,9 +300,9 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
         state: liveOperations.recordedPayments > 0 ? 'Strong' : 'Review',
       },
     ];
-  }, [folioEntries.length, liveOperations, reservations.length]);
+  }, [filteredFolios.length, filteredReservations.length, liveOperations]);
   const operationalMetrics = useMemo(() => {
-    if (reservations.length === 0 && payments.length === 0) {
+    if (filteredReservations.length === 0 && filteredPayments.length === 0) {
       return operationalKpis;
     }
 
@@ -239,18 +312,23 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
       { title: 'Open Folios', value: String(liveOperations.openFoliosCount), detail: `${liveOperations.openFoliosCount} open folio / ${liveOperations.settledFoliosCount} settled` },
       { title: 'Collections', value: formatCurrency(liveOperations.recordedPayments), detail: `${formatCurrency(liveOperations.outstandingRevenue)} awaiting payment` },
     ];
-  }, [liveOperations, payments.length, reservations.length]);
+  }, [filteredPayments.length, filteredReservations.length, liveOperations]);
   const exportRows = useMemo(() => {
-    if (reservations.length === 0 && payments.length === 0) {
+    if (filteredReservations.length === 0 && filteredPayments.length === 0) {
       return exports;
     }
 
+    const scopeLabel =
+      selectedPropertyView === 'all'
+        ? 'All active properties'
+        : propertyViewOptions.find((option) => option.value === selectedPropertyView)?.label || selectedPropertyView;
+
     return [
-      { title: 'Occupancy export', detail: liveOperations.occupancyDetail, state: 'Ready' },
-      { title: 'Arrival desk report', detail: liveOperations.nextArrival ? `${liveOperations.nextArrival.guest_name} arriving ${liveOperations.nextArrival.check_in_date}` : 'No queued arrivals', state: 'Ready' },
-      { title: 'Collections summary', detail: `${formatCurrency(liveOperations.recordedPayments)} collected against ${formatCurrency(liveOperations.billedRevenue)}`, state: liveOperations.outstandingRevenue > 0 ? 'Scheduled' : 'Ready' },
+      { title: 'Occupancy export', detail: `${scopeLabel} / ${liveOperations.occupancyDetail}`, state: 'Ready' },
+      { title: 'Arrival desk report', detail: liveOperations.nextArrival ? `${liveOperations.nextArrival.guest_name} arriving ${liveOperations.nextArrival.check_in_date}` : `${scopeLabel} / No queued arrivals`, state: 'Ready' },
+      { title: 'Collections summary', detail: `${scopeLabel} / ${formatCurrency(liveOperations.recordedPayments)} collected against ${formatCurrency(liveOperations.billedRevenue)}`, state: liveOperations.outstandingRevenue > 0 ? 'Scheduled' : 'Ready' },
     ];
-  }, [liveOperations, payments.length, reservations.length]);
+  }, [filteredPayments.length, filteredReservations.length, liveOperations, propertyViewOptions, selectedPropertyView]);
 
   useEffect(() => {
     if (organizationId) {
@@ -326,6 +404,55 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
       <AccommodationInsightPanel insight={accommodationInsight} />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Multi-Property View</h3>
+            <p className="mt-1 text-xs font-semibold text-slate-400">
+              Roll up live PMS and finance signals across the accommodation portfolio, then narrow to one property when operations need a tighter lens.
+            </p>
+          </div>
+          <label className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Property focus</span>
+            <select
+              aria-label="Analytics property focus"
+              className="h-11 min-w-[240px] rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100"
+              value={selectedPropertyView}
+              onChange={(inputEvent) => setSelectedPropertyView(inputEvent.target.value)}
+            >
+              <option value="all">All properties</option>
+              {propertyViewOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Tracked properties</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">{enterpriseSummary.propertyCount}</div>
+            <div className="mt-1 text-xs text-slate-500">Properties with live reservation activity</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Ready sites</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">{enterpriseSummary.readyProperties}</div>
+            <div className="mt-1 text-xs text-slate-500">No queued arrivals or open folio follow-up</div>
+          </div>
+          <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">Flagged sites</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">{enterpriseSummary.flaggedProperties}</div>
+            <div className="mt-1 text-xs text-slate-500">Need arrival desk or settlement attention</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Portfolio collections</div>
+            <div className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(enterpriseSummary.totalCollected)}</div>
+            <div className="mt-1 text-xs text-slate-500">Recorded plus pending-approval capture</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Snapshot Entry</h3>
@@ -395,9 +522,9 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <Metric label="Revenue" value={formatCurrency(liveOperations.billedRevenue || 1840000)} detail={reservations.length > 0 ? 'Reservation billed value' : '+18%'} />
-        <Metric label="Bookings" value={reservations.length > 0 ? String(reservations.length) : '1,204'} detail={reservations.length > 0 ? 'Live PMS reservations' : '+11%'} />
-        <Metric label="Direct Savings" value={formatCurrency(liveOperations.recordedPayments || 320000)} detail={payments.length > 0 ? 'Collections tracked' : 'Traveler value'} />
+        <Metric label="Revenue" value={formatCurrency(liveOperations.billedRevenue || 1840000)} detail={filteredReservations.length > 0 ? 'Reservation billed value' : '+18%'} />
+        <Metric label="Bookings" value={filteredReservations.length > 0 ? String(filteredReservations.length) : '1,204'} detail={filteredReservations.length > 0 ? 'Live PMS reservations' : '+11%'} />
+        <Metric label="Direct Savings" value={formatCurrency(liveOperations.recordedPayments || 320000)} detail={filteredPayments.length > 0 ? 'Collections tracked' : 'Traveler value'} />
         <Metric label="Exports" value={String(exportRows.length)} detail="Report presets" />
       </section>
 
@@ -444,7 +571,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
                 <div className="mt-2 text-xs text-slate-500">Upcoming arrival with payment status {titleCase(liveOperations.nextArrival.payment_status)}</div>
               </div>
             ) : null}
-            {payments.map((payment) => (
+            {filteredPayments.map((payment) => (
               <div key={payment.id} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -458,7 +585,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
                 <div className="mt-3 text-lg font-black text-slate-950">{formatCurrency(payment.amount)}</div>
               </div>
             ))}
-            {!liveOperations.nextArrival && payments.length === 0 ? (
+            {!liveOperations.nextArrival && filteredPayments.length === 0 ? (
               <div className="rounded-xl bg-slate-50 p-4 text-sm font-semibold text-slate-500 ring-1 ring-slate-100">
                 Arrival tracking and collection watch will populate after reservations and payments are created.
               </div>
