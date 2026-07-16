@@ -33,6 +33,7 @@
 - Analytics workspace now derives live occupancy, arrivals, folio settlement, collection watch, and branch reporting signals from PMS reservations, folio entries, and payment records.
 - Analytics and PMS now include multi-property focus controls, portfolio rollups, and property-scoped operational filtering without splitting enterprise operations into a separate console.
 - Marketplace and AI assistant now derive live OTA-readiness, sync-exception, collections, housekeeping, and approval-risk signals from PMS, accounting, and marketplace records instead of relying only on static placeholder operations cues.
+- Analytics now includes deterministic forecasting and anomaly foundations for demand pressure, revenue gaps, and housekeeping load using live PMS, folio, payment, and housekeeping-task records.
 - PMS booking controls now include room availability visibility, source-mix pulse, overlap prevention for assigned rooms, and occupancy-capacity checks before reservation creation.
 - PMS booking controls now include an assignment desk that suggests clean, conflict-free rooms for unassigned arrivals and lets front desk teams auto-assign them in one step.
 - PMS booking controls now include group-arrival visibility and a cancellation action that releases reserved inventory when no overlapping stays remain.
@@ -54,10 +55,10 @@
 ## Deferred
 
 - Real OTA integrations
-- AI forecasting and anomaly detection
+- External AI forecasting model training and third-party anomaly pipelines
 - Digital key / kiosk / biometric integrations
 - Multi-property CRS
-- Predictive housekeeping and IoT room-state integration
+- Hardware IoT room-state integration
 
 ## Notes / Risks
 

@@ -15,7 +15,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { listVendorAccountingRecords, listVendorPmsRecords } from '../api';
 import type { ResolvedVendorAccommodationAccess } from '../accommodationAccess';
-import type { VendorFolioEntryRecord, VendorPaymentRecord, VendorPmsReservationRecord } from '../types';
+import type {
+  VendorFolioEntryRecord,
+  VendorHousekeepingTaskRecord,
+  VendorPaymentRecord,
+  VendorPmsReservationRecord,
+} from '../types';
 import { getAccommodationModuleInsights } from '../accommodationModuleInsights';
 import { useVendorOSRecordMutations, useVendorOSRecords } from '../hooks';
 import { AccommodationInsightPanel } from './AccommodationInsightPanel';
@@ -129,6 +134,7 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
   const [reservations, setReservations] = useState<VendorPmsReservationRecord[]>([]);
   const [folioEntries, setFolioEntries] = useState<VendorFolioEntryRecord[]>([]);
   const [payments, setPayments] = useState<VendorPaymentRecord[]>([]);
+  const [housekeepingTasks, setHousekeepingTasks] = useState<VendorHousekeepingTaskRecord[]>([]);
   const [selectedPropertyView, setSelectedPropertyView] = useState<'all' | string>('all');
   const [snapshotForm, setSnapshotForm] = useState({
     module: 'marketplace',
@@ -220,6 +226,13 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
     const reservationIds = new Set(filteredReservations.map((reservation) => reservation.id));
     return payments.filter((payment) => reservationIds.has(payment.reservation_id || ''));
   }, [filteredReservations, payments, selectedPropertyView]);
+  const filteredHousekeepingTasks = useMemo(
+    () =>
+      selectedPropertyView === 'all'
+        ? housekeepingTasks
+        : housekeepingTasks.filter((task) => (task.property_id || 'unassigned-property') === selectedPropertyView),
+    [housekeepingTasks, selectedPropertyView],
+  );
   const liveOperations = useMemo(() => {
     const occupiedReservations = filteredReservations.filter((reservation) => reservation.status === 'checked_in');
     const occupancyRate =
@@ -313,6 +326,37 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
       { title: 'Collections', value: formatCurrency(liveOperations.recordedPayments), detail: `${formatCurrency(liveOperations.outstandingRevenue)} awaiting payment` },
     ];
   }, [filteredPayments.length, filteredReservations.length, liveOperations]);
+  const forecastSignals = useMemo(() => {
+    const openHousekeepingTasks = filteredHousekeepingTasks.filter(
+      (task) => !['completed', 'done', 'cancelled'].includes(task.status.toLowerCase()),
+    );
+    const collectionGap = Math.max(liveOperations.billedRevenue - liveOperations.recordedPayments, 0);
+    const demandPressure =
+      liveOperations.occupancyRate >= 75 || liveOperations.arrivalsCount >= Math.max(2, Math.ceil(filteredReservations.length / 2));
+    const revenueAtRisk = collectionGap > 0 || liveOperations.openFoliosCount > 0;
+    const opsLoad = openHousekeepingTasks.length + liveOperations.arrivalsCount;
+
+    return [
+      {
+        title: 'Demand forecast',
+        value: demandPressure ? 'High pressure' : liveOperations.arrivalsCount > 0 ? 'Steady' : 'Light',
+        detail: `${liveOperations.arrivalsCount} queued arrivals against ${liveOperations.occupancyRate}% occupancy`,
+        state: demandPressure ? 'Review' : 'Ready',
+      },
+      {
+        title: 'Revenue anomaly',
+        value: formatCurrency(collectionGap),
+        detail: `${liveOperations.openFoliosCount} open folios compared with ${formatCurrency(liveOperations.recordedPayments)} collected`,
+        state: revenueAtRisk ? 'Review' : 'Ready',
+      },
+      {
+        title: 'Housekeeping forecast',
+        value: `${opsLoad} actions`,
+        detail: `${openHousekeepingTasks.length} open tasks plus ${liveOperations.arrivalsCount} arrival checks`,
+        state: opsLoad > 0 ? 'Scheduled' : 'Ready',
+      },
+    ];
+  }, [filteredHousekeepingTasks, filteredReservations.length, liveOperations]);
   const exportRows = useMemo(() => {
     if (filteredReservations.length === 0 && filteredPayments.length === 0) {
       return exports;
@@ -339,15 +383,17 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
   async function refreshOperationalData() {
     if (!organizationId) return;
 
-    const [reservationRows, folioRows, paymentRows] = await Promise.all([
+    const [reservationRows, folioRows, paymentRows, housekeepingRows] = await Promise.all([
       listVendorPmsRecords('reservations', organizationId),
       listVendorPmsRecords('folios', organizationId),
       listVendorAccountingRecords('payments', organizationId),
+      listVendorPmsRecords('housekeeping', organizationId),
     ]);
 
     setReservations(reservationRows);
     setFolioEntries(folioRows);
     setPayments(paymentRows);
+    setHousekeepingTasks(housekeepingRows);
   }
 
   async function handleSnapshotSubmit(event: FormEvent<HTMLFormElement>) {
@@ -591,6 +637,25 @@ export function AnalyticsWorkspace({ organizationId, branchId, accommodationAcce
               </div>
             ) : null}
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <ChartNoAxesCombined className="h-4 w-4 text-emerald-600" />
+          <h3 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-800">Forecast & Anomaly Desk</h3>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {forecastSignals.map((signal) => (
+            <div key={signal.title} className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-sm font-black text-slate-950">{signal.title}</div>
+                <StatePill state={signal.state} />
+              </div>
+              <div className="mt-3 text-2xl font-black text-slate-950">{signal.value}</div>
+              <div className="mt-2 text-xs font-bold text-slate-500">{signal.detail}</div>
+            </div>
+          ))}
         </div>
       </section>
 

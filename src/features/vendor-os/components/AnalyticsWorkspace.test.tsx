@@ -123,6 +123,7 @@ describe('AnalyticsWorkspace', () => {
     expect(screen.getByText('Branch Comparison')).toBeInTheDocument();
     expect(screen.getByText('Category Performance')).toBeInTheDocument();
     expect(screen.getByText('Operational KPIs')).toBeInTheDocument();
+    expect(screen.getByText('Forecast & Anomaly Desk')).toBeInTheDocument();
     expect(screen.getByText('Export Center')).toBeInTheDocument();
     expect(screen.getByText('Goa Branch')).toBeInTheDocument();
     expect(screen.getByText('Export Report')).toBeInTheDocument();
@@ -248,6 +249,22 @@ describe('AnalyticsWorkspace', () => {
         ] as never;
       }
 
+      if (resource === 'housekeeping') {
+        return [
+          {
+            id: 'task-1',
+            organization_id: 'org-1',
+            property_id: 'property-1',
+            room_id: 'room-1',
+            title: 'Clean room 101',
+            status: 'assigned',
+            assigned_to: null,
+            due_at: '2026-06-30T10:00:00.000Z',
+            created_at: '2026-06-25T10:00:00.000Z',
+          },
+        ] as never;
+      }
+
       return [] as never;
     });
     vi.mocked(listVendorAccountingRecords).mockResolvedValue([
@@ -273,6 +290,12 @@ describe('AnalyticsWorkspace', () => {
     expect(screen.getAllByText('INR 12,000').length).toBeGreaterThan(0);
     expect(screen.getAllByText('INR 16,000').length).toBeGreaterThan(0);
     expect(screen.getAllByText('1 open folio / 1 settled').length).toBeGreaterThan(0);
+    expect(screen.getByText('Forecast & Anomaly Desk')).toBeInTheDocument();
+    expect(screen.getByText('Demand forecast')).toBeInTheDocument();
+    expect(screen.getByText('Revenue anomaly')).toBeInTheDocument();
+    expect(screen.getByText('Housekeeping forecast')).toBeInTheDocument();
+    expect(screen.getByText('2 actions')).toBeInTheDocument();
+    expect(screen.getByText('1 open tasks plus 1 arrival checks')).toBeInTheDocument();
   });
 
   it('filters enterprise reporting by property focus while keeping portfolio rollups visible', async () => {

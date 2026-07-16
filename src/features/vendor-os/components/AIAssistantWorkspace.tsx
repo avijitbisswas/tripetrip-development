@@ -129,7 +129,7 @@ export function AIAssistantWorkspace({ organizationId, branchId }: AIAssistantWo
         const [reservationRows, roomRows, folioRows, paymentRows] = await Promise.all([
           listVendorPmsRecords('reservations', organizationId),
           listVendorPmsRecords('rooms', organizationId),
-          listVendorPmsRecords('folio_entries', organizationId),
+          listVendorPmsRecords('folios', organizationId),
           listVendorAccountingRecords('payments', organizationId),
         ]);
 

@@ -88,7 +88,7 @@ describe('AIAssistantWorkspace', () => {
         ];
       }
 
-      if (resource === 'folio_entries') {
+      if (resource === 'folios') {
         return [
           {
             id: 'folio-1',
