@@ -127,9 +127,12 @@ export function saveAdminContentConfig(input: Record<string, unknown>) {
 }
 
 export function getAdminSystemState() {
-  return adminFetch<{ configHealth: Record<string, unknown>; siteConfig: Record<string, unknown>; health: Record<string, unknown> }>(
-    '/api/admin/system',
-  );
+  return adminFetch<{
+    configHealth: Record<string, unknown>;
+    readiness?: Record<string, unknown>;
+    siteConfig: Record<string, unknown>;
+    health: Record<string, unknown>;
+  }>('/api/admin/system');
 }
 
 export function saveAdminSystemConfig(input: Record<string, unknown>) {

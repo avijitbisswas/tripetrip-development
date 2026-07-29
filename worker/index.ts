@@ -1483,7 +1483,7 @@ async function handleAdminSystem(request: Request, env: WorkerEnv) {
   if ("error" in auth) return auth.error;
 
   if (request.method === "GET") {
-    return json(await getAdminSystemState(auth.supabase, getConfigHealth(env)));
+    return json(await getAdminSystemState(auth.supabase, getConfigHealth(env), await getReadiness(env)));
   }
 
   const body = await readJsonBody(request);

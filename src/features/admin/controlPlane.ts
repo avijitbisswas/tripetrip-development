@@ -613,11 +613,12 @@ export async function removeAdminCommunityPost(
   });
 }
 
-export async function getAdminSystemState(supabase: SupabaseLike, configHealth: unknown) {
+export async function getAdminSystemState(supabase: SupabaseLike, configHealth: unknown, readiness?: unknown) {
   const siteConfig = await getSiteConfig(supabase);
   const overview = await getAdminOverview(supabase);
   return {
     configHealth,
+    readiness,
     siteConfig,
     health: {
       users: overview.metrics.users,

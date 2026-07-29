@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { listAdminAccommodationAccess, listAdminMarketplaceSyncs, saveAdminAccommodationAccess, updateAdminMarketplaceSync } from './controlPlane';
+import {
+  getAdminSystemState,
+  listAdminAccommodationAccess,
+  listAdminMarketplaceSyncs,
+  saveAdminAccommodationAccess,
+  updateAdminMarketplaceSync,
+} from './controlPlane';
 
 function createMessagesQuery(rows: Array<Record<string, unknown>>) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {
@@ -254,5 +260,55 @@ describe('admin accommodation control plane', () => {
         }),
       }),
     );
+  });
+
+  it('includes launch readiness in the admin system state', async () => {
+    const counts: Record<string, number> = {
+      profiles: 8,
+      vendor_profiles: 3,
+      listings: 5,
+      bookings: 11,
+      manual_payment_intents: 2,
+      messages: 4,
+    };
+    const createCountQuery = (table: string) => {
+      const query: Record<string, unknown> = {
+        eq: vi.fn(async () => ({ count: counts[table] || 0, error: null })),
+        like: vi.fn(async () => ({ count: counts[table] || 0, error: null })),
+        then: vi.fn((resolve: (value: unknown) => unknown) =>
+          Promise.resolve(resolve({ count: counts[table] || 0, error: null })),
+        ),
+      };
+      return query;
+    };
+    const readiness = {
+      status: 'ready',
+      summary: { passed: 3, warnings: 0, failed: 0 },
+      checks: [{ name: 'supabase-service', status: 'pass', detail: 'Configured' }],
+    };
+    const supabase = {
+      from: vi.fn((table: string) => ({
+        select: vi.fn((_columns: string, options?: { count?: string; head?: boolean }) => {
+          if (options?.head) return createCountQuery(table);
+          return createMessagesQuery([]);
+        }),
+      })),
+      auth: {
+        admin: {
+          listUsers: vi.fn(),
+        },
+      },
+    };
+
+    await expect(getAdminSystemState(supabase as never, { status: 'ok' }, readiness)).resolves.toMatchObject({
+      configHealth: { status: 'ok' },
+      readiness,
+      health: {
+        users: 8,
+        activeListings: 5,
+        pendingPayments: 2,
+        pendingVendorVerifications: 3,
+      },
+    });
   });
 });

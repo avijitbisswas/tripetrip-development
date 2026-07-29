@@ -33,7 +33,27 @@ import {
   updateAdminVendor,
 } from '@/src/services/admin';
 import { toast } from 'sonner';
-import { BadgeCheck, Building2, CalendarDays, FileText, LayoutDashboard, LogOut, Megaphone, MessageSquare, Receipt, Settings2, Shield, Store, type LucideIcon, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  BadgeCheck,
+  Building2,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardList,
+  FileText,
+  LayoutDashboard,
+  LogOut,
+  Megaphone,
+  MessageSquare,
+  Receipt,
+  RefreshCw,
+  Settings2,
+  Shield,
+  Store,
+  type LucideIcon,
+  Users,
+  XCircle,
+} from 'lucide-react';
 
 const navItems = [
   { path: '/admin', label: 'Overview', icon: LayoutDashboard },
@@ -124,6 +144,81 @@ function formatChannelDistribution(metadata: Record<string, unknown>) {
       ? (metadata.channel_distribution as Record<string, { status?: string }>)
       : {};
   return Object.entries(distribution).map(([channel, value]) => `${formatAdminLabel(channel)} ${formatAdminLabel(String(value?.status || 'draft'))}`);
+}
+
+type LaunchReadinessCheck = {
+  name: string;
+  status: 'pass' | 'warn' | 'fail';
+  detail: string;
+};
+
+const launchSmokeTests = [
+  'Register traveler with email OTP',
+  'Register vendor with email OTP',
+  'Create property, room type, and room',
+  'Create PMS reservation and folio entry',
+  'Approve manual payment and verify billing state',
+  'Create housekeeping task and mark it done',
+  'Publish marketplace sync through admin approval',
+  'Post in traveler and vendor community feeds',
+];
+
+const launchSummaryCards: Array<{ label: string; value: string | number; Icon: LucideIcon }> = [
+  { label: 'Launch State', value: 'unknown', Icon: Shield },
+  { label: 'Passed', value: 0, Icon: CheckCircle2 },
+  { label: 'Warnings', value: 0, Icon: AlertTriangle },
+  { label: 'Failed', value: 0, Icon: XCircle },
+];
+
+function getReadinessChecks(systemState: Record<string, unknown> | null) {
+  const readiness = systemState?.readiness;
+  if (!readiness || typeof readiness !== 'object') return [] as LaunchReadinessCheck[];
+  const checks = (readiness as { checks?: unknown }).checks;
+  if (!Array.isArray(checks)) return [];
+
+  return checks
+    .map((check) => {
+      if (!check || typeof check !== 'object') return null;
+      const item = check as Record<string, unknown>;
+      const status = item.status === 'pass' || item.status === 'warn' || item.status === 'fail' ? item.status : 'fail';
+      return {
+        name: String(item.name || 'readiness-check'),
+        status,
+        detail: String(item.detail || 'No detail returned'),
+      };
+    })
+    .filter((check): check is LaunchReadinessCheck => Boolean(check));
+}
+
+function getReadinessSummary(systemState: Record<string, unknown> | null) {
+  const readiness = systemState?.readiness;
+  if (!readiness || typeof readiness !== 'object') {
+    return {
+      status: 'unknown',
+      passed: 0,
+      warnings: 0,
+      failed: 0,
+    };
+  }
+  const summary = (readiness as { summary?: Record<string, unknown> }).summary || {};
+  return {
+    status: String((readiness as { status?: unknown }).status || 'unknown'),
+    passed: Number(summary.passed || 0),
+    warnings: Number(summary.warnings || 0),
+    failed: Number(summary.failed || 0),
+  };
+}
+
+function readinessBadgeClass(status: string) {
+  if (status === 'pass' || status === 'ready') return 'bg-emerald-50 text-emerald-700';
+  if (status === 'warn' || status === 'ready_with_warnings') return 'bg-amber-50 text-amber-700';
+  return 'bg-rose-50 text-rose-700';
+}
+
+function readinessIcon(status: string) {
+  if (status === 'pass') return CheckCircle2;
+  if (status === 'warn') return AlertTriangle;
+  return XCircle;
 }
 
 function AdminSection({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -219,6 +314,10 @@ export default function AdminConsole() {
     const system = (siteConfig as { system?: Record<string, boolean> }).system;
     return system && typeof system === 'object' ? system : {};
   }, [systemState]);
+  const readinessChecks = useMemo(() => getReadinessChecks(systemState), [systemState]);
+  const readinessSummary = useMemo(() => getReadinessSummary(systemState), [systemState]);
+  const configChecks = readinessChecks.filter((check) => !check.name.startsWith('table:'));
+  const tableChecks = readinessChecks.filter((check) => check.name.startsWith('table:'));
 
   const overviewCards: Array<{ label: string; value: number; Icon: LucideIcon }> = [
     { label: 'Users', value: stats.users || 0, Icon: Users },
@@ -917,7 +1016,45 @@ export default function AdminConsole() {
 
           {activePath === '/admin/system' && (
             <AdminSection title="System & Integrations" subtitle="Runtime health and launch-sensitive platform switches">
-              <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-4">
+                  {launchSummaryCards.map(({ label, Icon }) => {
+                    const value =
+                      label === 'Launch State'
+                        ? formatAdminLabel(readinessSummary.status)
+                        : label === 'Passed'
+                          ? readinessSummary.passed
+                          : label === 'Warnings'
+                            ? readinessSummary.warnings
+                            : readinessSummary.failed;
+                    return (
+                    <div key={label} className="rounded-2xl border border-slate-200 bg-white p-5">
+                      <Icon className="h-5 w-5 text-slate-500" />
+                      <div className="mt-3 text-2xl font-black text-slate-950">{String(value)}</div>
+                      <div className="mt-1 text-[11px] font-black uppercase tracking-widest text-slate-400">{label}</div>
+                    </div>
+                  );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+                  <div>
+                    <div className="flex items-center gap-2 font-black text-slate-950">
+                      <ClipboardList className="h-4 w-4 text-emerald-600" />
+                      Production Readiness
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-slate-500">
+                      Live Worker checks for launch secrets, runtime config, database migrations, and optional integrations.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge className={readinessBadgeClass(readinessSummary.status)}>{formatAdminLabel(readinessSummary.status)}</Badge>
+                    <Button size="sm" variant="outline" onClick={() => loadModule('/admin/system')}>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
                 <div className="space-y-4">
                   {[
                     ['registrationEnabled', 'Registration'],
@@ -944,9 +1081,58 @@ export default function AdminConsole() {
                 </div>
                 <div className="space-y-3">
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-center gap-2 font-black text-slate-900"><Shield className="h-4 w-4 text-emerald-600" /> Launch Gates</div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {configChecks.map((check) => {
+                        const Icon = readinessIcon(check.status);
+                        return (
+                          <div key={check.name} className="rounded-2xl bg-slate-50 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2 font-black text-slate-900">
+                                <Icon className="h-4 w-4" />
+                                {formatAdminLabel(check.name)}
+                              </div>
+                              <Badge className={readinessBadgeClass(check.status)}>{formatAdminLabel(check.status)}</Badge>
+                            </div>
+                            <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">{check.detail}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-center gap-2 font-black text-slate-900"><Building2 className="h-4 w-4 text-emerald-600" /> Supabase Tables</div>
+                    <div className="mt-4 grid gap-2 md:grid-cols-2">
+                      {tableChecks.map((check) => {
+                        const Icon = readinessIcon(check.status);
+                        return (
+                          <div key={check.name} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="flex min-w-0 items-center gap-2 text-xs font-bold text-slate-700">
+                              <Icon className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{check.name.replace('table:', '')}</span>
+                            </div>
+                            <Badge className={readinessBadgeClass(check.status)}>{formatAdminLabel(check.status)}</Badge>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-center gap-2 font-black text-slate-900"><ClipboardList className="h-4 w-4 text-emerald-600" /> Manual Smoke Tests</div>
+                    <div className="mt-4 grid gap-2 md:grid-cols-2">
+                      {launchSmokeTests.map((item) => (
+                        <div key={item} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
+                          <CheckCircle2 className="h-4 w-4 text-slate-400" />
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex items-center gap-2 font-black text-slate-900"><Shield className="h-4 w-4 text-emerald-600" /> Config Health</div>
                     <pre className="mt-3 overflow-auto rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{JSON.stringify((systemState?.configHealth || {}), null, 2)}</pre>
                   </div>
+                </div>
                 </div>
               </div>
             </AdminSection>

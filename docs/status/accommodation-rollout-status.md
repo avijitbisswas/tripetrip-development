@@ -41,16 +41,16 @@
 - PMS booking controls now include a live booking rate desk with source-aware stay pricing, weekend mix logic, and reservation-linked rate-plan metadata persisted at booking time.
 - PMS guest automation now includes real booking-confirmation and pre-arrival email payloads with reservation-aware messaging from the arrivals desk.
 - PMS housekeeping automation now includes dispatch summaries, arrival-aware urgency, live owner assignment, and due-time routing from the housekeeping board.
+- Production readiness now has an authenticated admin System panel with live launch-gate summaries, database table checks, optional integration warnings, and manual smoke-test guidance backed by the Worker readiness endpoint.
 
 ## In Progress
 
-- Accommodation operations expansion beyond arrival foundations: deeper booking depth and payment-wall-ready controls beyond the latest guest-engagement, group-arrival, reservation-change, rate-plan, and finance-close workflows.
+- Final live-environment validation after Cloudflare deployment: confirm `/api/readiness` returns `ready` or `ready_with_warnings` against production secrets and Supabase migrations.
 
 ## Next
 
-- Apply the latest PMS migration to the live Supabase project so `vendor_pms_reservations` and `vendor_folio_entries` exist in production before relying on the deployed PMS workspace.
-- Apply the payment operations migration so `vendor_payment_records` exists in production before deploying the new settlement desk.
-- Extend the accommodation stack into deeper guest engagement and payment-wall-ready controls on top of the completed PMS, payments, marketplace, channel, arrival, staff-control, reporting, booking-control, assignment-desk, transactional-email, and housekeeping-dispatch foundations.
+- Deploy the latest committed Worker build, open Admin > System, and resolve any failed readiness checks before onboarding real users.
+- Run the manual smoke-test list in Admin > System with one traveler account and one accommodation vendor account.
 
 ## Deferred
 
@@ -64,5 +64,5 @@
 
 - Phase 1 should remain permissive by default so launch behavior does not regress.
 - Worker routes and Supabase RLS now both enforce accommodation module visibility for Vendor OS writes, but capability-level approvals remain controlled by the app and Worker layer.
-- Deferred advanced features must remain documented as roadmap-backed, not falsely shipped.
+- Deferred advanced features remain documented as roadmap-backed external integrations, while internal readiness, adapter boundaries, and manual control loops are shipped and testable.
 - Status file should be updated at each implementation checkpoint.
