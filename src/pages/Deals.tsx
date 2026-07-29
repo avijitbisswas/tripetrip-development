@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { usePublicSiteConfig } from '@/src/hooks/usePublicSiteConfig';
 import { cn } from '@/lib/utils';
+import DealsConfirmation, { type ConfirmationBooking } from '@/src/pages/deals/Confirmation';
 import { ArrowLeft, BadgeCheck, CalendarDays, Check, Clock, Flame, Heart, MapPin, Share2, ShieldCheck, SlidersHorizontal, Sparkles, Star, Tags, Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -365,6 +366,7 @@ function DealDetail({ deal, dealsEnabled }: { deal: Deal; dealsEnabled: boolean 
   const navigate = useNavigate();
   const [bookingMessage, setBookingMessage] = useState('');
   const [isBooking, setIsBooking] = useState(false);
+  const [confirmedBooking, setConfirmedBooking] = useState<ConfirmationBooking | null>(null);
   const gallery = deal.gallery.length > 0 ? deal.gallery : [deal.image, ...deals.slice(1, 4).map((item) => item.image)];
   const similar = deals.filter((item) => item.id !== deal.id).slice(0, 4);
 
@@ -395,15 +397,20 @@ function DealDetail({ deal, dealsEnabled }: { deal: Deal; dealsEnabled: boolean 
         const payload = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(payload.error || 'Unable to lock this deal. Please try again.');
       }
-      const payload = (await response.json()) as { booking?: { id?: string } };
+      const payload = (await response.json()) as { booking?: ConfirmationBooking };
       const bookingId = payload.booking?.id;
       if (!bookingId) throw new Error('Booking ID missing');
-      navigate(`/deals/confirmation?bookingId=${encodeURIComponent(bookingId)}`);
+      setConfirmedBooking(payload.booking || null);
+      navigate(`/deals/confirmation?bookingId=${encodeURIComponent(bookingId)}`, { flushSync: true });
     } catch (error) {
       setBookingMessage(error instanceof Error ? error.message : 'Unable to lock this deal. Please try again.');
     } finally {
       setIsBooking(false);
     }
+  }
+
+  if (confirmedBooking) {
+    return <DealsConfirmation initialBooking={confirmedBooking} />;
   }
 
   return (
@@ -574,6 +581,10 @@ export default function Deals() {
 
   if (!system.dealsEnabled) {
     return <DealsUnavailable />;
+  }
+
+  if (dealId === 'confirmation') {
+    return <DealsConfirmation />;
   }
 
   if (dealId) {

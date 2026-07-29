@@ -369,7 +369,9 @@ function BookingPanel({ price, original, savings }: { price: number; original: n
   );
 }
 
-function HostCard({ stay }: { stay: ReturnType<typeof findStay> }) {
+type StayListing = (typeof stays)[number];
+
+function HostCard({ stay }: { stay: StayListing }) {
   return (
     <Card className="rounded-[20px] border-slate-200 p-5 shadow-sm">
       <h3 className="mb-4 text-sm font-extrabold">Hosted by</h3>

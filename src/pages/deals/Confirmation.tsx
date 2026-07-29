@@ -5,7 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 
 const barcodeBlocks = Array.from({ length: 84 }, (_, index) => index);
 
-type ConfirmationBooking = {
+export type ConfirmationBooking = {
   id: string;
   dealTitle: string;
   travelDate?: string;
@@ -37,12 +37,17 @@ function formatVoucherStatus(status: string) {
   return 'Awaiting Admin Approval';
 }
 
-export default function DealsConfirmation() {
+export default function DealsConfirmation({ initialBooking }: { initialBooking?: ConfirmationBooking } = {}) {
   const [searchParams] = useSearchParams();
-  const [booking, setBooking] = useState<ConfirmationBooking>(fallbackBooking);
+  const [booking, setBooking] = useState<ConfirmationBooking>(initialBooking || fallbackBooking);
   const voucherReleased = booking.voucherStatus === 'released';
 
   useEffect(() => {
+    if (initialBooking) {
+      setBooking(initialBooking);
+      return;
+    }
+
     const bookingId = searchParams.get('bookingId');
     if (!bookingId) return;
 
@@ -65,7 +70,7 @@ export default function DealsConfirmation() {
     return () => {
       isMounted = false;
     };
-  }, [searchParams]);
+  }, [initialBooking, searchParams]);
 
   return (
     <main className="min-h-screen bg-white px-4 py-10 text-slate-950">

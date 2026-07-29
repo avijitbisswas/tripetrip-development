@@ -723,7 +723,7 @@ export function TeamWorkspace({ organizationId, branchId, accommodationAccess }:
                   <StatePill state={branch.state} />
                 </div>
                 <div className="mt-3 text-xl font-black text-slate-950">{branch.coverage}</div>
-                {'attendanceDetail' in branch ? <div className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-400">{branch.attendanceDetail}</div> : null}
+                {'attendanceDetail' in branch ? <div className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-400">{String(branch.attendanceDetail)}</div> : null}
               </div>
             ))}
           </div>

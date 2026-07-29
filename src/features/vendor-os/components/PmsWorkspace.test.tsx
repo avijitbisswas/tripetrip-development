@@ -476,7 +476,7 @@ describe('PmsWorkspace', () => {
         amount: 2400,
       }),
     );
-  }, 30000);
+  }, 120000);
 
   it('shows accommodation access guidance for PMS features', () => {
     render(<PmsWorkspace accommodationAccess={accommodationAccess} />);

@@ -323,6 +323,8 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       })),
     [propertyRecords.records],
   );
+  const defaultPropertyId = liveProperties[0]?.id || '';
+  const selectedReservationPropertyId = reservationForm.property_id || defaultPropertyId;
 
   const roomTypeMap = useMemo(() => new Map(roomTypes.map((roomType) => [roomType.id, roomType])), [roomTypes]);
   const roomMap = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
@@ -334,8 +336,8 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     () =>
       selectedReservationRoom
         ? roomTypeMap.get(selectedReservationRoom.room_type_id || '') || null
-        : roomTypes.find((roomType) => roomType.property_id === reservationForm.property_id) || null,
-    [reservationForm.property_id, roomTypeMap, roomTypes, selectedReservationRoom],
+        : roomTypes.find((roomType) => roomType.property_id === selectedReservationPropertyId) || null,
+    [roomTypeMap, roomTypes, selectedReservationPropertyId, selectedReservationRoom],
   );
   const reservationRatePlanPreview = useMemo(
     () =>
@@ -428,17 +430,27 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
   }, [organizationId]);
 
   useEffect(() => {
-    setGuestDocuments(uploadedDocuments);
+    setGuestDocuments((current) => {
+      const currentKeys = current.map((document) => `${document.id}:${document.status}:${document.created_at}`).join('|');
+      const uploadedKeys = uploadedDocuments
+        .map((document) => `${document.id}:${document.status}:${document.created_at}`)
+        .join('|');
+
+      return currentKeys === uploadedKeys ? current : uploadedDocuments;
+    });
   }, [uploadedDocuments]);
 
   useEffect(() => {
-    const firstPropertyId = liveProperties[0]?.id || '';
-    setRoomTypeForm((current) => ({ ...current, property_id: current.property_id || firstPropertyId }));
-    setRoomForm((current) => ({ ...current, property_id: current.property_id || firstPropertyId }));
-    setReservationForm((current) => ({ ...current, property_id: current.property_id || firstPropertyId }));
-    setTaskForm((current) => ({ ...current, property_id: current.property_id || firstPropertyId }));
-    setFolioForm((current) => ({ ...current, property_id: current.property_id || firstPropertyId }));
-  }, [liveProperties]);
+    const firstPropertyId = defaultPropertyId;
+    const applyDefaultProperty = <Form extends { property_id: string }>(current: Form) =>
+      current.property_id || !firstPropertyId ? current : { ...current, property_id: firstPropertyId };
+
+    setRoomTypeForm(applyDefaultProperty);
+    setRoomForm(applyDefaultProperty);
+    setReservationForm(applyDefaultProperty);
+    setTaskForm(applyDefaultProperty);
+    setFolioForm(applyDefaultProperty);
+  }, [defaultPropertyId]);
 
   const metrics = useMemo(() => {
     const roomCount = filteredRooms.length;
@@ -1010,7 +1022,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
       });
 
       if (uploadedDocument && typeof uploadedDocument === 'object') {
-        setGuestDocuments((current) => [uploadedDocument as VendorDocument, ...current]);
+        setGuestDocuments((current) => [uploadedDocument as unknown as VendorDocument, ...current]);
       }
       setGuestUploadFiles((current) => ({ ...current, [reservation.id]: null }));
       setWorkspaceMessage(`Uploaded guest ID for ${reservation.guest_name}`);
@@ -1125,6 +1137,11 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     event.preventDefault();
     if (!organizationId) return;
 
+    if (!selectedReservationPropertyId) {
+      setWorkspaceMessage('Create or select a property before adding a reservation.');
+      return;
+    }
+
     const totalGuests = Number(reservationForm.adults || 0) + Number(reservationForm.children || 0);
     const selectedRoom = rooms.find((room) => room.id === reservationForm.room_id);
     const selectedRoomType = selectedRoom ? roomTypeMap.get(selectedRoom.room_type_id || '') : null;
@@ -1162,7 +1179,7 @@ export function PmsWorkspace({ organizationId, branchId, accommodationAccess }: 
     await handlePmsCreate(
       'reservations',
       {
-        property_id: reservationForm.property_id,
+        property_id: selectedReservationPropertyId,
         room_id: reservationForm.room_id || null,
         guest_name: reservationForm.guest_name,
         guest_email: reservationForm.guest_email || null,

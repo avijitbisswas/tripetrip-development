@@ -161,6 +161,24 @@ function createSiteConfigHistorySupabaseMock(entries: Array<{ createdAt: string;
   };
 }
 
+function createReadinessSupabaseMock(tableErrors: Record<string, string> = {}) {
+  return {
+    auth: {
+      admin: {
+        createUser: vi.fn(),
+        deleteUser: vi.fn(),
+      },
+    },
+    from: vi.fn((table: string) => ({
+      select: vi.fn(() => ({
+        limit: vi.fn(async () => ({
+          error: tableErrors[table] ? { message: tableErrors[table] } : null,
+        })),
+      })),
+    })),
+  };
+}
+
 describe("cloudflare worker runtime", () => {
   beforeEach(() => {
     createClientMock.mockReset();
@@ -221,6 +239,9 @@ describe("cloudflare worker runtime", () => {
       RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
       GEMINI_API_KEY: "gemini-key",
       MANUAL_PAYMENT_UPI_ID: "tripetrip@upi",
+      VITE_SUPABASE_ANON_KEY: "anon-key",
+      NOMINATIM_BASE_URL: "https://maps.example/search",
+      MAP_STYLE_URL: "https://tiles.example/style.json",
     });
 
     const response = await worker.fetch(
@@ -232,8 +253,13 @@ describe("cloudflare worker runtime", () => {
     expect(response.status).toBe(200);
     expect(JSON.parse(bodyText)).toEqual({
       status: "ok",
-      version: "2026-06-15",
+      version: "2026-07-16",
       supabase: { configured: true, url: true, serviceKey: true },
+      publicRuntime: {
+        configured: true,
+        supabaseUrl: true,
+        supabaseAnonKey: true,
+      },
       cloudinary: {
         configured: true,
         cloudName: true,
@@ -247,11 +273,92 @@ describe("cloudflare worker runtime", () => {
       },
       ai: { configured: true, geminiApiKey: true },
       payments: { configured: true, manualPaymentUpi: true },
+      maps: { configured: true, nominatimBaseUrl: true, mapStyleUrl: true },
     });
     expect(bodyText).not.toContain("service-role-secret");
     expect(bodyText).not.toContain("cloudinary-secret");
     expect(bodyText).not.toContain("resend-key");
     expect(bodyText).not.toContain("gemini-key");
+    expect(bodyText).not.toContain("anon-key");
+  });
+
+  it("reports readiness when required configuration and production tables are reachable", async () => {
+    createClientMock.mockReturnValue(createReadinessSupabaseMock());
+    const env = createEnv({
+      SUPABASE_PROJECT_REF: "tripetrip-ref",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-secret",
+      VITE_SUPABASE_ANON_KEY: "anon-key",
+      CLOUDINARY_CLOUD_NAME: "tripetrip-cloud",
+      CLOUDINARY_API_KEY: "cloudinary-key",
+      CLOUDINARY_API_SECRET: "cloudinary-secret",
+      RESEND_API_KEY: "resend-key",
+      RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
+      GEMINI_API_KEY: "gemini-key",
+      MANUAL_PAYMENT_UPI_ID: "tripetrip@upi",
+      NOMINATIM_BASE_URL: "https://maps.example/search",
+      MAP_STYLE_URL: "https://tiles.example/style.json",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/readiness"),
+      env,
+    );
+    const body = await response.json() as {
+      status: string;
+      summary: { failed: number; warnings: number };
+      checks: Array<{ name: string; status: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.status).toBe("ready");
+    expect(body.summary.failed).toBe(0);
+    expect(body.summary.warnings).toBe(0);
+    expect(body.checks).toContainEqual({
+      name: "table:vendor_pms_reservations",
+      status: "pass",
+      detail: "Table is reachable",
+    });
+    expect(body.checks).toContainEqual({
+      name: "table:vendor_payment_records",
+      status: "pass",
+      detail: "Table is reachable",
+    });
+  });
+
+  it("fails readiness when required launch tables are missing", async () => {
+    createClientMock.mockReturnValue(
+      createReadinessSupabaseMock({
+        vendor_payment_records: "relation does not exist",
+      }),
+    );
+    const env = createEnv({
+      SUPABASE_PROJECT_REF: "tripetrip-ref",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-secret",
+      VITE_SUPABASE_ANON_KEY: "anon-key",
+      CLOUDINARY_CLOUD_NAME: "tripetrip-cloud",
+      CLOUDINARY_API_KEY: "cloudinary-key",
+      CLOUDINARY_API_SECRET: "cloudinary-secret",
+      RESEND_API_KEY: "resend-key",
+      RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
+      MANUAL_PAYMENT_UPI_ID: "tripetrip@upi",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/readiness"),
+      env,
+    );
+    const body = await response.json() as {
+      status: string;
+      checks: Array<{ name: string; status: string; detail: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.status).toBe("not_ready");
+    expect(body.checks).toContainEqual({
+      name: "table:vendor_payment_records",
+      status: "fail",
+      detail: "relation does not exist",
+    });
   });
 
   it("returns default public site config when Supabase is unavailable", async () => {

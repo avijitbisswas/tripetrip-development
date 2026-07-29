@@ -29,7 +29,7 @@ import {
 
 dotenv.config();
 
-const CONFIG_HEALTH_VERSION = '2026-06-15';
+const CONFIG_HEALTH_VERSION = '2026-07-16';
 const COMMUNITY_MESSAGE_PREFIX = '__tripetrip_community__:';
 const COMMUNITY_AUDIENCES = new Set(['everyone', 'circle', 'mentions']);
 const COMMUNITY_VISIBILITIES = new Set(['feed', 'profile']);
@@ -62,6 +62,9 @@ function getConfigHealth() {
   const hasResendFromEmail = Boolean(process.env.RESEND_FROM_EMAIL);
   const hasGeminiApiKey = Boolean(process.env.GEMINI_API_KEY);
   const hasManualPaymentUpi = Boolean(process.env.MANUAL_PAYMENT_UPI_ID || process.env.TRIPETRIP_UPI_ID);
+  const hasSupabaseAnonKey = Boolean(process.env.VITE_SUPABASE_ANON_KEY);
+  const hasNominatimBaseUrl = Boolean(process.env.NOMINATIM_BASE_URL || process.env.VITE_NOMINATIM_BASE_URL);
+  const hasMapStyleUrl = Boolean(process.env.MAP_STYLE_URL || process.env.VITE_MAP_STYLE_URL);
 
   return {
     status: 'ok',
@@ -70,6 +73,11 @@ function getConfigHealth() {
       configured: hasSupabaseUrl && hasSupabaseServiceKey,
       url: hasSupabaseUrl,
       serviceKey: hasSupabaseServiceKey,
+    },
+    publicRuntime: {
+      configured: hasSupabaseUrl && hasSupabaseAnonKey,
+      supabaseUrl: hasSupabaseUrl,
+      supabaseAnonKey: hasSupabaseAnonKey,
     },
     cloudinary: {
       configured: hasCloudinaryName && hasCloudinaryApiKey && hasCloudinaryApiSecret,
@@ -89,6 +97,11 @@ function getConfigHealth() {
     payments: {
       configured: hasManualPaymentUpi,
       manualPaymentUpi: hasManualPaymentUpi,
+    },
+    maps: {
+      configured: hasNominatimBaseUrl && hasMapStyleUrl,
+      nominatimBaseUrl: hasNominatimBaseUrl,
+      mapStyleUrl: hasMapStyleUrl,
     },
   };
 }

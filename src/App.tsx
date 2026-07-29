@@ -94,8 +94,8 @@ export default function App() {
               <Route path="/community" element={<Community />} />
               <Route path="/community/profile/:userId" element={<Community />} />
               <Route path="/deals" element={<Deals />} />
-              <Route path="/deals/:dealId" element={<Deals />} />
               <Route path="/deals/confirmation" element={<DealsConfirmation />} />
+              <Route path="/deals/:dealId" element={<Deals />} />
               <Route path="/admin/*" element={session ? <AdminConsole /> : <Navigate to="/login" />} />
               <Route path="/provider/deals" element={<ProviderDeals />} />
               <Route path="/packages" element={<Search />} />

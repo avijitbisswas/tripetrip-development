@@ -27,8 +27,8 @@ function renderWithRoutes(initialPath: string) {
         <Route path="/transport" element={<Transport />} />
         <Route path="/transport/:id" element={<Transport />} />
         <Route path="/deals" element={<Deals />} />
-        <Route path="/deals/:dealId" element={<Deals />} />
         <Route path="/deals/confirmation" element={<DealsConfirmation />} />
+        <Route path="/deals/:dealId" element={<Deals />} />
         <Route path="/admin/deals" element={<AdminDeals />} />
         <Route path="/provider/deals" element={<ProviderDeals />} />
         <Route path="/booking-confirmed" element={<BookingConfirmation />} />

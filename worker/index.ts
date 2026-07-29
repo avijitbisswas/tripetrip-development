@@ -173,7 +173,7 @@ const vendorAccountingResources: Record<
   },
 };
 
-const CONFIG_HEALTH_VERSION = "2026-06-15";
+const CONFIG_HEALTH_VERSION = "2026-07-16";
 const COMMUNITY_MESSAGE_PREFIX = "__tripetrip_community__:";
 const COMMUNITY_AUDIENCES = new Set(["everyone", "circle", "mentions"]);
 const COMMUNITY_VISIBILITIES = new Set(["feed", "profile"]);
@@ -553,6 +553,11 @@ function getConfigHealth(env: WorkerEnv) {
   const hasManualPaymentUpi = Boolean(
     env.MANUAL_PAYMENT_UPI_ID || env.TRIPETRIP_UPI_ID,
   );
+  const hasSupabaseAnonKey = Boolean(env.VITE_SUPABASE_ANON_KEY);
+  const hasNominatimBaseUrl = Boolean(
+    env.NOMINATIM_BASE_URL || env.VITE_NOMINATIM_BASE_URL,
+  );
+  const hasMapStyleUrl = Boolean(env.MAP_STYLE_URL || env.VITE_MAP_STYLE_URL);
 
   return {
     status: "ok",
@@ -561,6 +566,11 @@ function getConfigHealth(env: WorkerEnv) {
       configured: hasSupabaseUrl && hasSupabaseServiceKey,
       url: hasSupabaseUrl,
       serviceKey: hasSupabaseServiceKey,
+    },
+    publicRuntime: {
+      configured: hasSupabaseUrl && hasSupabaseAnonKey,
+      supabaseUrl: hasSupabaseUrl,
+      supabaseAnonKey: hasSupabaseAnonKey,
     },
     cloudinary: {
       configured:
@@ -582,6 +592,141 @@ function getConfigHealth(env: WorkerEnv) {
       configured: hasManualPaymentUpi,
       manualPaymentUpi: hasManualPaymentUpi,
     },
+    maps: {
+      configured: hasNominatimBaseUrl && hasMapStyleUrl,
+      nominatimBaseUrl: hasNominatimBaseUrl,
+      mapStyleUrl: hasMapStyleUrl,
+    },
+  };
+}
+
+type ReadinessCheck = {
+  name: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+};
+
+function buildBooleanCheck(
+  name: string,
+  configured: boolean,
+  passDetail: string,
+  failDetail: string,
+  severity: "warn" | "fail" = "fail",
+): ReadinessCheck {
+  return {
+    name,
+    status: configured ? "pass" : severity,
+    detail: configured ? passDetail : failDetail,
+  };
+}
+
+async function checkSupabaseTable(
+  supabase: ServerSupabaseClient,
+  table: string,
+): Promise<ReadinessCheck> {
+  const query = (supabase.from(table) as unknown as {
+    select: (columns: string, options?: { head?: boolean; count?: "exact" }) => {
+      limit: (count: number) => Promise<{ error?: { message?: string } | null }>;
+    };
+  }).select("id", { head: true, count: "exact" });
+  const { error } = await query.limit(1);
+
+  return {
+    name: `table:${table}`,
+    status: error ? "fail" : "pass",
+    detail: error?.message || "Table is reachable",
+  };
+}
+
+async function getReadiness(env: WorkerEnv) {
+  const configHealth = getConfigHealth(env);
+  const checks: ReadinessCheck[] = [
+    buildBooleanCheck(
+      "supabase-service",
+      configHealth.supabase.configured,
+      "Server Supabase URL and service role key are configured",
+      "Configure SUPABASE_PROJECT_REF or SUPABASE_URL plus SUPABASE_SERVICE_ROLE_KEY",
+    ),
+    buildBooleanCheck(
+      "public-runtime",
+      configHealth.publicRuntime.configured,
+      "Browser Supabase runtime values are configured",
+      "Configure VITE_SUPABASE_ANON_KEY and Supabase URL/project ref",
+    ),
+    buildBooleanCheck(
+      "email",
+      configHealth.email.configured,
+      "Resend API key and from address are configured",
+      "Configure RESEND_API_KEY and RESEND_FROM_EMAIL before enabling OTP onboarding",
+    ),
+    buildBooleanCheck(
+      "media",
+      configHealth.cloudinary.configured,
+      "Cloudinary upload signing is configured",
+      "Configure Cloudinary cloud name, API key, and API secret",
+    ),
+    buildBooleanCheck(
+      "maps",
+      configHealth.maps.configured,
+      "Map autosuggest and style URLs are configured",
+      "Configure NOMINATIM_BASE_URL and MAP_STYLE_URL",
+      "warn",
+    ),
+    buildBooleanCheck(
+      "payments",
+      configHealth.payments.configured,
+      "Manual payment UPI is configured",
+      "Configure MANUAL_PAYMENT_UPI_ID or TRIPETRIP_UPI_ID",
+    ),
+    buildBooleanCheck(
+      "ai",
+      configHealth.ai.configured,
+      "AI provider key is configured",
+      "Configure GEMINI_API_KEY for AI brief generation",
+      "warn",
+    ),
+  ];
+
+  const { supabase } = createRepositories(env);
+  if (supabase) {
+    const requiredTables = [
+      "profiles",
+      "vendor_profiles",
+      "vendor_organizations",
+      "vendor_properties",
+      "vendor_rooms",
+      "vendor_room_types",
+      "vendor_housekeeping_tasks",
+      "vendor_pms_reservations",
+      "vendor_folio_entries",
+      "vendor_payment_records",
+      "manual_payment_intents",
+      "messages",
+    ];
+    const tableChecks = await Promise.all(
+      requiredTables.map((table) => checkSupabaseTable(supabase, table)),
+    );
+    checks.push(...tableChecks);
+  } else {
+    checks.push({
+      name: "database-schema",
+      status: "fail",
+      detail: "Supabase is not configured, so production tables could not be checked",
+    });
+  }
+
+  const failed = checks.filter((check) => check.status === "fail");
+  const warned = checks.filter((check) => check.status === "warn");
+
+  return {
+    status: failed.length > 0 ? "not_ready" : warned.length > 0 ? "ready_with_warnings" : "ready",
+    version: CONFIG_HEALTH_VERSION,
+    summary: {
+      passed: checks.filter((check) => check.status === "pass").length,
+      warnings: warned.length,
+      failed: failed.length,
+    },
+    checks,
   };
 }
 
@@ -1652,7 +1797,7 @@ async function handleVendorPmsRecords(request: Request, env: WorkerEnv) {
       return json({ error: "This module is not enabled for this vendor account." }, { status: 403 });
     }
 
-    const query = (auth.supabase.from(resource.table) as {
+    const query = (auth.supabase.from(resource.table) as unknown as {
       select: (columns: string) => {
         eq: (column: string, value: string) => {
           order: (column: string, options: { ascending: boolean }) => {
@@ -1792,7 +1937,7 @@ async function handleVendorAccountingRecords(request: Request, env: WorkerEnv) {
       return json({ error: "Invalid vendor accounting read request" }, { status: 400 });
     }
 
-    const query = (auth.supabase.from(resource.table) as {
+    const query = (auth.supabase.from(resource.table) as unknown as {
       select: (columns: string) => {
         eq: (column: string, value: string) => {
           order: (column: string, options: { ascending: boolean }) => {
@@ -1933,6 +2078,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return json({ status: "ok" });
   if (request.method === "GET" && pathname === "/api/config/health")
     return json(getConfigHealth(env));
+  if (request.method === "GET" && pathname === "/api/readiness")
+    return json(await getReadiness(env));
   if (request.method === "GET" && pathname === "/api/public/site-config")
     return handlePublicSiteConfig(env);
   if (request.method === "GET" && pathname === "/api/cloudinary/sign")

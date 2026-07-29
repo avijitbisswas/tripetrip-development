@@ -510,7 +510,9 @@ function Metric({ icon: Icon, label, value }: { icon: typeof Clock; label: strin
   );
 }
 
-function OperatorCard({ adventure }: { adventure: ReturnType<typeof findAdventure> }) {
+type AdventureListing = (typeof adventures)[number];
+
+function OperatorCard({ adventure }: { adventure: AdventureListing }) {
   return (
     <Card className="rounded-[26px] border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="mb-4 text-sm font-black">Operator Profile</h2>
@@ -541,7 +543,7 @@ function MiniStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function AdvancedFeatures({ items }: { items: ReturnType<typeof findAdventure>['advanced'] }) {
+function AdvancedFeatures({ items }: { items: AdventureListing['advanced'] }) {
   return (
     <Card className="rounded-[26px] border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="mb-4 text-sm font-black">Live Trip Intelligence</h2>

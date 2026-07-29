@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,26 @@ const deleteRecord = vi.fn();
 const refreshRecords = vi.fn();
 const uploadDocument = vi.fn();
 const createDownloadUrl = vi.fn();
+
+const mockNotifications = [{ id: 'note-1', title: 'New booking', status: 'unread', created_at: '2026-06-03T00:00:00.000Z' }];
+const mockAuditLogs = [
+  {
+    id: 'audit-1',
+    module: 'calendar',
+    action: 'booking.created',
+    severity: 'info',
+    created_at: '2026-06-03T00:00:00.000Z',
+  },
+];
+const mockDocuments = [
+  {
+    id: 'doc-1',
+    name: 'Hotel Trade License',
+    document_type: 'license',
+    status: 'active',
+    created_at: '2026-06-03T00:00:00.000Z',
+  },
+];
 
 vi.mock('../hooks', () => ({
   useVendorOSTenant: () => ({
@@ -42,6 +62,46 @@ vi.mock('../hooks', () => ({
         documents: true,
         settings: true,
       },
+      resolvedCapabilities: {
+        'bookings.manual_entry': true,
+        'bookings.online_engine': true,
+        'bookings.group_bookings': true,
+        'bookings.reservation_changes': true,
+        'bookings.rate_plan_controls': true,
+        'bookings.ai_chatbot': false,
+        'inventory.manual_updates': true,
+        'inventory.ota_sync': true,
+        'inventory.rule_based_rates': true,
+        'inventory.dynamic_pricing': false,
+        'checkin.manual': true,
+        'checkin.mobile': true,
+        'checkin.digital_keys': true,
+        'billing.manual_folios': true,
+        'billing.gst_invoice': true,
+        'billing.integrated_payments': true,
+        'billing.refund_controls': true,
+        'billing.night_audit': true,
+        'housekeeping.room_status': true,
+        'housekeeping.mobile_tasks': true,
+        'housekeeping.predictive_scheduling': true,
+        'staff.manual_attendance': true,
+        'staff.shift_scheduling': true,
+        'staff.biometric_attendance': false,
+        'analytics.occupancy_reports': true,
+        'analytics.operational_dashboards': true,
+        'analytics.ai_forecasting': true,
+        'guest.manual_communication': true,
+        'guest.automated_confirmations': true,
+        'guest.whatsapp_automation': false,
+      },
+      resolvedApprovals: {
+        pricing_changes: 'open',
+        marketplace_publishing: 'open',
+        payout_actions: 'open',
+        refund_actions: 'open',
+        guest_automation: 'open',
+        ai_recommendations: 'open',
+      },
     },
     role: 'staff',
     can: (module: string, action = 'view') => {
@@ -52,28 +112,12 @@ vi.mock('../hooks', () => ({
     error: null,
   }),
   useVendorOSNotifications: () => ({
-    notifications: [{ id: 'note-1', title: 'New booking', status: 'unread', created_at: '2026-06-03T00:00:00.000Z' }],
+    notifications: mockNotifications,
     unreadCount: 1,
     loading: false,
   }),
-  useVendorOSAuditLogs: () => [
-    {
-      id: 'audit-1',
-      module: 'calendar',
-      action: 'booking.created',
-      severity: 'info',
-      created_at: '2026-06-03T00:00:00.000Z',
-    },
-  ],
-  useVendorOSDocuments: () => [
-    {
-      id: 'doc-1',
-      name: 'Hotel Trade License',
-      document_type: 'license',
-      status: 'active',
-      created_at: '2026-06-03T00:00:00.000Z',
-    },
-  ],
+  useVendorOSAuditLogs: () => mockAuditLogs,
+  useVendorOSDocuments: () => mockDocuments,
   useVendorOSRecords: () => ({
     records: [],
     loading: false,
@@ -97,6 +141,16 @@ vi.mock('../hooks', () => ({
     submitting: false,
     error: null,
   }),
+}));
+
+vi.mock('../api', () => ({
+  createVendorAccountingRecord: vi.fn(),
+  createVendorPmsRecord: vi.fn(),
+  listVendorAccountingRecords: vi.fn(async () => []),
+  listVendorPmsRecords: vi.fn(async () => []),
+  listVendorTeamMembers: vi.fn(async () => []),
+  updateVendorPmsRecord: vi.fn(),
+  uploadVendorDocument: vi.fn(),
 }));
 
 describe('Vendor OS dashboard', () => {
@@ -221,19 +275,21 @@ describe('Vendor OS dashboard', () => {
       </MemoryRouter>,
     );
 
-    await userEvent.type(screen.getByLabelText('Document name *'), 'Hotel Trade License');
-    await userEvent.type(screen.getByLabelText('Document type *'), 'license');
-    await userEvent.type(screen.getByLabelText('Storage path *'), 'vendors/org-1/licenses/hotel-trade-license.pdf');
-    await userEvent.selectOptions(screen.getByLabelText('Status *'), 'active');
-    await userEvent.click(screen.getByRole('button', { name: 'Create Document' }));
+    fireEvent.change(screen.getByLabelText('Document name *'), { target: { value: 'Hotel Trade License' } });
+    fireEvent.change(screen.getByLabelText('Document type *'), { target: { value: 'license' } });
+    fireEvent.change(screen.getByLabelText('Storage path *'), {
+      target: { value: 'vendors/org-1/licenses/hotel-trade-license.pdf' },
+    });
+    fireEvent.change(screen.getByLabelText('Status *'), { target: { value: 'active' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Document' }));
 
-    expect(createRecord).toHaveBeenCalledWith({
+    await waitFor(() => expect(createRecord).toHaveBeenCalledWith({
       module: 'documents',
       name: 'Hotel Trade License',
       document_type: 'license',
       storage_path: 'vendors/org-1/licenses/hotel-trade-license.pdf',
       status: 'active',
-    });
+    }));
     expect(refreshRecords).toHaveBeenCalled();
   });
 
@@ -256,6 +312,7 @@ describe('Vendor OS dashboard', () => {
   });
 
   it('creates a module setting through the live workspace form', async () => {
+    const user = userEvent.setup();
     createRecord.mockResolvedValueOnce({ id: 'setting-1' });
     refreshRecords.mockResolvedValueOnce(undefined);
 
@@ -267,16 +324,16 @@ describe('Vendor OS dashboard', () => {
       </MemoryRouter>,
     );
 
-    await userEvent.selectOptions(screen.getByLabelText('Module *'), 'marketplace');
-    await userEvent.selectOptions(screen.getByLabelText('Enabled *'), 'false');
-    await userEvent.type(screen.getByLabelText('Policy note'), 'Pause public sync during audit');
-    await userEvent.click(screen.getByRole('button', { name: 'Save Setting' }));
+    await user.selectOptions(screen.getByLabelText('Module *'), 'marketplace');
+    await user.selectOptions(screen.getByLabelText('Enabled *'), 'false');
+    await user.type(screen.getByLabelText('Policy note'), 'Pause public sync during audit');
+    await user.click(screen.getByRole('button', { name: 'Save Setting' }));
 
-    expect(createRecord).toHaveBeenCalledWith({
+    await waitFor(() => expect(createRecord).toHaveBeenCalledWith({
       module: 'marketplace',
       is_enabled: false,
       settings: { policy_note: 'Pause public sync during audit' },
-    });
+    }));
     expect(refreshRecords).toHaveBeenCalled();
   });
 

@@ -12,13 +12,15 @@
     "start": "node -e \"process.env.NODE_ENV='production'; require('./dist/server.cjs')\"",
     "preview": "vite preview",
     "cf:dev": "wrangler dev",
+    "cf:dry-run": "npm run build:client && wrangler deploy --dry-run",
     "cf:deploy": "npm run build:client && wrangler deploy",
     "deploy": "npm run cf:deploy",
+    "verify:release": "npm run lint && npm test && npm run cf:dry-run",
     "supabase:db:push": "npx supabase db push",
     "supabase:db:link": "npx supabase link",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=1",
     "test:watch": "vitest"
   },
   "dependencies": {
