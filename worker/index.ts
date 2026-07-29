@@ -630,11 +630,14 @@ async function checkSupabaseTable(
     };
   }).select("id", { head: true, count: "exact" });
   const { error } = await query.limit(1);
+  const hasError =
+    Boolean(error) &&
+    Object.values(error as Record<string, unknown>).some((value) => value !== undefined && value !== null && value !== "");
 
   return {
     name: `table:${table}`,
-    status: error ? "fail" : "pass",
-    detail: error?.message || "Table is reachable",
+    status: hasError ? "fail" : "pass",
+    detail: hasError ? error?.message || "Unable to reach table" : "Table is reachable",
   };
 }
 
