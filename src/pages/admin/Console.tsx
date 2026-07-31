@@ -465,11 +465,29 @@ export default function AdminConsole() {
           {activePath === '/admin/vendors' && (
             <AdminSection title="Vendor Approvals" subtitle="Verification, activation, and storefront readiness">
               <div className="space-y-3">
-                {vendors.map((vendor) => (
+                {vendors.map((vendor) => {
+                  const launchReadiness =
+                    vendor.launchReadiness && typeof vendor.launchReadiness === 'object'
+                      ? (vendor.launchReadiness as {
+                          status?: string;
+                          passed?: number;
+                          total?: number;
+                          checks?: Array<{ key: string; label: string; passed: boolean }>;
+                        })
+                      : null;
+                  const readinessStatus = String(launchReadiness?.status || 'blocked');
+                  return (
                   <div key={String(vendor.id)} className="rounded-2xl border border-slate-200 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <div className="font-black text-slate-950">{String(vendor.business_name || '-')}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="font-black text-slate-950">{String(vendor.business_name || '-')}</div>
+                          <Badge className={readinessStatus === 'ready' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}>
+                            {readinessStatus === 'ready'
+                              ? 'Launch Ready'
+                              : `Launch Blocked ${String(launchReadiness?.passed || 0)}/${String(launchReadiness?.total || 0)}`}
+                          </Badge>
+                        </div>
                         <div className="mt-1 text-sm text-slate-500">{String((vendor.profile as Record<string, unknown> | undefined)?.full_name || '')}</div>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -483,8 +501,21 @@ export default function AdminConsole() {
                         </Button>
                       </div>
                     </div>
+                    {launchReadiness?.checks?.length ? (
+                      <div className="mt-4 grid gap-2 md:grid-cols-3">
+                        {launchReadiness.checks.map((check) => (
+                          <div key={check.key} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
+                            <span>{check.label}</span>
+                            <Badge className={check.passed ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}>
+                              {check.passed ? 'Pass' : 'Missing'}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </AdminSection>
           )}

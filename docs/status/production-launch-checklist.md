@@ -77,6 +77,7 @@ Expected `/api/readiness` status:
 - Register a traveler with email OTP.
 - Register a vendor with email OTP.
 - Log in as admin and confirm maintenance mode is off.
+- Confirm vendor launch checklist passes before approving and activating the vendor.
 - Create a vendor organization, property, room type, and room.
 - Create a PMS reservation.
 - Add a folio entry and record a payment.
@@ -87,6 +88,7 @@ Expected `/api/readiness` status:
 - Create a Razorpay payment order with live credentials.
 - Verify a Razorpay payment signature.
 - Confirm public booking is blocked for inactive listings, unverified vendors, and over-capacity guest counts.
+- Confirm listing publication is blocked until provider launch readiness passes.
 
 ## Still External To The App
 

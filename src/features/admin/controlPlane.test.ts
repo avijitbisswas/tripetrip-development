@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildVendorLaunchReadiness,
   getAdminSystemState,
   listAdminAccommodationAccess,
   listAdminMarketplaceSyncs,
   saveAdminAccommodationAccess,
   updateAdminMarketplaceSync,
+  updateAdminListing,
 } from './controlPlane';
 
 function createMessagesQuery(rows: Array<Record<string, unknown>>) {
@@ -34,6 +36,38 @@ describe('admin accommodation control plane', () => {
   beforeEach(() => {
     insert.mockReset();
     insert.mockResolvedValue({ data: {}, error: null });
+  });
+
+  it('computes provider launch readiness from real vendor profile fields', () => {
+    expect(
+      buildVendorLaunchReadiness({
+        business_name: 'Manali Peaks',
+        business_type: 'hotel',
+        business_email: 'owner@example.com',
+        city: 'Manali',
+        verification_status: 'verified',
+        is_active: true,
+      }),
+    ).toMatchObject({
+      status: 'ready',
+      passed: 6,
+      total: 6,
+    });
+
+    const blocked = buildVendorLaunchReadiness({
+      business_name: 'Draft Stay',
+      business_type: 'hotel',
+      verification_status: 'pending',
+      is_active: false,
+    });
+
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.checks.filter((check) => !check.passed).map((check) => check.key)).toEqual([
+      'business_contact',
+      'business_location',
+      'admin_verification',
+      'active_vendor',
+    ]);
   });
 
   it('preserves existing module, capability, and approval overrides when an admin updates only the plan tier', async () => {
@@ -260,6 +294,57 @@ describe('admin accommodation control plane', () => {
         }),
       }),
     );
+  });
+
+  it('blocks listing publication until the provider launch checklist passes', async () => {
+    const update = vi.fn();
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === 'listings') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                single: vi.fn(async () => ({
+                  data: {
+                    id: 'listing-1',
+                    vendor_id: 'vendor-1',
+                    title: 'Draft Villa',
+                    vendor_profiles: {
+                      id: 'vendor-1',
+                      business_name: 'Draft Villa Co',
+                      business_type: 'hotel',
+                      business_email: '',
+                      business_phone: '',
+                      city: '',
+                      state: '',
+                      address: '',
+                      verification_status: 'pending',
+                      is_active: false,
+                    },
+                  },
+                  error: null,
+                })),
+              })),
+            })),
+            update,
+          };
+        }
+
+        if (table === 'messages') {
+          return { insert };
+        }
+
+        return {};
+      }),
+    };
+
+    await expect(
+      updateAdminListing(supabase as never, viewer, {
+        listingId: 'listing-1',
+        isActive: true,
+      }),
+    ).rejects.toThrow(/Provider is not ready for public launch/);
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('includes launch readiness in the admin system state', async () => {

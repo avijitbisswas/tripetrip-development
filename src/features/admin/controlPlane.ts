@@ -89,6 +89,17 @@ type VendorAccommodationAccessRecord = {
   updatedAt?: string;
 };
 
+type VendorLaunchReadiness = {
+  status: 'ready' | 'blocked';
+  passed: number;
+  total: number;
+  checks: Array<{
+    key: string;
+    label: string;
+    passed: boolean;
+  }>;
+};
+
 function safeString(value: unknown, fallback = '') {
   return typeof value === 'string' ? value : fallback;
 }
@@ -140,6 +151,49 @@ function buildMarketplaceChannelDistribution(input: {
       ];
     }),
   );
+}
+
+export function buildVendorLaunchReadiness(vendor: Record<string, unknown>): VendorLaunchReadiness {
+  const checks = [
+    {
+      key: 'business_name',
+      label: 'Business name',
+      passed: Boolean(safeString(vendor.business_name).trim()),
+    },
+    {
+      key: 'business_type',
+      label: 'Business type',
+      passed: Boolean(safeString(vendor.business_type).trim()),
+    },
+    {
+      key: 'business_contact',
+      label: 'Business email or phone',
+      passed: Boolean(safeString(vendor.business_email).trim() || safeString(vendor.business_phone).trim()),
+    },
+    {
+      key: 'business_location',
+      label: 'Business city, state, or address',
+      passed: Boolean(safeString(vendor.city).trim() || safeString(vendor.state).trim() || safeString(vendor.address).trim()),
+    },
+    {
+      key: 'admin_verification',
+      label: 'Admin verification',
+      passed: safeString(vendor.verification_status) === 'verified',
+    },
+    {
+      key: 'active_vendor',
+      label: 'Vendor account active',
+      passed: vendor.is_active === true,
+    },
+  ];
+  const passed = checks.filter((check) => check.passed).length;
+
+  return {
+    status: passed === checks.length ? 'ready' : 'blocked',
+    passed,
+    total: checks.length,
+    checks,
+  };
 }
 
 function parsePrefixedJson<T>(value: unknown, prefix: string): T | null {
@@ -391,6 +445,7 @@ export async function listAdminVendors(supabase: SupabaseLike) {
   return (data || []).map((vendor: Record<string, unknown>) => ({
     ...vendor,
     profile: vendor.profiles,
+    launchReadiness: buildVendorLaunchReadiness(vendor),
   }));
 }
 
@@ -457,6 +512,26 @@ export async function updateAdminListing(
     basePrice?: number;
   },
 ) {
+  if (input.isActive === true) {
+    const listingQuery = await supabase
+      .from('listings')
+      .select('id, vendor_id, title, vendor_profiles:vendor_id(*)')
+      .eq('id', input.listingId)
+      .single();
+    if (listingQuery.error || !listingQuery.data) {
+      throw new Error(listingQuery.error?.message || 'Unable to load listing before publishing');
+    }
+    const vendor = (listingQuery.data as Record<string, unknown>).vendor_profiles as Record<string, unknown> | undefined;
+    const readiness = buildVendorLaunchReadiness(vendor || {});
+    if (readiness.status !== 'ready') {
+      const missing = readiness.checks
+        .filter((check) => !check.passed)
+        .map((check) => check.label)
+        .join(', ');
+      throw new Error(`Provider is not ready for public launch: ${missing}`);
+    }
+  }
+
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (typeof input.isActive === 'boolean') updates.is_active = input.isActive;
   if (typeof input.title === 'string') updates.title = input.title;
