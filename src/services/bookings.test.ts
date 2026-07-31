@@ -14,6 +14,22 @@ describe('booking services', () => {
   });
 
   it('creates a booking in Supabase and returns the saved row', async () => {
+    const listingSingle = vi.fn().mockResolvedValue({
+      data: {
+        id: 'listing-1',
+        vendor_id: 'vendor-1',
+        is_active: true,
+        max_capacity: 4,
+        vendor_profiles: {
+          id: 'vendor-1',
+          is_active: true,
+          verification_status: 'verified',
+        },
+      },
+      error: null,
+    });
+    const listingEq = vi.fn(() => ({ single: listingSingle }));
+    const listingSelect = vi.fn(() => ({ eq: listingEq }));
     const single = vi.fn().mockResolvedValue({
       data: {
         id: 'booking-1',
@@ -33,7 +49,10 @@ describe('booking services', () => {
     });
     const select = vi.fn(() => ({ single }));
     const insert = vi.fn(() => ({ select }));
-    vi.mocked(supabase.from).mockReturnValue({ insert } as never);
+    vi.mocked(supabase.from).mockImplementation((table) => {
+      if (table === 'listings') return { select: listingSelect } as never;
+      return { insert } as never;
+    });
 
     const booking = await createBooking({
       listingId: 'listing-1',
@@ -45,6 +64,7 @@ describe('booking services', () => {
       totalPrice: 6400,
     });
 
+    expect(supabase.from).toHaveBeenCalledWith('listings');
     expect(supabase.from).toHaveBeenCalledWith('bookings');
     expect(insert).toHaveBeenCalledWith({
       listing_id: 'listing-1',
@@ -59,6 +79,74 @@ describe('booking services', () => {
       payment_status: 'pending',
     });
     expect(booking.id).toBe('booking-1');
+  });
+
+  it('blocks public booking when the provider is not approved', async () => {
+    const listingSingle = vi.fn().mockResolvedValue({
+      data: {
+        id: 'listing-1',
+        vendor_id: 'vendor-1',
+        is_active: true,
+        max_capacity: 4,
+        vendor_profiles: {
+          id: 'vendor-1',
+          is_active: true,
+          verification_status: 'pending',
+        },
+      },
+      error: null,
+    });
+    const listingEq = vi.fn(() => ({ single: listingSingle }));
+    const listingSelect = vi.fn(() => ({ eq: listingEq }));
+    vi.mocked(supabase.from).mockReturnValue({ select: listingSelect } as never);
+
+    await expect(
+      createBooking({
+        listingId: 'listing-1',
+        vendorId: 'vendor-1',
+        travelerId: 'traveler-1',
+        travelerName: 'Avi',
+        startDate: '2026-07-02T00:00:00.000Z',
+        guests: 2,
+        totalPrice: 6400,
+      }),
+    ).rejects.toMatchObject({
+      code: 'BOOKING_VENDOR_NOT_APPROVED',
+    });
+  });
+
+  it('blocks public booking when guest count exceeds listing capacity', async () => {
+    const listingSingle = vi.fn().mockResolvedValue({
+      data: {
+        id: 'listing-1',
+        vendor_id: 'vendor-1',
+        is_active: true,
+        max_capacity: 2,
+        vendor_profiles: {
+          id: 'vendor-1',
+          is_active: true,
+          verification_status: 'verified',
+        },
+      },
+      error: null,
+    });
+    const listingEq = vi.fn(() => ({ single: listingSingle }));
+    const listingSelect = vi.fn(() => ({ eq: listingEq }));
+    vi.mocked(supabase.from).mockReturnValue({ select: listingSelect } as never);
+
+    await expect(
+      createBooking({
+        listingId: 'listing-1',
+        vendorId: 'vendor-1',
+        travelerId: 'traveler-1',
+        travelerName: 'Avi',
+        startDate: '2026-07-02T00:00:00.000Z',
+        guests: 3,
+        totalPrice: 6400,
+      }),
+    ).rejects.toMatchObject({
+      code: 'BOOKING_CAPACITY_EXCEEDED',
+    });
   });
 
   it('loads a booking by id', async () => {

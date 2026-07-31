@@ -42,15 +42,19 @@
 - PMS guest automation now includes real booking-confirmation and pre-arrival email payloads with reservation-aware messaging from the arrivals desk.
 - PMS housekeeping automation now includes dispatch summaries, arrival-aware urgency, live owner assignment, and due-time routing from the housekeeping board.
 - Production readiness now has an authenticated admin System panel with live launch-gate summaries, database table checks, optional integration warnings, and manual smoke-test guidance backed by the Worker readiness endpoint.
+- Public-launch readiness now treats maps, Razorpay order creation, and Razorpay webhook verification as required launch gates, with manual UPI kept as a fallback readiness warning.
+- Public booking creation now checks that the listing is active, the vendor matches, the vendor is active and verified, and requested guests do not exceed listing capacity before writing a booking.
+- Worker payment APIs now support Razorpay order creation and Razorpay payment signature verification, while retaining manual UPI fallback behavior when Razorpay credentials are absent.
 
 ## In Progress
 
-- Final live-environment validation after Cloudflare deployment: confirm `/api/readiness` returns `ready` or `ready_with_warnings` against production secrets and Supabase migrations.
+- Final live-environment validation after Cloudflare deployment: confirm `/api/readiness` returns `ready` against production secrets, Supabase migrations, maps, and Razorpay configuration.
 
 ## Next
 
 - Deploy the latest committed Worker build, open Admin > System, and resolve any failed readiness checks before onboarding real users.
 - Run the manual smoke-test list in Admin > System with one traveler account and one accommodation vendor account.
+- Configure production Razorpay webhook delivery and verify payment lifecycle events against live credentials.
 
 ## Deferred
 

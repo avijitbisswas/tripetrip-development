@@ -1,6 +1,6 @@
 # Production Launch Checklist
 
-Use this checklist before onboarding real users to the deployed Worker.
+Use this checklist before opening the marketplace to unrestricted public users.
 
 ## Required Cloudflare Secrets
 
@@ -16,12 +16,15 @@ Set these in the Cloudflare Worker dashboard or with `wrangler secret put`:
 - `CLOUDINARY_API_KEY`
 - `CLOUDINARY_API_SECRET`
 - `CLOUDINARY_UPLOAD_FOLDER`
-- `MANUAL_PAYMENT_UPI_ID` or `TRIPETRIP_UPI_ID`
-
-Recommended before full launch:
-
 - `NOMINATIM_BASE_URL`
 - `MAP_STYLE_URL`
+- `RAZORPAY_KEY_ID` or `NEXT_PUBLIC_RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+- `RAZORPAY_WEBHOOK_SECRET`
+- `MANUAL_PAYMENT_UPI_ID` or `TRIPETRIP_UPI_ID`
+
+Recommended but not blocking public launch:
+
 - `GEMINI_API_KEY`
 
 ## Required Supabase Migrations
@@ -66,7 +69,7 @@ curl https://tripetrip-development.avijit02biswas.workers.dev/api/readiness
 Expected `/api/readiness` status:
 
 - `ready`: safe to onboard users.
-- `ready_with_warnings`: core onboarding works, but optional systems such as maps or AI need attention.
+- `ready_with_warnings`: do not open unrestricted public launch until warnings are reviewed and accepted.
 - `not_ready`: do not onboard users until failed checks are fixed.
 
 ## Manual Smoke Tests
@@ -81,6 +84,9 @@ Expected `/api/readiness` status:
 - Create a marketplace listing sync and verify approval flow.
 - Open Analytics and confirm live operations, forecast, and collection signals populate.
 - Create a community post as traveler and as vendor, verifying role separation.
+- Create a Razorpay payment order with live credentials.
+- Verify a Razorpay payment signature.
+- Confirm public booking is blocked for inactive listings, unverified vendors, and over-capacity guest counts.
 
 ## Still External To The App
 

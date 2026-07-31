@@ -88,6 +88,10 @@ export type WorkerEnv = {
   GEMINI_MODEL?: string;
   MANUAL_PAYMENT_UPI_ID?: string;
   TRIPETRIP_UPI_ID?: string;
+  RAZORPAY_KEY_ID?: string;
+  NEXT_PUBLIC_RAZORPAY_KEY_ID?: string;
+  RAZORPAY_KEY_SECRET?: string;
+  RAZORPAY_WEBHOOK_SECRET?: string;
 };
 
 type ServerSupabaseClient = ManualPaymentSupabaseClient &
@@ -553,6 +557,11 @@ function getConfigHealth(env: WorkerEnv) {
   const hasManualPaymentUpi = Boolean(
     env.MANUAL_PAYMENT_UPI_ID || env.TRIPETRIP_UPI_ID,
   );
+  const hasRazorpayKeyId = Boolean(
+    env.RAZORPAY_KEY_ID || env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+  );
+  const hasRazorpayKeySecret = Boolean(env.RAZORPAY_KEY_SECRET);
+  const hasRazorpayWebhookSecret = Boolean(env.RAZORPAY_WEBHOOK_SECRET);
   const hasSupabaseAnonKey = Boolean(env.VITE_SUPABASE_ANON_KEY);
   const hasNominatimBaseUrl = Boolean(
     env.NOMINATIM_BASE_URL || env.VITE_NOMINATIM_BASE_URL,
@@ -589,8 +598,12 @@ function getConfigHealth(env: WorkerEnv) {
       geminiApiKey: hasGeminiApiKey,
     },
     payments: {
-      configured: hasManualPaymentUpi,
+      configured: hasRazorpayKeyId && hasRazorpayKeySecret,
+      razorpayKeyId: hasRazorpayKeyId,
+      razorpayKeySecret: hasRazorpayKeySecret,
+      razorpayWebhookSecret: hasRazorpayWebhookSecret,
       manualPaymentUpi: hasManualPaymentUpi,
+      manualFallbackConfigured: hasManualPaymentUpi,
     },
     maps: {
       configured: hasNominatimBaseUrl && hasMapStyleUrl,
@@ -672,13 +685,25 @@ async function getReadiness(env: WorkerEnv) {
       configHealth.maps.configured,
       "Map autosuggest and style URLs are configured",
       "Configure NOMINATIM_BASE_URL and MAP_STYLE_URL",
-      "warn",
     ),
     buildBooleanCheck(
-      "payments",
+      "payments-razorpay",
       configHealth.payments.configured,
-      "Manual payment UPI is configured",
-      "Configure MANUAL_PAYMENT_UPI_ID or TRIPETRIP_UPI_ID",
+      "Razorpay order creation is configured",
+      "Configure RAZORPAY_KEY_ID or NEXT_PUBLIC_RAZORPAY_KEY_ID plus RAZORPAY_KEY_SECRET",
+    ),
+    buildBooleanCheck(
+      "payments-webhook",
+      configHealth.payments.razorpayWebhookSecret,
+      "Razorpay webhook signature secret is configured",
+      "Configure RAZORPAY_WEBHOOK_SECRET before accepting public payment webhooks",
+    ),
+    buildBooleanCheck(
+      "payments-manual-fallback",
+      configHealth.payments.manualFallbackConfigured,
+      "Manual UPI fallback is configured",
+      "Configure MANUAL_PAYMENT_UPI_ID or TRIPETRIP_UPI_ID for payment incident fallback",
+      "warn",
     ),
     buildBooleanCheck(
       "ai",
@@ -907,6 +932,22 @@ async function sha1(value: string) {
     new TextEncoder().encode(value),
   );
   return toHex(digest);
+}
+
+async function hmacSha256Hex(secret: string, value: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(value),
+  );
+  return toHex(signature);
 }
 
 async function handleCloudinarySign(env: WorkerEnv) {
@@ -1208,6 +1249,8 @@ async function handlePasswordResetWithOtp(request: Request, env: WorkerEnv) {
 
 async function handleCreateOrder(request: Request, env: WorkerEnv) {
   const { paymentRepository } = createRepositories(env);
+  const razorpayKeyId = env.RAZORPAY_KEY_ID || env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+  const razorpayKeySecret = env.RAZORPAY_KEY_SECRET;
   const { amount, bookingId, travelerName, purpose } = (await readJsonBody(
     request,
   )) as {
@@ -1219,6 +1262,53 @@ async function handleCreateOrder(request: Request, env: WorkerEnv) {
 
   if (!amount || amount <= 0) {
     return json({ error: "A positive amount is required" }, { status: 400 });
+  }
+
+  if (razorpayKeyId && razorpayKeySecret) {
+    const receipt = bookingId || `tripetrip_${Date.now()}`;
+    const amountInPaise = Math.round(amount * 100);
+    const response = await fetch("https://api.razorpay.com/v1/orders", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${btoa(`${razorpayKeyId}:${razorpayKeySecret}`)}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        amount: amountInPaise,
+        currency: "INR",
+        receipt,
+        notes: {
+          bookingId: bookingId || "",
+          travelerName: travelerName || "",
+          purpose: purpose || "Tripetrip booking",
+        },
+      }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      id?: string;
+      amount?: number;
+      currency?: string;
+      status?: string;
+      error?: { description?: string };
+    };
+
+    if (!response.ok || !payload.id) {
+      return json(
+        { error: payload.error?.description || "Unable to create Razorpay order" },
+        { status: 502 },
+      );
+    }
+
+    return json({
+      provider: "razorpay",
+      orderId: payload.id,
+      amount: payload.amount ?? amountInPaise,
+      amountRupees: amount,
+      currency: payload.currency || "INR",
+      status: payload.status || "created",
+      keyId: razorpayKeyId,
+      receipt,
+    });
   }
 
   const intent = buildManualPaymentIntent({
@@ -1233,7 +1323,43 @@ async function handleCreateOrder(request: Request, env: WorkerEnv) {
     purpose,
   });
 
-  return json(savedIntent);
+  return json({
+    provider: "manual_upi",
+    ...savedIntent,
+  });
+}
+
+async function handleVerifyPayment(request: Request, env: WorkerEnv) {
+  const secret = env.RAZORPAY_KEY_SECRET;
+  if (!secret) {
+    return json({ error: "Razorpay verification is not configured" }, { status: 503 });
+  }
+
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = (await readJsonBody(request)) as {
+    razorpay_order_id?: string;
+    razorpay_payment_id?: string;
+    razorpay_signature?: string;
+  };
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    return json({ error: "Missing Razorpay payment verification fields" }, { status: 400 });
+  }
+
+  const expectedSignature = await hmacSha256Hex(
+    secret,
+    `${razorpay_order_id}|${razorpay_payment_id}`,
+  );
+
+  if (expectedSignature !== razorpay_signature) {
+    return json({ verified: false, error: "Invalid payment signature" }, { status: 400 });
+  }
+
+  return json({
+    verified: true,
+    provider: "razorpay",
+    orderId: razorpay_order_id,
+    paymentId: razorpay_payment_id,
+  });
 }
 
 async function handleCreateDealBookingRequest(
@@ -2122,6 +2248,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleGetCommunityProfile(request, env, pathname);
   if (request.method === "POST" && pathname === "/api/payments/create-order")
     return handleCreateOrder(request, env);
+  if (request.method === "POST" && pathname === "/api/payments/verify")
+    return handleVerifyPayment(request, env);
   if (request.method === "POST" && pathname === "/api/deals/bookings")
     return handleCreateDealBookingRequest(request, env);
   if (request.method === "GET" && pathname.startsWith("/api/deals/bookings/"))

@@ -16,6 +16,24 @@ function createEnv(overrides: Partial<WorkerEnv> = {}): WorkerEnv {
   };
 }
 
+async function hmacSha256Hex(secret: string, value: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function createSelectQuery(result: unknown) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {
     select: vi.fn(() => query),
@@ -182,6 +200,7 @@ function createReadinessSupabaseMock(tableErrors: Record<string, string> = {}) {
 describe("cloudflare worker runtime", () => {
   beforeEach(() => {
     createClientMock.mockReset();
+    vi.unstubAllGlobals();
   });
 
   it("returns API health without serving static assets", async () => {
@@ -239,6 +258,9 @@ describe("cloudflare worker runtime", () => {
       RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
       GEMINI_API_KEY: "gemini-key",
       MANUAL_PAYMENT_UPI_ID: "tripetrip@upi",
+      RAZORPAY_KEY_ID: "rzp_live_key",
+      RAZORPAY_KEY_SECRET: "razorpay-secret",
+      RAZORPAY_WEBHOOK_SECRET: "razorpay-webhook-secret",
       VITE_SUPABASE_ANON_KEY: "anon-key",
       NOMINATIM_BASE_URL: "https://maps.example/search",
       MAP_STYLE_URL: "https://tiles.example/style.json",
@@ -272,7 +294,14 @@ describe("cloudflare worker runtime", () => {
         resendFromEmail: true,
       },
       ai: { configured: true, geminiApiKey: true },
-      payments: { configured: true, manualPaymentUpi: true },
+      payments: {
+        configured: true,
+        razorpayKeyId: true,
+        razorpayKeySecret: true,
+        razorpayWebhookSecret: true,
+        manualPaymentUpi: true,
+        manualFallbackConfigured: true,
+      },
       maps: { configured: true, nominatimBaseUrl: true, mapStyleUrl: true },
     });
     expect(bodyText).not.toContain("service-role-secret");
@@ -280,6 +309,8 @@ describe("cloudflare worker runtime", () => {
     expect(bodyText).not.toContain("resend-key");
     expect(bodyText).not.toContain("gemini-key");
     expect(bodyText).not.toContain("anon-key");
+    expect(bodyText).not.toContain("razorpay-secret");
+    expect(bodyText).not.toContain("razorpay-webhook-secret");
   });
 
   it("reports readiness when required configuration and production tables are reachable", async () => {
@@ -295,6 +326,9 @@ describe("cloudflare worker runtime", () => {
       RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
       GEMINI_API_KEY: "gemini-key",
       MANUAL_PAYMENT_UPI_ID: "tripetrip@upi",
+      RAZORPAY_KEY_ID: "rzp_live_key",
+      RAZORPAY_KEY_SECRET: "razorpay-secret",
+      RAZORPAY_WEBHOOK_SECRET: "razorpay-webhook-secret",
       NOMINATIM_BASE_URL: "https://maps.example/search",
       MAP_STYLE_URL: "https://tiles.example/style.json",
     });
@@ -341,6 +375,11 @@ describe("cloudflare worker runtime", () => {
       RESEND_API_KEY: "resend-key",
       RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
       MANUAL_PAYMENT_UPI_ID: "tripetrip@upi",
+      RAZORPAY_KEY_ID: "rzp_live_key",
+      RAZORPAY_KEY_SECRET: "razorpay-secret",
+      RAZORPAY_WEBHOOK_SECRET: "razorpay-webhook-secret",
+      NOMINATIM_BASE_URL: "https://maps.example/search",
+      MAP_STYLE_URL: "https://tiles.example/style.json",
     });
 
     const response = await worker.fetch(
@@ -358,6 +397,127 @@ describe("cloudflare worker runtime", () => {
       name: "table:vendor_payment_records",
       status: "fail",
       detail: "relation does not exist",
+    });
+  });
+
+  it("fails public launch readiness when maps or Razorpay are not configured", async () => {
+    createClientMock.mockReturnValue(createReadinessSupabaseMock());
+    const env = createEnv({
+      SUPABASE_PROJECT_REF: "tripetrip-ref",
+      SUPABASE_SERVICE_ROLE_KEY: "service-role-secret",
+      VITE_SUPABASE_ANON_KEY: "anon-key",
+      CLOUDINARY_CLOUD_NAME: "tripetrip-cloud",
+      CLOUDINARY_API_KEY: "cloudinary-key",
+      CLOUDINARY_API_SECRET: "cloudinary-secret",
+      RESEND_API_KEY: "resend-key",
+      RESEND_FROM_EMAIL: "Tripetrip <hello@tripetrip.com>",
+      MANUAL_PAYMENT_UPI_ID: "tripetrip@upi",
+      NOMINATIM_BASE_URL: "https://maps.example/search",
+    });
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/readiness"),
+      env,
+    );
+    const body = await response.json() as {
+      status: string;
+      checks: Array<{ name: string; status: string; detail: string }>;
+    };
+
+    expect(body.status).toBe("not_ready");
+    expect(body.checks).toContainEqual({
+      name: "maps",
+      status: "fail",
+      detail: "Configure NOMINATIM_BASE_URL and MAP_STYLE_URL",
+    });
+    expect(body.checks).toContainEqual({
+      name: "payments-razorpay",
+      status: "fail",
+      detail: "Configure RAZORPAY_KEY_ID or NEXT_PUBLIC_RAZORPAY_KEY_ID plus RAZORPAY_KEY_SECRET",
+    });
+    expect(body.checks).toContainEqual({
+      name: "payments-webhook",
+      status: "fail",
+      detail: "Configure RAZORPAY_WEBHOOK_SECRET before accepting public payment webhooks",
+    });
+  });
+
+  it("creates Razorpay orders when live payment credentials are configured", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          id: "order_live_1",
+          amount: 125000,
+          currency: "INR",
+          status: "created",
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/payments/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: 1250,
+          bookingId: "BOOK-1",
+          travelerName: "Asha",
+          purpose: "Goa stay",
+        }),
+      }),
+      createEnv({
+        RAZORPAY_KEY_ID: "rzp_live_public",
+        RAZORPAY_KEY_SECRET: "rzp_live_secret",
+      }),
+    );
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      provider: "razorpay",
+      orderId: "order_live_1",
+      amount: 125000,
+      amountRupees: 1250,
+      currency: "INR",
+      keyId: "rzp_live_public",
+      receipt: "BOOK-1",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.razorpay.com/v1/orders",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(/^Basic /),
+        }),
+      }),
+    );
+    const orderRequestInit = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>)[0]?.[1];
+    expect(JSON.stringify(orderRequestInit)).not.toContain("rzp_live_secret");
+  });
+
+  it("verifies Razorpay payment signatures", async () => {
+    const signature = await hmacSha256Hex("rzp_secret", "order_1|pay_1");
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/payments/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          razorpay_order_id: "order_1",
+          razorpay_payment_id: "pay_1",
+          razorpay_signature: signature,
+        }),
+      }),
+      createEnv({ RAZORPAY_KEY_SECRET: "rzp_secret" }),
+    );
+
+    await expect(response.json()).resolves.toMatchObject({
+      verified: true,
+      provider: "razorpay",
+      orderId: "order_1",
+      paymentId: "pay_1",
     });
   });
 
