@@ -34,6 +34,7 @@ Apply all migrations in `supabase/migrations` to production:
 - `20260626150500_vendor_os_accommodation_rls.sql`
 - `20260630134500_vendor_os_pms_core.sql`
 - `20260630142000_vendor_os_payment_operations.sql`
+- `20260731110000_payment_gateway_events.sql`
 
 After migration, `/api/readiness` must show these tables as `pass`:
 
@@ -44,6 +45,7 @@ After migration, `/api/readiness` must show these tables as `pass`:
 - `vendor_rooms`
 - `vendor_room_types`
 - `manual_payment_intents`
+- `payment_gateway_events`
 - `profiles`
 - `vendor_profiles`
 - `vendor_organizations`
@@ -87,6 +89,7 @@ Expected `/api/readiness` status:
 - Create a community post as traveler and as vendor, verifying role separation.
 - Create a Razorpay payment order with live credentials.
 - Verify a Razorpay payment signature.
+- Configure Razorpay webhook URL as `/api/payments/webhook/razorpay` and confirm an event appears in `payment_gateway_events`.
 - Confirm public booking is blocked for inactive listings, unverified vendors, and over-capacity guest counts.
 - Confirm listing publication is blocked until provider launch readiness passes.
 

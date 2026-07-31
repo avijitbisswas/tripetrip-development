@@ -197,6 +197,27 @@ function createReadinessSupabaseMock(tableErrors: Record<string, string> = {}) {
   };
 }
 
+function createPaymentGatewayEventsSupabaseMock() {
+  const insert = vi.fn(async () => ({ error: null }));
+
+  return {
+    auth: {
+      admin: {
+        createUser: vi.fn(),
+        deleteUser: vi.fn(),
+      },
+    },
+    from: vi.fn((table: string) => {
+      if (table === "payment_gateway_events") {
+        return { insert };
+      }
+
+      return {};
+    }),
+    insert,
+  };
+}
+
 describe("cloudflare worker runtime", () => {
   beforeEach(() => {
     createClientMock.mockReset();
@@ -212,6 +233,7 @@ describe("cloudflare worker runtime", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     await expect(response.json()).resolves.toEqual({ status: "ok" });
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
@@ -223,6 +245,7 @@ describe("cloudflare worker runtime", () => {
     const response = await worker.fetch(request, env);
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("X-Frame-Options")).toBe("DENY");
     expect(await response.text()).toBe("asset response");
     expect(env.ASSETS.fetch).toHaveBeenCalledWith(request);
   });
@@ -519,6 +542,85 @@ describe("cloudflare worker runtime", () => {
       orderId: "order_1",
       paymentId: "pay_1",
     });
+  });
+
+  it("stores verified Razorpay webhook events", async () => {
+    const supabase = createPaymentGatewayEventsSupabaseMock();
+    createClientMock.mockReturnValue(supabase);
+    const payload = {
+      event: "payment.captured",
+      payload: {
+        payment: {
+          entity: {
+            id: "pay_1",
+            order_id: "order_1",
+          },
+        },
+      },
+    };
+    const rawBody = JSON.stringify(payload);
+    const signature = await hmacSha256Hex("webhook-secret", rawBody);
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/payments/webhook/razorpay", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-razorpay-signature": signature,
+          "x-razorpay-event-id": "evt_1",
+        },
+        body: rawBody,
+      }),
+      createEnv({
+        SUPABASE_PROJECT_REF: "tripetrip-ref",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-secret",
+        RAZORPAY_WEBHOOK_SECRET: "webhook-secret",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      received: true,
+      provider: "razorpay",
+      eventId: "evt_1",
+      eventType: "payment.captured",
+      orderId: "order_1",
+      paymentId: "pay_1",
+    });
+    expect(supabase.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "razorpay",
+        event_id: "evt_1",
+        event_type: "payment.captured",
+        order_id: "order_1",
+        payment_id: "pay_1",
+        processing_status: "received",
+      }),
+    );
+  });
+
+  it("rejects Razorpay webhooks with invalid signatures", async () => {
+    const supabase = createPaymentGatewayEventsSupabaseMock();
+    createClientMock.mockReturnValue(supabase);
+
+    const response = await worker.fetch(
+      new Request("https://tripetrip.example/api/payments/webhook/razorpay", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-razorpay-signature": "bad-signature",
+        },
+        body: JSON.stringify({ event: "payment.captured" }),
+      }),
+      createEnv({
+        SUPABASE_PROJECT_REF: "tripetrip-ref",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-secret",
+        RAZORPAY_WEBHOOK_SECRET: "webhook-secret",
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(supabase.insert).not.toHaveBeenCalled();
   });
 
   it("returns default public site config when Supabase is unavailable", async () => {

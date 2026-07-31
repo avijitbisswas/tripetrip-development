@@ -178,6 +178,7 @@ const vendorAccountingResources: Record<
 };
 
 const CONFIG_HEALTH_VERSION = "2026-07-16";
+const PAYMENT_GATEWAY_EVENTS_TABLE = "payment_gateway_events";
 const COMMUNITY_MESSAGE_PREFIX = "__tripetrip_community__:";
 const COMMUNITY_AUDIENCES = new Set(["everyone", "circle", "mentions"]);
 const COMMUNITY_VISIBILITIES = new Set(["feed", "profile"]);
@@ -205,8 +206,27 @@ function json(body: unknown, init: ResponseInit = {}) {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
       ...init.headers,
     },
+  });
+}
+
+function withSecurityHeaders(response: Response) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(self), payment=(self)",
+  );
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   });
 }
 
@@ -728,6 +748,7 @@ async function getReadiness(env: WorkerEnv) {
       "vendor_folio_entries",
       "vendor_payment_records",
       "manual_payment_intents",
+      PAYMENT_GATEWAY_EVENTS_TABLE,
       "messages",
     ];
     const tableChecks = await Promise.all(
@@ -948,6 +969,17 @@ async function hmacSha256Hex(secret: string, value: string) {
     new TextEncoder().encode(value),
   );
   return toHex(signature);
+}
+
+function constantTimeEqual(left: string, right: string) {
+  const maxLength = Math.max(left.length, right.length);
+  let diff = left.length ^ right.length;
+
+  for (let index = 0; index < maxLength; index += 1) {
+    diff |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  }
+
+  return diff === 0;
 }
 
 async function handleCloudinarySign(env: WorkerEnv) {
@@ -1350,7 +1382,7 @@ async function handleVerifyPayment(request: Request, env: WorkerEnv) {
     `${razorpay_order_id}|${razorpay_payment_id}`,
   );
 
-  if (expectedSignature !== razorpay_signature) {
+  if (!constantTimeEqual(expectedSignature, razorpay_signature)) {
     return json({ verified: false, error: "Invalid payment signature" }, { status: 400 });
   }
 
@@ -1359,6 +1391,82 @@ async function handleVerifyPayment(request: Request, env: WorkerEnv) {
     provider: "razorpay",
     orderId: razorpay_order_id,
     paymentId: razorpay_payment_id,
+  });
+}
+
+function asRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function getRazorpayEntity(payload: Record<string, unknown>, key: "payment" | "order") {
+  const nestedPayload = asRecord(payload.payload);
+  return asRecord(asRecord(nestedPayload[key]).entity);
+}
+
+async function handleRazorpayWebhook(request: Request, env: WorkerEnv) {
+  const webhookSecret = env.RAZORPAY_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    return json({ error: "Razorpay webhook verification is not configured" }, { status: 503 });
+  }
+
+  const signature = request.headers.get("x-razorpay-signature") || "";
+  if (!signature) {
+    return json({ error: "Missing Razorpay webhook signature" }, { status: 400 });
+  }
+
+  const rawBody = await request.text();
+  const expectedSignature = await hmacSha256Hex(webhookSecret, rawBody);
+  if (!constantTimeEqual(expectedSignature, signature)) {
+    return json({ error: "Invalid Razorpay webhook signature" }, { status: 400 });
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = asRecord(JSON.parse(rawBody));
+  } catch {
+    return json({ error: "Invalid Razorpay webhook payload" }, { status: 400 });
+  }
+
+  const { supabase } = createRepositories(env);
+  if (!supabase) {
+    return json({ error: "Payment event storage is not configured" }, { status: 503 });
+  }
+
+  const payment = getRazorpayEntity(payload, "payment");
+  const order = getRazorpayEntity(payload, "order");
+  const eventId = request.headers.get("x-razorpay-event-id") || String(payload.id || "");
+  const eventType = String(payload.event || "unknown");
+  const orderId = String(payment.order_id || order.id || "");
+  const paymentId = String(payment.id || "");
+
+  const insertPayload = {
+    provider: "razorpay",
+    event_id: eventId || null,
+    event_type: eventType,
+    order_id: orderId || null,
+    payment_id: paymentId || null,
+    payload,
+    processing_status: "received",
+  };
+
+  const table = supabase.from(PAYMENT_GATEWAY_EVENTS_TABLE) as unknown as {
+    insert: (input: Record<string, unknown>) => PromiseLike<{ error?: { message?: string } | null }>;
+  };
+  const { error } = await table.insert(insertPayload);
+
+  if (error) {
+    return json({ error: error.message || "Unable to store payment webhook event" }, { status: 500 });
+  }
+
+  return json({
+    received: true,
+    provider: "razorpay",
+    eventId: eventId || null,
+    eventType,
+    orderId: orderId || null,
+    paymentId: paymentId || null,
   });
 }
 
@@ -2250,6 +2358,8 @@ async function handleApiRequest(request: Request, env: WorkerEnv) {
     return handleCreateOrder(request, env);
   if (request.method === "POST" && pathname === "/api/payments/verify")
     return handleVerifyPayment(request, env);
+  if (request.method === "POST" && pathname === "/api/payments/webhook/razorpay")
+    return handleRazorpayWebhook(request, env);
   if (request.method === "POST" && pathname === "/api/deals/bookings")
     return handleCreateDealBookingRequest(request, env);
   if (request.method === "GET" && pathname.startsWith("/api/deals/bookings/"))
@@ -2295,9 +2405,9 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/api/")) {
-      return handleApiRequest(request, env);
+      return withSecurityHeaders(await handleApiRequest(request, env));
     }
 
-    return injectRuntimeConfig(await env.ASSETS.fetch(request), env);
+    return withSecurityHeaders(await injectRuntimeConfig(await env.ASSETS.fetch(request), env));
   },
 };

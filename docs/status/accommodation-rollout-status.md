@@ -46,10 +46,13 @@
 - Public booking creation now checks that the listing is active, the vendor matches, the vendor is active and verified, and requested guests do not exceed listing capacity before writing a booking.
 - Worker payment APIs now support Razorpay order creation and Razorpay payment signature verification, while retaining manual UPI fallback behavior when Razorpay credentials are absent.
 - Admin vendor approvals now show a real provider launch checklist and listing publication is blocked until the provider has business identity, contact, location, admin verification, and active-account readiness.
+- Razorpay webhook events now verify the gateway signature before storing an auditable `payment_gateway_events` record for payment lifecycle tracing.
+- Worker responses now add baseline production security headers for API and frontend asset responses.
 
 ## In Progress
 
 - Final live-environment validation after Cloudflare deployment: confirm `/api/readiness` returns `ready` against production secrets, Supabase migrations, maps, and Razorpay configuration.
+- Apply the `payment_gateway_events` migration in production Supabase and point Razorpay webhooks at `/api/payments/webhook/razorpay`.
 
 ## Next
 
